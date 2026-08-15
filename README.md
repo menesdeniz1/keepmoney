@@ -110,7 +110,7 @@ print(f"trend: {b.trend_yonu}")              # dusuyor
 - [ ] **Faz 2** — FastAPI: auth, watch CRUD, geçmiş, alert
 - [ ] **Faz 3** — web dashboard (grafik, set, bütçe çubuğu)
 - [ ] **Faz 4** — Telegram botu (deep-link bağlama, kart/buton UX, iki yönlü)
-- [ ] **Faz 5** — uyarlanabilir tarama sıklığı, kota, affiliate
+- [ ] **Faz 5** — kota, affiliate, gözlemlenebilirlik paneli
 
 ## Lisans
 
