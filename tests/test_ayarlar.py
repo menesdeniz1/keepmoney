@@ -4,9 +4,18 @@ Buradaki testler üretimde sessizce yanlış yapılandırılmış bir sunucuyu
 engelliyor — hatanın açılışta patlaması, 3 ay sonra token sahteciliği olarak
 ortaya çıkmasından iyidir.
 """
+import secrets
+
 import pytest
 
-from keepmoney.ayarlar import MIN_ANAHTAR_BAYT, Ayarlar, ayarlar
+from keepmoney.ayarlar import (
+    MIN_ANAHTAR_BAYT,
+    MIN_ANAHTAR_BIT,
+    ONERILEN_ANAHTAR_BAYT,
+    Ayarlar,
+    anahtar_sorunu,
+    ayarlar,
+)
 from keepmoney.db import VERITABANI_URL
 from keepmoney.guvenlik import jwt_kullanici_id, jwt_uret
 
@@ -38,22 +47,65 @@ def test_uretimde_kisa_anahtar_reddedilir(monkeypatch):
         ayarlar()
 
 
-def test_uretimde_yeterli_anahtar_kabul(monkeypatch):
-    _ortam(monkeypatch, ortam="uretim", jwt_gizli_anahtar="x" * MIN_ANAHTAR_BAYT)
+def test_uretimde_gercek_rastgele_anahtar_kabul(monkeypatch):
+    _ortam(monkeypatch, ortam="uretim",
+           jwt_gizli_anahtar=secrets.token_urlsafe(ONERILEN_ANAHTAR_BAYT))
     assert ayarlar().uretim_mi is True
 
 
-def test_gelistirmede_kisa_anahtar_uyarir_ama_durdurmaz(monkeypatch, caplog):
+def test_uretimde_dusuk_entropili_anahtar_reddedilir(monkeypatch):
+    """UZUNLUK YETMEZ: 'aaaa...' 32 bayttır ama ~5 bit entropi taşır.
+    Anahtar bir parola değil, CSPRNG çıktısı olmalı."""
+    _ortam(monkeypatch, ortam="uretim", jwt_gizli_anahtar="a" * 64)
+    with pytest.raises(RuntimeError, match="rastgele değil"):
+        ayarlar()
+
+
+def test_uretimde_sablon_degeri_reddedilir(monkeypatch):
+    """.env.example'dan kopyalanıp unutulan değerler."""
+    _ortam(monkeypatch, ortam="uretim",
+           jwt_gizli_anahtar="changeme-changeme-1234567890-abcdefgh")
+    with pytest.raises(RuntimeError, match="şablon"):
+        ayarlar()
+
+
+def test_anahtar_politikasi_dogrudan():
+    assert MIN_ANAHTAR_BIT == 256 and MIN_ANAHTAR_BAYT == 32
+    assert anahtar_sorunu(secrets.token_urlsafe(48)) is None
+    assert "en az 32 bayt" in anahtar_sorunu("kisa")
+    assert "rastgele değil" in anahtar_sorunu("a" * 64)
+    assert "şablon" in anahtar_sorunu("Gz7-Kq2mPx9Lw4Rt6Yn1Bv8Cd3Fh5Jk-secret")
+
+
+def test_uretimde_yildiz_cors_reddedilir(monkeypatch):
+    """`*` + allow_credentials CORS spesifikasyonunca yasak; tarayıcı reddeder.
+    Starlette yapılandırmayı kabul ettiği için hata ancak üretimde görülürdü."""
+    _ortam(monkeypatch, ortam="uretim",
+           jwt_gizli_anahtar=secrets.token_urlsafe(48))
+    monkeypatch.setenv("KEEPMONEY_CORS_KAYNAKLARI", "*")
+    with pytest.raises(RuntimeError, match="'\\*' olamaz"):
+        ayarlar()
+
+
+def test_gelistirmede_yildiz_cors_serbest(monkeypatch):
+    _ortam(monkeypatch, ortam="gelistirme")
+    monkeypatch.setenv("KEEPMONEY_CORS_KAYNAKLARI", "*")
+    assert ayarlar().cors_kaynaklari == ["*"]
+
+
+def test_gelistirmede_zayif_anahtar_uyarir_ama_durdurmaz(monkeypatch, caplog):
+    """Yerel akışı kesmenin faydası yok — uyar, geç."""
     _ortam(monkeypatch, ortam="gelistirme", jwt_gizli_anahtar="kisa")
     a = ayarlar()
     assert a.jwt_gizli_anahtar == "kisa"
     assert "en az 32 bayt" in caplog.text
 
 
-def test_gelistirmede_anahtarsizsa_uretilir(monkeypatch):
+def test_gelistirmede_anahtarsizsa_guclu_uretilir(monkeypatch):
     _ortam(monkeypatch, ortam="gelistirme")
     a = ayarlar()
-    assert len(a.jwt_gizli_anahtar.encode()) >= MIN_ANAHTAR_BAYT
+    assert len(a.jwt_gizli_anahtar.encode()) >= ONERILEN_ANAHTAR_BAYT
+    assert anahtar_sorunu(a.jwt_gizli_anahtar) is None
 
 
 def test_cors_virgullu_liste_olarak_verilebilir(monkeypatch):

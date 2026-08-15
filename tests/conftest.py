@@ -9,8 +9,9 @@ import os
 os.environ.setdefault("KEEPMONEY_ORTAM", "test")
 os.environ.setdefault(
     "KEEPMONEY_JWT_GIZLI_ANAHTAR",
-    # >= 32 bayt: PyJWT kısa HMAC anahtarına uyarı veriyor (RFC 7518 §3.2)
-    "test-ortami-icin-sabit-gizli-anahtar-en-az-32-bayt")
+    # Sabit ama gerçek CSPRNG çıktısı: testlerin tekrarlanabilir olması için
+    # sabit, politikadan geçmesi için rastgele. Yalnızca test ortamı içindir.
+    "kQ7vZ2xR9tL4mB6nH1wY8sJ3pD5gF0aC-eU2iO7kN4qT9rV6zX1yM8bW3hG5jS0dA")
 # Testler bellek içi DB kullanır; bu değer yalnızca yanlışlıkla gerçek
 # veritabanına yazılmasın diye var.
 os.environ.setdefault("KEEPMONEY_VERITABANI_URL", "sqlite:///./data/test.sqlite")

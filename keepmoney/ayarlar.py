@@ -72,19 +72,73 @@ class Ayarlar(BaseSettings):
         return self.ortam == "uretim"
 
 
-# RFC 7518 §3.2: HS256 anahtarı hash çıktısı kadar (32 bayt) olmalı.
-# Daha kısası brute-force'a açıktır — kırılan anahtar, istediğin kullanıcı
-# adına token üretmek demektir.
-MIN_ANAHTAR_BAYT = 32
+# ── JWT anahtar politikası ────────────────────────────────────────
+#
+# RFC 7518 §3.2 (JSON Web Algorithms), HS256 için:
+#   "A key of the same size as the hash output (for instance, 256 bits for
+#    HS256) or larger MUST be used with this algorithm."
+#
+# Yani ZORUNLU taban 256 bit = 32 bayt. Sektör pratiği de budur; OWASP ve
+# Auth0/Okta dokümanları aynı sayıyı verir.
+#
+# Biz 384 bit (48 bayt) ÜRETİYORUZ. Sebep: taban değeri tam sınırda kullanmak,
+# ileride HS384'e geçmek gerektiğinde anahtarı yenilemek demektir. 16 bayt
+# fazlanın maliyeti sıfır.
+MIN_ANAHTAR_BIT = 256
+MIN_ANAHTAR_BAYT = MIN_ANAHTAR_BIT // 8          # 32
+ONERILEN_ANAHTAR_BAYT = 48                       # 384 bit
+
+# UZUNLUK YETMEZ — ENTROPİ GEREKİR. "aaaa...aaaa" 32 bayttır ama ~5 bitlik
+# entropi taşır; sözlük saldırısıyla saniyeler içinde kırılır. Anahtar bir
+# PAROLA DEĞİL, rastgele bir bit dizisidir ve CSPRNG'den üretilmelidir.
+# Aşağıdaki iki sezgisel kontrol, elle yazılmış "anahtar"ları yakalar.
+MIN_BENZERSIZ_KARAKTER = 12
+_SUPHELI_KALIPLAR = (
+    "changeme", "change-me", "secret", "password", "parola", "gizli",
+    "example", "ornek", "placeholder", "degistir", "todo", "xxx",
+)
 
 _ANAHTAR_URET_IPUCU = (
-    'Üret: python -c "import secrets; print(secrets.token_urlsafe(48))"')
+    "Üret: python -c \"import secrets; print(secrets.token_urlsafe"
+    f"({ONERILEN_ANAHTAR_BAYT}))\"")
+
+
+def anahtar_sorunu(anahtar: str) -> str | None:
+    """Anahtar politikaya uyuyor mu? Uymuyorsa sebebi döner.
+
+    Entropiyi bir string'den kesin ölçmek mümkün değil; amaç mükemmel ölçüm
+    değil, AÇIKÇA zayıf olanı yakalamak: kısa, tek karakterden ibaret, ya da
+    "changeme" gibi şablondan kopyalanmış değerler.
+    """
+    bayt = len(anahtar.encode("utf-8"))
+    if bayt < MIN_ANAHTAR_BAYT:
+        return (f"en az {MIN_ANAHTAR_BAYT} bayt ({MIN_ANAHTAR_BIT} bit) olmalı "
+                f"— şu an {bayt} bayt")
+
+    if len(set(anahtar)) < MIN_BENZERSIZ_KARAKTER:
+        return (f"yeterince rastgele değil (yalnızca {len(set(anahtar))} farklı "
+                "karakter). Uzunluk tek başına yetmez; anahtar CSPRNG ile "
+                "üretilmelidir")
+
+    kucuk = anahtar.lower()
+    for kalip in _SUPHELI_KALIPLAR:
+        if kalip in kucuk:
+            return f"şablon/örnek değer içeriyor ('{kalip}')"
+
+    return None
 
 
 @lru_cache(maxsize=1)
 def ayarlar() -> Ayarlar:
     """Süreç ömrü boyunca tekil. Testler `ayarlar.cache_clear()` çağırabilir."""
     a = Ayarlar()
+    _jwt_anahtarini_dogrula(a)
+    _cors_dogrula(a)
+    return a
+
+
+def _jwt_anahtarini_dogrula(a: Ayarlar) -> None:
+    log = logging.getLogger("keepmoney.ayarlar")
 
     if not a.jwt_gizli_anahtar:
         if a.uretim_mi:
@@ -93,16 +147,31 @@ def ayarlar() -> Ayarlar:
                 + _ANAHTAR_URET_IPUCU)
         # Geliştirme/test: süreç başına rastgele. Her restart'ta oturumlar
         # düşer ama repoya sabit secret gömülmemiş olur.
-        a.jwt_gizli_anahtar = secrets.token_urlsafe(48)
+        a.jwt_gizli_anahtar = secrets.token_urlsafe(ONERILEN_ANAHTAR_BAYT)
+        return
 
-    elif len(a.jwt_gizli_anahtar.encode()) < MIN_ANAHTAR_BAYT:
-        mesaj = (f"KEEPMONEY_JWT_GIZLI_ANAHTAR en az {MIN_ANAHTAR_BAYT} bayt "
-                 f"olmalı (şu an {len(a.jwt_gizli_anahtar.encode())}). "
-                 + _ANAHTAR_URET_IPUCU)
-        if a.uretim_mi:
-            raise RuntimeError(mesaj)
-        # Geliştirmede engellemek yerine uyar — yerel .env'ler kısa olabiliyor
-        # ve akışı kesmenin bir faydası yok.
-        logging.getLogger("keepmoney.ayarlar").warning(mesaj)
+    sorun = anahtar_sorunu(a.jwt_gizli_anahtar)
+    if sorun is None:
+        return
 
-    return a
+    mesaj = f"KEEPMONEY_JWT_GIZLI_ANAHTAR {sorun}. " + _ANAHTAR_URET_IPUCU
+    if a.uretim_mi:
+        # Üretimde AÇILIŞTA dur: zayıf imza anahtarı, istediğin kullanıcı
+        # adına geçerli token üretilebilmesi demektir (tam hesap devralma).
+        raise RuntimeError(mesaj)
+    log.warning(mesaj)
+
+
+def _cors_dogrula(a: Ayarlar) -> None:
+    """Üretimde `*` + kimlik bilgisi kombinasyonunu engeller.
+
+    `allow_origins=["*"]` ile `allow_credentials=True` birlikte KULLANILAMAZ:
+    CORS spesifikasyonu bunu yasaklar, tarayıcılar isteği reddeder. Starlette
+    yine de bu yapılandırmayı kabul eder ve hata üretimde "neden çalışmıyor"
+    şeklinde ortaya çıkar. Açılışta yakalamak daha ucuz.
+    """
+    if a.uretim_mi and "*" in a.cors_kaynaklari:
+        raise RuntimeError(
+            "KEEPMONEY_CORS_KAYNAKLARI üretimde '*' olamaz — kimlik bilgisi "
+            "taşıyan isteklerde tarayıcı bunu reddeder. Alan adlarını "
+            "açıkça listele: https://keepmoney.com,https://www.keepmoney.com")

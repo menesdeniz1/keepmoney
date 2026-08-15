@@ -218,3 +218,41 @@ ALTYAPI    models · db · ayikla · cekici · siteler · throttle
 **Nasıl fark edildi:** PyJWT test çalıştırmasında `InsecureKeyLengthWarning` üretti — CI'ya koyduğum anahtar 16 baytlıktı. Uyarı testte çıktı ama aynı hata üretimde de yapılabilirdi ve orada sessiz kalırdı.
 
 **Neden ölümcül:** HS256'da kırılan imza anahtarı, istediğin kullanıcı adına geçerli token üretmek demektir — yani tam hesap devralma. Doğrulamanın yeri açılış anıdır.
+
+---
+
+## K20 — Anahtar politikası: uzunluk değil, entropi
+
+**Karar:** JWT imza anahtarı üretimde üç kontrolden geçer — en az **256 bit (32 bayt)**, en az 12 farklı karakter, ve şablon değeri içermemek. Uygulama kendi ürettiğinde **384 bit (48 bayt)** üretir.
+
+**Sayı nereden geliyor:** RFC 7518 §3.2, HS256 için anahtarın "hash çıktısı kadar (256 bit) ya da daha büyük" olmasını **zorunlu** kılar. OWASP ve büyük kimlik sağlayıcılarının dokümanları aynı sayıyı verir. 256 bit tabandır, tartışmalı değildir.
+
+**Neden 384 bit üretiyoruz:** Tabanı tam sınırda kullanmak, ileride HS384'e geçmek gerekirse anahtar yenilemek demektir. 16 bayt fazlanın maliyeti sıfır.
+
+**Asıl mesele uzunluk değil:** İlk sürüm yalnızca bayt sayıyordu. `"a" * 64` bu kontrolden geçiyordu — 512 bit uzunluk, ~5 bit gerçek entropi. Anahtar bir **parola değil**, rastgele bir bit dizisidir; CSPRNG'den üretilmelidir. Entropiyi bir string'den kesin ölçmek mümkün değil, ama açıkça zayıf olanı yakalamak mümkün: tek karakterden ibaret olanlar ve `.env.example`'dan kopyalanıp unutulmuş `changeme` türü değerler.
+
+**Neden açılışta patlatıyoruz:** Zayıf imza anahtarı = istediğin kullanıcı adına geçerli token üretmek = tam hesap devralma. Bu hatanın ortaya çıkacağı bir sonraki an, saldırının gerçekleştiği andır. Doğrulamanın yeri açılış anıdır.
+
+**Sonraki adım (henüz yapılmadı):** Anahtar rotasyonu — imzalama için tek "aktif" anahtar, doğrulama için eski anahtarların da kabul edildiği bir liste. Kullanıcı sayısı anlamlı hâle gelince eklenecek; şimdi eklemek kullanılmayan karmaşıklık olurdu.
+
+---
+
+## K21 — CORS'un env'den okunması: neden `NoDecode`?
+
+**Karar:** `Annotated[list[str], NoDecode]` + `field_validator`. Hem `a.com,b.com` hem `["a.com"]` biçimi çalışır. Üretimde `*` reddedilir.
+
+**Sorun neydi:** pydantic-settings, karmaşık tipleri (list, dict) ortam değişkeninden okurken **JSON olarak çözmeye çalışır** ve bunu doğrulayıcılardan ÖNCE yapar. Yani `mode="before"` validator'ım hiç çalışmıyordu; `KEEPMONEY_CORS_KAYNAKLARI=https://a.com,https://b.com` `SettingsError` veriyordu. Ayar pratikte yalnızca JSON dizisiyle verilebiliyordu.
+
+**Yaygın üç yaklaşım — üçü de meşru:**
+
+| Yaklaşım | Artı | Eksi |
+|---|---|---|
+| **`NoDecode` + validator** *(seçtiğimiz)* | Kütüphanenin resmî hook'u; alan gerçek `list[str]` kalır | pydantic-settings'e özgü bir kavram bilmek gerekir |
+| Alanı `str` tut, `@property` ile böl | En az sihir, en okunaklı | Tip artık sözleşmeyi anlatmıyor; iki isim gerekir |
+| Hiç uğraşma, env'e JSON yaz | Sıfır kod | Deploy eden kişiye `["https://a.com"]` yazdırmak; tırnak/kaçış hataları |
+
+Birinciyi seçtik çünkü alanın tipi `list[str]` kalıyor — API sözleşmesi ve IDE ipuçları doğru çalışıyor.
+
+**Not:** Birçok ekip CORS'u uygulamada hiç yönetmez, ters vekilde (nginx/Caddy/Traefik) çözer. Bu da geçerli; tek sunuculu FastAPI kurulumunda uygulamada tutmak daha basit.
+
+**`*` neden üretimde yasak:** `allow_origins=["*"]` ile `allow_credentials=True` birlikte **kullanılamaz** — CORS spesifikasyonu yasaklar, tarayıcı isteği reddeder. Starlette yapılandırmayı sessizce kabul eder; hata ancak üretimde "neden çalışmıyor" olarak görülür. Açılışta yakalamak çok daha ucuz.

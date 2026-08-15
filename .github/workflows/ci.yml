@@ -4,8 +4,9 @@ on: [push, pull_request]
 
 env:
   KEEPMONEY_ORTAM: test
-  # Yalnızca CI için; >= 32 bayt (RFC 7518 §3.2 — ayarlar.py doğruluyor)
-  KEEPMONEY_JWT_GIZLI_ANAHTAR: ci-ortami-icin-sabit-test-anahtari-32-bayttan-uzun
+  # Yalnızca CI için üretilmiş CSPRNG çıktısı (>= 256 bit, ayarlar.py doğruluyor).
+  # Üretim anahtarı GitHub Secrets'ta durur, iş akışı dosyasında değil.
+  KEEPMONEY_JWT_GIZLI_ANAHTAR: nR4tK8vB2xW6zQ1yM9jH3sL7pD5gF0aC-eU2iO7kN4qT
 
 jobs:
   test:
