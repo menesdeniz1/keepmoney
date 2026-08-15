@@ -383,3 +383,71 @@ Gönderim başarısızsa bayrak çevrilmez → sonraki turda yeniden denenir. Te
 **İki hata birden:** (1) Alanlar `hasattr(nesne, ad)` ile kabul ediliyordu, yani modelin her sütunu yazılabilirdi; şema bilinmeyen anahtarı düşürdüğü için sömürülebilir değildi ama korumayı tesadüfe bırakmak toplu atama açığının klasik reçetesidir. (2) `None` "dokunulmadı" sayıldığı için bir kez konan hedef fiyat/bütçe API'den **bir daha silinemiyordu**.
 
 **Neden ortak modül:** Aynı desen iki serviste kopyalanmıştı; biri düzeltilip diğeri geride kaldı. Rotalar `exclude_unset=True` ile çağırdığından bir anahtarın **varlığı** kullanıcının o alana bilerek dokunduğu anlamına gelir — kuralın tek bir yerde yaşaması gerekiyordu.
+
+---
+
+## K34 — Testler ÜRETİM veritabanında da koşar
+
+**Karar:** Test motoru `KEEPMONEY_TEST_VERITABANI_URL` ile seçilebilir; CI aynı paketi hem SQLite hem gerçek PostgreSQL'e karşı koşturur.
+
+**Neden:** "SQLite'ta geçiyor" ile "Postgres'te çalışıyor" aynı şey değildir ve aradaki farklar SESSİZDİR. İlk koşuşta çıkan gerçek hata bunu kanıtladı: uyarısı olan bir izlemeyi silmek Postgres'te yabancı anahtar ihlaliyle patlıyordu — yani "takipten çıkar" düğmesi, o üründen bir kez bile uyarı almış her kullanıcı için 500 dönerdi. SQLite yabancı anahtarları **varsayılan olarak zorlamadığı** için 346 testin hiçbiri görmemişti.
+
+**İki katmanlı düzeltme:** (1) `alerts` yabancı anahtarlarına silme kuralları (`SET NULL` / `CASCADE`), (2) SQLite'ta `PRAGMA foreign_keys=ON`. İkincisi tek bir motora değil `Engine` SINIFINA bağlı: testler kendi motorlarını kuruyor ve yalnızca uygulama motoruna bağlansaydı testler yine gevşek kurallarla koşardı — düzeltme, düzeltmek istediği boşluğu kapatmazdı.
+
+**Kodlama açıkça UTF-8:** SQL_ASCII bir veritabanı psycopg'ye metin yerine bytes döndürür ve sürücü katmanı AÇILIŞTA patlar; ayrıca Türkçe karakterler sessizce bozulur. `compose.yaml` ve CI artık `--encoding=UTF8` istiyor.
+
+---
+
+## K35 — İsteğe bağlı kod yolları da CI'da koşar
+
+**Karar:** Playwright yolu, gerçek Chromium ile yerelde çalışan gerçek bir HTTP sunucusuna karşı test edilir (ayrı CI işi).
+
+**Yakalanan durum:** `render: true` olan siteler (akakçe, trendyol…) tamamen bu yola bağlı ama paket isteğe bağlı olduğu için kod bir kez bile yürütülmemişti — SSRF route süzgeci dahil her şey teoriydi. "Testler yeşil" demek, çalıştırılmayan kod için hiçbir şey demek değildir.
+
+**Testin kendisi de doğrulandı:** engelleme testi mutasyonla sınandı — süzgeç kapatılınca test kırılıyor, açılınca geçiyor. Sayfanın yüklenmesi tek başına hiçbir şey kanıtlamıyordu (istek engellense de engellenmese de sayfa yüklenir), o yüzden iptal edilen istekler doğrudan gözleniyor.
+
+---
+
+## K36 — Token'lar hash'lenmiş saklanır, parolalar bcrypt'le
+
+**Karar:** Parola sıfırlama / e-posta doğrulama token'ları veritabanına SHA-256 hash'iyle yazılır.
+
+**Neden hash:** Bu sütunlar paroladan farksız yetki taşır — geçerli sıfırlama token'ı olan kişi hesabı devralır. Ham saklanırsa bir veritabanı yedeği sızdığında ya da bir okuma açığında doğrudan hesap devralma olur.
+
+**Neden bcrypt DEĞİL:** bcrypt'in yavaşlığı DÜŞÜK ENTROPİLİ girdiler (insan parolaları) içindir. Bu token 256 bit CSPRNG çıktısıdır — sözlük saldırısı diye bir şey yok. Hızlı hash hem yeterli hem doğrulamayı ucuz tutuyor. Kritik olan veritabanında ham token bulunmaması. (Parolalar elbette bcrypt'te kalıyor.)
+
+**Hesap sayımı sızmaz:** sıfırlama isteği ucu, adres kayıtlı olsa da olmasa da aynı cevabı döner. Farklı cevap vermek saldırgana hangi adreslerin sistemde olduğunu söyler ve o liste doğrudan kimlik avı için kullanılır. Uç ayrıca hız sınırlı — sınırsız bırakılırsa birinin posta kutusuna bombardıman yapılabilir (taciz aracı).
+
+---
+
+## K37 — Hesap silme: kişisel veri gider, küresel hafıza kalır
+
+**Karar:** Hesap silindiğinde izlemeler, setler ve uyarılar silinir; ürün ve fiyat geçmişi KALIR.
+
+**Ayrımın gerekçesi:** Bir ekran kartının dünkü fiyatı kişisel veri değildir — kimseye ait değil, kimseyi tanımlamıyor. Üstelik o geçmiş diğer kullanıcıların hafızasıdır (K1: küresel ürün modeli). Silmek hem KVKK'nın istemediği bir şey hem de başkalarının verisini yok etmek olurdu. Silinen tek şey kişiye BAĞLANABİLEN veridir.
+
+**Parola yeniden sorulur:** oturumu çalınmış birinin hesabı silmesini zorlaştırır ve yıkıcı işlemlerde niyeti teyit eder.
+
+---
+
+## K38 — robots.txt: uymanın maliyeti sıfır, uymamanın bedeli ürünün kendisi
+
+**Karar:** Her kaynak okumadan önce `robots.txt` kontrol edilir; host başına 24 saat önbellekli.
+
+**Neden:** Teknik bir zorunluluk değil — kimse zorlamaz. Ama yok saymak IP'nin kalıcı engellenmesine (ürünün tamamen çalışmaz hâle gelmesi) ve savunulabilir bir konumun kaybına mal olur. Uymak ise üretilen değerden hiçbir şey eksiltmiyor: fiyat sayfalarını `Disallow` eden site yok denecek kadar az; engellenen tipik yollar sepet, arama ve hesap sayfaları.
+
+**Kararsızlıkta İZİN VERİLİR:** robots.txt bir YASAK BEYANIDIR; beyan yoksa yasak da yoktur. Sunucu hatası yüzünden taramayı durdurmak, geçici bir arızayı kalıcı veri kaybına çevirirdi.
+
+**Ayrı bot adı** (`KeepMoneyBot`): site sahibi istediğinde yalnızca bizi engelleyebilmeli.
+
+---
+
+## K39 — Yedek doğrulanmazsa yedek değildir
+
+**Karar:** Her yedek alındığı anda doğrulanır; geri yükleme betiği bütünlük kontrolünü ÜZERİNE YAZMADAN ÖNCE yapar.
+
+**Neden bu ürün için kritik:** Asıl değer fiyat GEÇMİŞİDİR ve geçmiş yeniden üretilemez. Kod kaybolursa yeniden yazılır, sunucu kaybolursa yenisi kurulur; iki yıllık fiyat hafızası kaybolursa geri getirmenin yolu yoktur — ürünün tek gerçek varlığı odur.
+
+**Doğrulanmamış yedek bir temennidir:** bozuk olduğu ancak felaket anında anlaşılır. Aynı sebeple geri yükleme betiği de düzenli TATBİKAT ister — denenmemiş prosedür, felaket anında ilk kez denenen prosedürdür.
+
+**Betikler yazılıp bırakılmadı:** iki motorda da çalıştırıldı (yedek al → veriyi sil → geri yükle → verinin döndüğünü doğrula). Bu belgedeki diğer kararların aksine bu, bir tasarım tercihi değil bir kabul kriteridir.
