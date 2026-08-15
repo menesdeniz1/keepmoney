@@ -222,3 +222,31 @@ async def test_tur_basina_limit(db):
     assert await bekleyenleri_gonder(db, SahtePostaci(), limit=4) == 4
     assert db.query(Alert).filter(
         Alert.telegram_gonderildi.is_(False)).count() == 6
+
+
+# ─────────────────── Markdown enjeksiyonu ───────────────────
+
+def test_urun_adindaki_markdown_kacirilir(db):
+    """Ürün adı KAZINMIŞ HTML'den gelir — saldırganın kontrolünde.
+    Kaçırılmazsa mağaza sayfası bot mesajına kimlik avı köprüsü sokabilir."""
+    w = izleme(db, urun(db, "[BEDAVA](https://kotu.site) *ürün*", fiyat=100))
+    metin = kartlar.urun_karti(w, None, "yorum")
+    assert "\\[BEDAVA\\]" in metin
+    assert "\\*ürün\\*" in metin
+    # Ham köprü sözdizimi kalmamalı
+    assert "[BEDAVA](https://kotu.site)" not in metin
+
+
+def test_liste_metninde_de_kacirilir(db):
+    w = izleme(db, urun(db, "Ürün `kod` _italik_", fiyat=100))
+    metin = kartlar.liste_metni([w])
+    assert "\\`kod\\`" in metin
+    assert "\\_italik\\_" in metin
+
+
+def test_md_kacir_tum_ozel_karakterleri_kapsar():
+    assert kartlar.md_kacir("_*`[]") == "\\_\\*\\`\\[\\]"
+
+
+def test_normal_metin_bozulmaz():
+    assert kartlar.md_kacir("Kingston Beast 32GB DDR5") == "Kingston Beast 32GB DDR5"

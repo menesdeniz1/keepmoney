@@ -16,9 +16,24 @@ from ..fiyat import kisa_tl, tl
 # Telegram callback_data sınırı. Aşılırsa düğme SESSİZCE çalışmaz.
 CALLBACK_SINIRI = 64
 
+# Markdown'da anlam taşıyan karakterler. ÜRÜN ADI KAZINMIŞ HTML'DEN GELİR —
+# yani saldırganın kontrolündeki bir metindir. Kaçırılmazsa bir mağaza
+# sayfası ürün adına `[tıkla](https://kotu.site)` yazarak botun mesajında
+# köprü üretebilir (kimlik avı) ya da `*` ile biçimi bozup mesajı okunmaz
+# hâle getirebilir.
+MARKDOWN_OZEL = ("_", "*", "`", "[", "]")
+
+
+def md_kacir(metin: str) -> str:
+    """Dış kaynaklı metni Markdown'da güvenli hâle getirir."""
+    for k in MARKDOWN_OZEL:
+        metin = metin.replace(k, "\\" + k)
+    return metin
+
 
 def _kirp(metin: str, uzunluk: int) -> str:
-    return metin if len(metin) <= uzunluk else metin[: uzunluk - 1] + "…"
+    kirpilmis = metin if len(metin) <= uzunluk else metin[: uzunluk - 1] + "…"
+    return md_kacir(kirpilmis)
 
 
 def karsilama(bagli: bool, eposta: str | None = None) -> str:

@@ -20,6 +20,8 @@ import random
 from dataclasses import dataclass
 from typing import Protocol
 
+from .aglar import MAKS_GOVDE_BAYT, MAKS_YONLENDIRME, GuvensizHedef, dogrula
+
 VARSAYILAN_ZAMAN_ASIMI = 25
 
 TARAYICI_IZLERI = [
@@ -115,11 +117,51 @@ class HttpCekici:
             import requests
         except ImportError:
             return Cekim(hata="requests kurulu değil", yontem="requests")
+
+        # Yönlendirmeler ELLE takip edilir: `allow_redirects=True` olsaydı
+        # halka açık bir URL 302 ile 169.254.169.254'e sapabilir ve SSRF
+        # kontrolünü tamamen atlatabilirdi. Her sıçrama yeniden doğrulanır.
         try:
-            y = requests.get(url, headers=_basliklar(url), timeout=self.zaman_asimi)
-            return Cekim(html=y.text, http_kodu=y.status_code, yontem="requests")
+            for _ in range(MAKS_YONLENDIRME + 1):
+                dogrula(url)
+                y = requests.get(
+                    url, headers=_basliklar(url), timeout=self.zaman_asimi,
+                    allow_redirects=False, stream=True)
+
+                if y.is_redirect or y.is_permanent_redirect:
+                    hedef = y.headers.get("location")
+                    y.close()
+                    if not hedef:
+                        return Cekim(http_kodu=y.status_code, yontem="requests")
+                    url = requests.compat.urljoin(url, hedef)
+                    continue
+
+                return Cekim(html=self._govde_oku(y), http_kodu=y.status_code,
+                             yontem="requests")
+
+            return Cekim(hata="çok fazla yönlendirme", yontem="requests")
+
+        except GuvensizHedef as e:
+            return Cekim(hata=f"guvensiz_hedef: {e}", yontem="requests")
         except Exception as e:                       # ağ hatası ölümcül değil
             return Cekim(hata=f"{type(e).__name__}: {e}", yontem="requests")
+
+    def _govde_oku(self, yanit) -> str:
+        """Gövdeyi SINIRLI okur.
+
+        `y.text` tüm gövdeyi belleğe alır; tek bir dev sayfa (ya da sıkıştırma
+        bombası) worker'ı düşürür. Sınırı aşan kısım atılır — fiyat sayfanın
+        ilk megabaytlarındadır, kaybımız yok.
+        """
+        parcalar, toplam = [], 0
+        for parca in yanit.iter_content(chunk_size=64 * 1024):
+            parcalar.append(parca)
+            toplam += len(parca)
+            if toplam >= MAKS_GOVDE_BAYT:
+                break
+        yanit.close()
+        ham = b"".join(parcalar)
+        return ham.decode(yanit.encoding or "utf-8", errors="replace")
 
     def _cloudscraper_cek(self, url: str) -> Cekim:
         try:
@@ -127,6 +169,7 @@ class HttpCekici:
         except ImportError:
             return Cekim(hata="cloudscraper kurulu değil", yontem="cloudscraper")
         try:
+            dogrula(url)
             if self._cloudscraper is None:
                 self._cloudscraper = cloudscraper.create_scraper(
                     browser={"browser": "chrome", "platform": "windows",
@@ -134,6 +177,8 @@ class HttpCekici:
             y = self._cloudscraper.get(url, headers=_basliklar(url),
                                        timeout=self.zaman_asimi)
             return Cekim(html=y.text, http_kodu=y.status_code, yontem="cloudscraper")
+        except GuvensizHedef as e:
+            return Cekim(hata=f"guvensiz_hedef: {e}", yontem="cloudscraper")
         except Exception as e:
             return Cekim(hata=f"{type(e).__name__}: {e}", yontem="cloudscraper")
 
@@ -143,6 +188,7 @@ class HttpCekici:
         except ImportError:
             return Cekim(hata="playwright kurulu değil", yontem="playwright")
         try:
+            dogrula(url)
             self._playwright_baslat(sync_playwright)
             yanit = self._sayfa.goto(url, wait_until="domcontentloaded",
                                      timeout=self.zaman_asimi * 1000)
@@ -150,6 +196,8 @@ class HttpCekici:
             return Cekim(html=self._sayfa.content(),
                          http_kodu=yanit.status if yanit else None,
                          yontem="playwright")
+        except GuvensizHedef as e:
+            return Cekim(hata=f"guvensiz_hedef: {e}", yontem="playwright")
         except Exception as e:
             return Cekim(hata=f"{type(e).__name__}: {e}", yontem="playwright")
 

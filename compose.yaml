@@ -40,6 +40,10 @@ services:
     build: .
     command: python -m keepmoney.zamanlayici
     environment: *ortak
+    # Kendi ölçüm ucu. AYRI süreç = AYRI prometheus kayıt defteri: tarama
+    # sayaçları API'nin /metrics'inde GÖRÜNMEZ. Prometheus iki hedefi de
+    # ayrı ayrı toplamalı — api:8000/metrics ve tarayici:9100/metrics.
+    ports: ["9100:9100"]
     depends_on:
       gocler: {condition: service_completed_successfully}
     restart: unless-stopped

@@ -15,6 +15,8 @@ from ..ayarlar import ayarlar
 from ..db import init_db
 from ..gunluk import kur as gunluk_kur
 from ..gunluk import log
+from .koruma import GuvenlikBasliklari
+from .olcum import OlcumAraKatmani
 from .rotalar import auth, izlemeler, setler, sistem, uyarilar
 
 logger = log("keepmoney.api")
@@ -46,6 +48,9 @@ def uygulama_olustur() -> FastAPI:
         lifespan=yasam_dongusu,
     )
 
+    # Sıra önemli: başlık ara katmanı en dışta olmalı ki CORS ön-uçuş
+    # (preflight) yanıtları da güvenlik başlıklarını taşısın.
+    app.add_middleware(GuvenlikBasliklari)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=a.cors_kaynaklari,
@@ -53,6 +58,9 @@ def uygulama_olustur() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Ölçüm en içte: reddedilen CORS/ön-uçuş isteklerini değil, gerçekten
+    # işlenen istekleri saysın.
+    app.add_middleware(OlcumAraKatmani)
 
     for rota in (auth, izlemeler, setler, sistem, uyarilar):
         app.include_router(rota.router)

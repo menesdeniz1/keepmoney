@@ -311,8 +311,52 @@ def test_yeni_taranmis_urun_siraya_girmez(db):
     _, p, _, _, t = kur(db)
     p.son_kontrol = utc_simdi()
     p.kontrol_araligi_dk = 180
+    p.sonraki_kontrol = utc_simdi() + timedelta(minutes=180)
     db.commit()
     assert t.taranacak_urunler() == []
+
+
+def test_vakti_gelen_urun_siraya_girer(db):
+    _, p, _, _, t = kur(db)
+    p.sonraki_kontrol = utc_simdi() - timedelta(minutes=1)
+    db.commit()
+    assert p in t.taranacak_urunler()
+
+
+def test_tarama_sonrasi_sira_zamani_yazilir(db):
+    """Kuyruğun ilerlemesi buna bağlı: yazılmazsa ürün her turda yeniden
+    taranır ve tarayıcı tek ürüne kilitlenir."""
+    _, p, _, _, t = kur(db)
+    t.urun_tara(p)
+    assert p.sonraki_kontrol is not None
+    beklenen = utc_simdi() + timedelta(minutes=p.kontrol_araligi_dk)
+    assert abs((p.sonraki_kontrol - beklenen).total_seconds()) < 60
+    assert t.taranacak_urunler() == []
+
+
+def test_secim_tum_tabloyu_belege_cekmez(db):
+    """Süzme SQL'de olmalı. Python'da süzülürse limit'in bir anlamı kalmaz
+    ve her tur tam tablo taraması olur."""
+    for n in range(30):
+        db.add(Product(ad=f"U{n}", izleyen_sayisi=1))
+    db.commit()
+    t = Tarayici(db, SahteCekici())
+
+    sorgular = []
+    from sqlalchemy import event
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, params, *a, **kw):
+        sorgular.append((ifade, params))
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        secilen = t.taranacak_urunler(limit=5)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert len(secilen) == 5
+    assert any("LIMIT" in i.upper() for i, _ in sorgular), sorgular
 
 
 def test_cok_izlenen_urun_once_taranir(db):
@@ -387,3 +431,120 @@ def test_olu_kaynak_domain_sagligina_yansir(db):
     t.cekici.sayfalar[s.url] = "__404__"
     t.urun_tara(p)
     assert db.query(DomainHealth).one().son_durum == "OLU"
+
+
+# ---------- bozuk kaynak bildirimi (KAYNAK_BOZUK) ----------
+
+def test_ust_uste_hata_kullaniciya_bildirilir(db):
+    """Bir dönem bu uyarı HİÇ üretilmiyordu: `karar.dogrula` "bozuk" diyor,
+    `hata_serisi` artıyor, arayüzde etiketi bile hazır — ama Alert satırı
+    hiç yazılmıyordu. Kaynak sessizce ölünce kullanıcı bayat fiyata bakıyordu.
+    """
+    _, p, _s, _, t = kur(db)
+    t.cekici.sayfalar.clear()            # her tur "sayfa yok" → hata
+
+    from keepmoney.worker import BOZUK_HATA_ESIGI
+    for _ in range(BOZUK_HATA_ESIGI):
+        t.urun_tara(p)
+
+    uyari = db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").all()
+    assert len(uyari) == 1
+    assert "okunamıyor" in uyari[0].baslik
+    assert db.query(Source).one().bozuk_uyarildi is True
+
+
+def test_esik_altinda_bildirim_gitmez(db):
+    """Tek turluk arıza gürültüdür — site bakımda olabilir."""
+    _, p, _s, _, t = kur(db)
+    t.cekici.sayfalar.clear()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 0
+
+
+def test_ayni_ariza_icin_tek_bildirim(db):
+    """Kaynak günlerce bozuk kalabilir; her turda bildirim spam olur."""
+    _, p, _s, _, t = kur(db)
+    t.cekici.sayfalar.clear()
+    from keepmoney.worker import BOZUK_HATA_ESIGI
+    for _ in range(BOZUK_HATA_ESIGI + 4):
+        t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 1
+
+
+def test_kaynak_duzelince_bayrak_dusr(db):
+    """Düzelip yeniden bozulan kaynak için tekrar haber verilebilmeli."""
+    url = "https://magaza.com/urun"
+    _, p, _s, _, t = kur(db, url=url)
+    t.cekici.sayfalar.clear()
+    from keepmoney.worker import BOZUK_HATA_ESIGI
+    for _ in range(BOZUK_HATA_ESIGI):
+        t.urun_tara(p)
+    assert db.query(Source).one().bozuk_uyarildi is True
+
+    t.cekici.sayfalar[url] = urun_sayfasi("50000")
+    t.urun_tara(p)
+    kaynak = db.query(Source).one()
+    assert kaynak.bozuk_uyarildi is False
+    assert kaynak.hata_serisi == 0
+
+
+def test_calisan_kaynak_varsa_bildirim_gitmez(db):
+    """Ürünün başka kaynağı fiyat veriyorsa kullanıcının umurunda değil —
+    doğru fiyatı görmeye devam ediyor. Gürültü üretme."""
+    iyi = "https://iyi.com/urun"
+    kotu = "https://kotu.com/urun"
+    _, p, _s, _, t = kur(db, url=kotu)
+    db.add(Source(product_id=p.id, url=iyi, host="iyi.com"))
+    db.commit()
+    t.cekici.sayfalar = {iyi: urun_sayfasi("50000")}   # kotu.com hep hata
+
+    from keepmoney.worker import BOZUK_HATA_ESIGI
+    for _ in range(BOZUK_HATA_ESIGI + 2):
+        t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 0
+    assert db.query(Product).one().guncel_fiyat == 50000
+
+
+def test_olu_sayfa_hemen_bildirilir(db):
+    """404 kalıcıdır — eşik beklemeye gerek yok."""
+    url = "https://magaza.com/urun"
+    _, p, _s, _, t = kur(db, url=url)
+    t.cekici.sayfalar[url] = "__404__"
+    t.urun_tara(p)
+
+    uyari = db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").one()
+    assert "kaldırılmış" in uyari.mesaj
+
+
+def test_bozuk_bildirimi_tum_izleyenlere_gider(db):
+    _, p, _s, _, t = kur(db)
+    ikinci = User(email="b@x.com", password_hash="x")
+    db.add(ikinci)
+    db.commit()
+    db.add(Watch(user_id=ikinci.id, product_id=p.id))
+    db.commit()
+
+    t.cekici.sayfalar.clear()
+    from keepmoney.worker import BOZUK_HATA_ESIGI
+    for _ in range(BOZUK_HATA_ESIGI):
+        t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 2
+
+
+def test_gecmis_urun_basina_tek_kez_okunur(db):
+    """`uyari_uret` ve `_sonraki_aralik` ayrı ayrı tüm fiyat geçmişini
+    çekiyordu — ürün başına iki tam tablo taraması."""
+    _, p, s, _, t = kur(db)
+    for gun in range(5):
+        db.add(PriceReading(source_id=s.id, product_id=p.id, fiyat=50000,
+                            ts=utc_simdi() - timedelta(days=gun)))
+    db.commit()
+
+    cagrilar = []
+    gercek = t._okuma_gecmisi
+    t._okuma_gecmisi = lambda pid: (cagrilar.append(pid), gercek(pid))[1]
+
+    t.urun_tara(p)
+    assert len(cagrilar) == 1, f"{len(cagrilar)} kez okundu"

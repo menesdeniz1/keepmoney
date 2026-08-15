@@ -58,6 +58,12 @@ class Ayarlar(BaseSettings):
     # ── Kota (ücretsiz katman) ────────────────────────────────────
     kullanici_basina_izleme_limiti: int = 30
 
+    # ── Gözlemlenebilirlik ────────────────────────────────────────
+    # Tarayıcı süreci ölçümlerini KENDİ ucundan yayınlar; API'nin /metrics'i
+    # onları göremez (ayrı süreç = ayrı kayıt defteri, bkz. olcumler.py).
+    # 0 = kapalı.
+    tarayici_metrik_portu: int = 9100
+
     @field_validator("cors_kaynaklari", mode="before")
     @classmethod
     def _virgullu_liste(cls, v):

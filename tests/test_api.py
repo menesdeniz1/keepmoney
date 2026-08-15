@@ -486,3 +486,315 @@ def test_kaynak_cikis_linki_dondurur(istemci, db):
     kaynak = y["urun"]["kaynaklar"][0]
     assert kaynak["cikis_url"] == kaynak["url"]
     assert kaynak["ortaklik"] is False
+
+
+# ─────────────────────── güvenlik: hız sınırı ───────────────────────
+
+def test_giris_brute_force_frenleniyor(istemci):
+    """OWASP A07 — sözlük saldırısını ekonomik olmaktan çıkarır."""
+    from keepmoney.api.koruma import GIRIS_LIMIT
+
+    istemci.post("/api/auth/kayit",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+
+    for _ in range(GIRIS_LIMIT):
+        y = istemci.post("/api/auth/giris",
+                         json={"eposta": "a@ornek.com", "parola": "yanlis1234"})
+        assert y.status_code == 401
+
+    y = istemci.post("/api/auth/giris",
+                     json={"eposta": "a@ornek.com", "parola": "yanlis1234"})
+    assert y.status_code == 429
+    assert "Retry-After" in y.headers
+
+
+def test_dogru_parola_sayaci_sifirlar(istemci):
+    """Meşru kullanıcı, birkaç yanlış denemeden sonra kilitlenmemeli."""
+    from keepmoney.api.koruma import GIRIS_LIMIT
+
+    istemci.post("/api/auth/kayit",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    for _ in range(GIRIS_LIMIT - 1):
+        istemci.post("/api/auth/giris",
+                     json={"eposta": "a@ornek.com", "parola": "yanlis"})
+
+    assert istemci.post("/api/auth/giris",
+                        json={"eposta": "a@ornek.com",
+                              "parola": "parola1234"}).status_code == 200
+    # Sayaç sıfırlandı: yeniden limit kadar hakkı var
+    for _ in range(GIRIS_LIMIT):
+        assert istemci.post("/api/auth/giris",
+                            json={"eposta": "a@ornek.com",
+                                  "parola": "yanlis"}).status_code == 401
+
+
+def test_kayit_spam_frenleniyor(istemci):
+    from keepmoney.api.koruma import KAYIT_LIMIT
+
+    for n in range(KAYIT_LIMIT):
+        assert istemci.post("/api/auth/kayit", json={
+            "eposta": f"k{n}@ornek.com", "parola": "parola1234"}).status_code == 201
+
+    y = istemci.post("/api/auth/kayit",
+                     json={"eposta": "fazla@ornek.com", "parola": "parola1234"})
+    assert y.status_code == 429
+
+
+# ─────────────────────── güvenlik: başlıklar ───────────────────────
+
+def test_guvenlik_basliklari_gonderiliyor(istemci):
+    """OWASP A05 — clickjacking, MIME sniffing, referrer sızıntısı."""
+    b = istemci.get("/saglik").headers
+    assert b["X-Content-Type-Options"] == "nosniff"
+    assert b["X-Frame-Options"] == "DENY"
+    assert "strict-origin" in b["Referrer-Policy"]
+    csp = b["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+def test_hsts_yalnizca_uretimde(istemci):
+    """Yerelde HSTS tarayıcıda kalıcı kaydolup geliştirmeyi bozar."""
+    assert "Strict-Transport-Security" not in istemci.get("/saglik").headers
+
+
+# ─────────────────────── güvenlik: SSRF ───────────────────────
+
+def test_ic_ag_adresi_izlemeye_alinamaz(istemci):
+    """OWASP A10 — bulut metadata ucu IAM anahtarı döndürür."""
+    b = kayit_ol(istemci)
+    for kotu in ("https://169.254.169.254/latest/meta-data/",
+                 "https://127.0.0.1:5432/",
+                 "https://10.0.0.5/admin"):
+        y = istemci.post("/api/izlemeler", headers=b, json={"url": kotu})
+        assert y.status_code == 400, kotu
+        assert "izlenemez" in y.json()["detail"]
+
+
+def test_http_disi_sema_reddedilir(istemci):
+    b = kayit_ol(istemci)
+    y = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "file:///etc/passwd"})
+    assert y.status_code == 422        # pydantic HttpUrl zaten eler
+
+
+# ─────────────────── kısmi güncelleme (PATCH) semantiği ───────────────────
+
+def test_hedef_fiyat_temizlenebilir(istemci):
+    """PATCH'te açık `null` "değeri sil" demektir.
+
+    Eskiden döngü `if deger is not None` ile ilerliyordu; bu yüzden hedef
+    fiyat bir kez konduktan sonra API'den ASLA kaldırılamıyordu — kullanıcı
+    hedefi silmek isteyince tek çare izlemeyi silip yeniden eklemekti.
+    """
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"hedef_fiyat": 42000})
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"hedef_fiyat": None})
+    assert y.status_code == 200
+    assert y.json()["hedef_fiyat"] is None
+
+
+def test_acil_fiyat_ve_set_de_temizlenebilir(istemci):
+    b = kayit_ol(istemci)
+    set_id = istemci.post("/api/setler", headers=b,
+                          json={"ad": "PC"}).json()["id"]
+    i = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/a", "acil_fiyat": 100,
+        "set_id": set_id}).json()["id"]
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"acil_fiyat": None, "set_id": None})
+    assert y.json()["acil_fiyat"] is None
+    assert y.json()["set_id"] is None
+
+
+def test_dokunulmayan_alan_korunur(istemci):
+    """`exclude_unset` sayesinde GÖNDERİLMEYEN alan sıfırlanmamalı —
+    "null = temizle" kuralının bedeli bu olmamalı."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a",
+                           "hedef_fiyat": 500}).json()["id"]
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"aktif": False})
+    assert y.json()["hedef_fiyat"] == 500      # dokunulmadı
+    assert y.json()["aktif"] is False
+
+
+def test_bilinmeyen_alan_sessizce_yutulmaz(istemci, db):
+    """Toplu atama (mass assignment) savunması.
+
+    Şema bilinmeyen anahtarı zaten düşürüyor; asıl korumayı servis katmanı
+    yapıyor — bot da aynı fonksiyonu çağırıyor ve orada Pydantic yok.
+    """
+    from keepmoney.models import User
+    from keepmoney.servisler import izleme as svc
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    k = db.query(User).one()
+    with pytest.raises(svc.IzlemeHatasi):
+        svc.guncelle(db, k, i, user_id=999)
+    with pytest.raises(svc.IzlemeHatasi):
+        svc.guncelle(db, k, i, son_bildirim_ts=None)
+
+    assert db.query(Watch).one().user_id == k.id
+
+
+def test_hedef_degisince_bildirim_gecmisi_sifirlanir(istemci, db):
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    w = db.query(Watch).one()
+    w.son_bildirim_fiyat = 999
+    w.sustur_bitis = None
+    db.commit()
+
+    istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"hedef_fiyat": 100})
+    db.expire_all()
+    assert db.query(Watch).one().son_bildirim_fiyat is None
+
+
+def test_ayni_hedef_yeniden_gonderilince_susturma_bozulmaz(istemci, db):
+    """Arayüz aynı değeri geri gönderebiliyor; bu bir DEĞİŞİKLİK değildir ve
+    kullanıcının kurduğu susturmayı kaldırmamalı."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a",
+                           "hedef_fiyat": 100}).json()["id"]
+    istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"sustur_gun": 7})
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"hedef_fiyat": 100})
+    assert y.json()["sustur_bitis"] is not None
+
+
+def test_ayni_istekte_hedef_ve_susturma_birlikte_calisir(istemci):
+    """Eskiden hedef değişikliği susturmayı SESSİZCE eziyordu: kullanıcı
+    "hedefi 100 yap ve 7 gün sustur" dediğinde susturma kayboluyordu."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"hedef_fiyat": 100, "sustur_gun": 7})
+    assert y.json()["hedef_fiyat"] == 100
+    assert y.json()["sustur_bitis"] is not None
+
+
+# ─────────────────── sorgu sayısı (N+1) ───────────────────
+
+def test_izleme_listesi_n_arti_bir_sorgu_yapmaz(istemci, db):
+    """Liste hem web ana ekranında hem /liste komutunda her açılışta çekilir.
+
+    `selectinload` olmadan her satırın ürünü ayrı SELECT açar; 20 izleme
+    21 sorgu eder. Sabit sayı sınırı, gelecekte biri `.options()` satırını
+    silerse testin bunu yakalamasını sağlar.
+    """
+    from sqlalchemy import event
+
+    b = kayit_ol(istemci)
+    for n in range(12):
+        istemci.post("/api/izlemeler", headers=b,
+                     json={"url": f"https://magaza.com/urun-{n}"})
+
+    sorgular: list[str] = []
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, *a, **kw):
+        sorgular.append(ifade)
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        y = istemci.get("/api/izlemeler", headers=b)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert len(y.json()) == 12
+    secmeler = [s for s in sorgular if s.lstrip().upper().startswith("SELECT")]
+    # kullanıcı + izlemeler + ürünler = 3; N+1 olsaydı 14+ olurdu
+    assert len(secmeler) <= 4, f"{len(secmeler)} SELECT: {secmeler}"
+
+
+# ─────────────────── izleyen sayacı ───────────────────
+
+def test_sayac_negatife_dusmez(istemci, db):
+    """Sayaç DB'de tek UPDATE ile değişiyor; taban kontrolü de SQL'de olmalı."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    urun.izleyen_sayisi = 0            # tutarsız veri: elle bozuyoruz
+    db.commit()
+
+    istemci.delete(f"/api/izlemeler/{i}", headers=b)
+    db.expire_all()
+    assert db.query(Product).one().izleyen_sayisi == 0
+
+
+def test_sayac_null_iken_de_artar(istemci, db):
+    """Eski satırlarda `izleyen_sayisi` NULL olabilir (sütun nullable).
+    SQL'de NULL + 1 = NULL — CASE olmazsa sayaç sessizce kaybolur."""
+    b = kayit_ol(istemci)
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+    urun = db.query(Product).one()
+    urun.izleyen_sayisi = None
+    db.commit()
+
+    c = kayit_ol(istemci, "c@ornek.com")
+    istemci.post("/api/izlemeler", headers=c, json={"url": "https://magaza.com/a"})
+    db.expire_all()
+    assert db.query(Product).one().izleyen_sayisi == 1
+
+
+# ─────────────────── ölçümler gerçekten yayınlanıyor mu ───────────────────
+
+def test_api_metrics_kendi_trafigini_bildirir(istemci):
+    """`/metrics` ucunun ÇALIŞMASI yetmez, İÇİ DOLU olmalı.
+
+    Bu test bir mimari hatayı kilitliyor: tarama sayaçları AYRI süreçte
+    (`tarayici`) artıyor ve API'nin kayıt defterinde asla görünmüyor.
+    Bir dönem `/metrics` yalnızca `python_*` varsayılanlarını döndürüyordu —
+    uç ayakta, pano boş. API kendi ölçebildiği şeyi ölçmeli.
+    """
+    b = kayit_ol(istemci)
+    istemci.get("/api/izlemeler", headers=b)
+
+    y = istemci.get("/metrics")
+    assert "keepmoney_http_istek_toplam" in y.text
+    assert 'rota="/api/izlemeler"' in y.text
+
+
+def test_olcum_etiketi_ham_yol_degil_rota_sablonu(istemci):
+    """Kardinalite patlaması koruması: ham yol etiketlenirse her izleme
+    kimliği yeni bir zaman serisi doğurur ve Prometheus şişer."""
+    b = kayit_ol(istemci)
+    for n in range(3):
+        i = istemci.post("/api/izlemeler", headers=b,
+                         json={"url": f"https://magaza.com/u{n}"}).json()["id"]
+        istemci.get(f"/api/izlemeler/{i}", headers=b)
+
+    y = istemci.get("/metrics")
+    assert 'rota="/api/izlemeler/{izleme_id}"' in y.text
+    for i in (1, 2, 3):
+        assert f'rota="/api/izlemeler/{i}"' not in y.text
+
+
+def test_eslesmeyen_yol_olculmez(istemci):
+    """404 üreten rastgele URL'ler etiket üretmemeli — yoksa bir tarayıcı
+    tek başına ölçüm deposunu doldurabilir."""
+    istemci.get("/boyle-bir-yol-yok-12345")
+    y = istemci.get("/metrics")
+    assert "boyle-bir-yol-yok" not in y.text
+
+
+def test_metrics_ucu_kendini_saymaz(istemci):
+    istemci.get("/metrics")
+    y = istemci.get("/metrics")
+    assert 'rota="/metrics"' not in y.text

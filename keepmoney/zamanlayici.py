@@ -25,6 +25,9 @@ import contextlib
 import signal
 import time
 
+from prometheus_client import start_http_server
+
+from .ayarlar import ayarlar
 from .cekici import HttpCekici
 from .db import SessionLocal
 from .gunluk import log
@@ -127,10 +130,35 @@ class Zamanlayici:
             logger.info("zamanlayici_durdu")
 
 
+def metrik_ucunu_ac() -> None:
+    """Tarayıcı sürecinin KENDİ ölçüm ucu.
+
+    Zorunlu, süs değil: bu sürecin sayaçları (`kaynak_okuma`, `fiyat_guveni`,
+    `bayat_urun` …) API sürecinin belleğinde YOKTUR — `prometheus_client`in
+    kayıt defteri süreç içidir. Bu uç açılmazsa ölçümler hiçbir yere ulaşmaz:
+    kod çalışır, sayaçlar artar, panolar boş kalır ve scraping'in sessizce
+    bozulduğunu kimse görmez. Ölçümlerin varlık sebebi tam da buydu.
+
+    Ayrı port = ayrı Prometheus hedefi. İki süreç aynı metriği farklı
+    değerlerle bildirmez, çünkü metrik kümeleri kesişmiyor.
+    """
+    port = ayarlar().tarayici_metrik_portu
+    if port <= 0:
+        logger.info("metrik_ucu_kapali")
+        return
+    try:
+        start_http_server(port)
+        logger.info("metrik_ucu_acildi", port=port)
+    except OSError as e:
+        # Port meşgulse tarama DURMAZ: ölçüm kaybı, tarama kaybından iyidir.
+        logger.warning("metrik_ucu_acilamadi", port=port, hata=str(e))
+
+
 async def main() -> None:
     from .gunluk import kur
 
     kur()
+    metrik_ucunu_ac()
     z = Zamanlayici()
 
     # Nazik kapanma: konteyner SIGTERM gönderir; yarım kalan tur bitsin,

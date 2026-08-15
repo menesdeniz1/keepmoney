@@ -47,6 +47,13 @@ ARALIK_MIN_DK = 30
 ARALIK_MAKS_DK = 1440                # 24 saat
 HEDEFE_YAKIN_YUZDE = 10.0            # hedefin %10 yakınındaki ürün "sıcak"
 
+# ── Bozuk kaynak eşikleri ────────────────────────────────────────
+# Kullanıcıya "bu ürünün fiyatını artık okuyamıyorum" demeden önce kaç tur
+# beklenir. Tek turluk arıza gürültüdür (site bakımda olabilir); ÜST ÜSTE
+# tekrarlayan arıza haberdir.
+BOZUK_HATA_ESIGI = 3                 # üst üste indirilemeyen sayfa
+BOZUK_SUPHE_ESIGI = 2                # üst üste yapısal olarak saçma fiyat
+
 
 @dataclass
 class TaramaSonucu:
@@ -70,22 +77,23 @@ class Tarayici:
 
     def taranacak_urunler(self, limit: int = 100,
                           simdi: datetime | None = None) -> list[Product]:
-        """Sırası gelen ürünler: hiç taranmamışlar önce, sonra aralığı dolanlar.
+        """Sırası gelen ürünler: hiç taranmamışlar önce, sonra vakti gelenler.
+
+        Süzme VERİTABANINDA yapılır. Eskiden tüm ürün tablosu belleğe çekilip
+        Python'da süzülüyordu: her turda (dakikada bir) tam tablo taraması ve
+        tüm satırların ORM nesnesine dönüştürülmesi. 50 üründe fark edilmez,
+        50.000 üründe tarayıcıyı tek başına dize getirir.
 
         Sıralama `izleyen_sayisi`'na göre: çok izlenen ürün önce taranır.
         Bütçe yetmediğinde en çok kişiyi etkileyen ürün güncel kalır.
         """
         simdi = simdi or utc_simdi()
-        urunler = (self.db.query(Product)
-                   .order_by(Product.izleyen_sayisi.desc(), Product.id)
-                   .all())
-        sirasi_gelen = [
-            u for u in urunler
-            if u.son_kontrol is None
-            or simdi - u.son_kontrol >= timedelta(
-                minutes=u.kontrol_araligi_dk or ARALIK_MIN_DK)
-        ]
-        return sirasi_gelen[:limit]
+        return (self.db.query(Product)
+                .filter((Product.sonraki_kontrol.is_(None))
+                        | (Product.sonraki_kontrol <= simdi))
+                .order_by(Product.izleyen_sayisi.desc(), Product.id)
+                .limit(limit)
+                .all())
 
     # ── gözlemlenebilirlik ───────────────────────────────────────
 
@@ -196,6 +204,8 @@ class Tarayici:
 
         kaynak.durum = "OK"
         kaynak.hata_serisi = 0
+        # Kaynak düzeldi: bir dahaki bozulmada kullanıcı yeniden uyarılabilsin.
+        kaynak.bozuk_uyarildi = False
         kaynak.son_fiyat = c.fiyat
         self._sonucu_kaydet(kaynak.host, "ok")
         if c.fiyat is not None:
@@ -267,9 +277,71 @@ class Tarayici:
                 sonuc.fiyat_degisen += 1
 
         self.db.flush()
-        sonuc.uretilen_uyari += self.uyari_uret(urun, eski_fiyat)
-        urun.kontrol_araligi_dk = self._sonraki_aralik(urun)
+
+        gecmis = self._okuma_gecmisi(urun.id)
+        sonuc.uretilen_uyari += self.uyari_uret(urun, eski_fiyat, gecmis)
+        if en_iyi is None or en_iyi.fiyat is None:
+            sonuc.uretilen_uyari += self._bozuk_kaynak_uyar(urun)
+        urun.kontrol_araligi_dk = self._sonraki_aralik(urun, gecmis)
+        urun.sonraki_kontrol = utc_simdi() + timedelta(
+            minutes=urun.kontrol_araligi_dk)
         self.db.commit()
+
+    # ── bozuk kaynak bildirimi ───────────────────────────────────
+
+    def _bozuk_kaynak_uyar(self, urun: Product) -> int:
+        """"Bu ürünün fiyatını artık okuyamıyorum" bildirimi.
+
+        NEDEN ÜRÜN SEVİYESİNDE: bir kaynak bozulsa da ürünün başka çalışan
+        kaynağı varsa kullanıcının umurunda değildir — doğru fiyatı görmeye
+        devam eder. Haber değeri, ürünün HİÇBİR kaynağından fiyat
+        gelmemesindedir; ekranda duran fiyat o andan itibaren bayattır ve
+        kullanıcı bunu bilmeden eski fiyata güvenir.
+
+        `karar.dogrula` "bozuk" dediğinde durumu zaten işaretliyordu ama bu
+        bildirim hiç üretilmiyordu: durum makinesi vardı, çıktısı yoktu.
+        """
+        bozuklar = [k for k in urun.sources if self._kaynak_bozuk_mu(k)]
+        if not bozuklar:
+            return 0
+        if all(k.bozuk_uyarildi for k in bozuklar):
+            return 0                      # bu arıza için zaten haber verildi
+
+        izleyenler = self.db.query(Watch).filter(
+            Watch.product_id == urun.id, Watch.aktif.is_(True)).all()
+
+        sebepler = ", ".join(sorted({self._bozuk_sebebi(k) for k in bozuklar}))
+        for w in izleyenler:
+            self._uyari_ekle(
+                w, "KAYNAK_BOZUK", f"⚠️ {urun.ad} — fiyat okunamıyor",
+                f"Bu ürünün fiyatı {len(bozuklar)} kaynakta okunamıyor "
+                f"({sebepler}). Ekranda görünen fiyat güncel olmayabilir; "
+                "mağaza sayfasını kendin kontrol et.")
+
+        # Bayrak, izleyeni olmasa bile düşer: kaynak durumu kullanıcıdan
+        # bağımsız bir olgudur.
+        for k in bozuklar:
+            k.bozuk_uyarildi = True
+        return len(izleyenler)
+
+    @staticmethod
+    def _kaynak_bozuk_mu(kaynak: Source) -> bool:
+        """Geçici arıza mı, kalıcı bozukluk mu?
+
+        `hata_serisi` bu kontrol için tutuluyordu ama HİÇ OKUNMUYORDU —
+        artırılıp sıfırlanan, hiçbir karara girmeyen bir sayaçtı.
+        """
+        return (kaynak.durum == "OLU"
+                or (kaynak.hata_serisi or 0) >= BOZUK_HATA_ESIGI
+                or (kaynak.asiri_supheli_seri or 0) >= BOZUK_SUPHE_ESIGI)
+
+    @staticmethod
+    def _bozuk_sebebi(kaynak: Source) -> str:
+        if kaynak.durum == "OLU":
+            return "sayfa kaldırılmış"
+        if (kaynak.asiri_supheli_seri or 0) >= BOZUK_SUPHE_ESIGI:
+            return "okunan fiyat gerçekçi değil"
+        return "sayfaya erişilemiyor"
 
     def tur_calistir(self, limit: int = 100) -> TaramaSonucu:
         """Bir tarama turu. Zamanlayıcı bunu periyodik çağırır."""
@@ -285,17 +357,22 @@ class Tarayici:
 
     # ── uyarı üretimi ────────────────────────────────────────────
 
-    def uyari_uret(self, urun: Product, eski_fiyat: float | None) -> int:
+    def uyari_uret(self, urun: Product, eski_fiyat: float | None,
+                   gecmis: list[analiz.Okuma] | None = None) -> int:
         """Ürünün fiyatı güncellendikten sonra izleyicilere uyarı üretir.
 
         Uyarı KİŞİSELDİR: aynı fiyat düşüşü, hedefi 50.000 olan kullanıcı için
         alarm, hedefi 40.000 olan için değildir. Bu yüzden döngü Watch üstünde.
+
+        `gecmis` dışarıdan verilebilir: `urun_tara` onu bir kez okuyup hem
+        buraya hem `_sonraki_aralik`e geçirir. Eskiden ikisi de kendi
+        sorgusunu açıyordu — ürün başına iki kez tüm fiyat geçmişi.
         """
         fiyat = urun.guncel_fiyat
         if fiyat is None:
             return 0
 
-        okumalar = self._okuma_gecmisi(urun.id)
+        okumalar = self._okuma_gecmisi(urun.id) if gecmis is None else gecmis
         baglam = analiz.fiyat_baglami(okumalar, fiyat)
         dip_kirildi, onceki_dip, _ = analiz.dip_kirildi_mi(okumalar, fiyat)
 
@@ -423,7 +500,8 @@ class Tarayici:
                     .order_by(PriceReading.ts).all())
         return [analiz.Okuma(ts=ts, fiyat=f) for ts, f in satirlar if f]
 
-    def _sonraki_aralik(self, urun: Product) -> int:
+    def _sonraki_aralik(self, urun: Product,
+                        gecmis: list[analiz.Okuma] | None = None) -> int:
         """Uyarlanabilir sıklık — maliyetin kontrol edildiği yer.
 
         SIK tara: hedefine yakın (birazcık düşse alarm olacak) ya da fiyatı
@@ -440,7 +518,7 @@ class Tarayici:
             if en_yakin <= HEDEFE_YAKIN_YUZDE:
                 return ARALIK_MIN_DK
 
-        okumalar = self._okuma_gecmisi(urun.id)
+        okumalar = self._okuma_gecmisi(urun.id) if gecmis is None else gecmis
         gunluk = analiz.gunluk_minimumlar(okumalar)
         if len(gunluk) >= 7:
             son_hafta = [v for g, v in gunluk.items()

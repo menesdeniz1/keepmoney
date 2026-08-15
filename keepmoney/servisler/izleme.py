@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import timedelta
 from urllib.parse import urlparse, urlunparse
 
-from sqlalchemy.orm import Session
+from sqlalchemy import case
+from sqlalchemy.orm import Session, selectinload
 
-from .. import siteler
+from .. import aglar, siteler
 from ..ayarlar import ayarlar
 from ..models import Product, Source, User, Watch, WatchSet
 from ..zaman import utc_simdi
@@ -72,6 +73,13 @@ def kaynak_bul_veya_olustur(db: Session, url: str) -> Source:
     geçmişini anında görür.
     """
     kanonik = url_normalize(url)
+
+    # SSRF kapısı (bkz. aglar.py). Asıl koruma çekme anındadır; buradaki
+    # kontrol kullanıcının anlamlı bir hata görmesi içindir.
+    sorun = aglar.url_sorunu(kanonik)
+    if sorun is not None:
+        raise IzlemeHatasi(f"Bu adres izlenemez: {sorun}")
+
     kaynak = db.query(Source).filter(Source.url == kanonik).one_or_none()
     if kaynak is not None:
         return kaynak
@@ -93,7 +101,16 @@ def kaynak_bul_veya_olustur(db: Session, url: str) -> Source:
 
 
 def izlemeler(db: Session, kullanici: User) -> list[Watch]:
+    """Kullanıcının izlemeleri — ürünleriyle BİRLİKTE yüklenir.
+
+    `selectinload` olmadan her satırın `w.product` erişimi ayrı bir SELECT
+    açar (N+1): 20 izleme = 21 sorgu. Bu liste hem web ana ekranında hem
+    /liste komutunda her açılışta çekiliyor, yani en sıcak sorgu yolu burası.
+    `selectinload` (JOIN değil) seçildi çünkü ilişki koleksiyon değil ama
+    JOIN, satır çoğaltmadan kaçınmak için gereksiz; iki sorguyla biter.
+    """
     return (db.query(Watch)
+            .options(selectinload(Watch.product))
             .filter(Watch.user_id == kullanici.id)
             .order_by(Watch.created_at.desc())
             .all())
@@ -101,11 +118,34 @@ def izlemeler(db: Session, kullanici: User) -> list[Watch]:
 
 def izleme_getir(db: Session, kullanici: User, izleme_id: int) -> Watch:
     w = (db.query(Watch)
+         .options(selectinload(Watch.product))
          .filter(Watch.id == izleme_id, Watch.user_id == kullanici.id)
          .one_or_none())
     if w is None:
         raise IzlemeHatasi("İzleme bulunamadı")
     return w
+
+
+def _izleyen_sayaci(db: Session, urun_id: int, delta: int) -> None:
+    """Sayacı VERİTABANINDA artırır/azaltır — Python'da değil.
+
+    `urun.izleyen_sayisi = urun.izleyen_sayisi + 1` bir OKU-DEĞİŞTİR-YAZ
+    dizisidir: aynı ürünü aynı anda ekleyen iki istek de 5 okur, ikisi de 6
+    yazar, biri kaybolur. Sayaç yalnızca tarama önceliğini belirlediği için
+    felaket değil ama zamanla gerçeklikten kopar. Tek UPDATE ifadesi bunu
+    veritabanının atomikliğine devreder.
+
+    Azaltmada `CASE` kullanılıyor, `MAX()` değil: SQLite'ta `max(a,b)` skaler,
+    PostgreSQL'de ise `MAX()` bir toplam (aggregate) fonksiyonudur ve orada
+    `GREATEST` gerekir. `CASE` iki motorda da aynı çalışır.
+    """
+    mevcut = case((Product.izleyen_sayisi.is_(None), 0),
+                  else_=Product.izleyen_sayisi)
+    yeni = mevcut + delta if delta > 0 else case(
+        (mevcut + delta < 0, 0), else_=mevcut + delta)
+    (db.query(Product)
+     .filter(Product.id == urun_id)
+     .update({Product.izleyen_sayisi: yeni}, synchronize_session=False))
 
 
 def ekle(db: Session, kullanici: User, url: str,
@@ -134,40 +174,84 @@ def ekle(db: Session, kullanici: User, url: str,
               hedef_fiyat=hedef_fiyat, acil_fiyat=acil_fiyat, set_id=set_id)
     db.add(w)
 
+    _izleyen_sayaci(db, kaynak.product_id, +1)
+
+    # Ürün ilk turda taransın. `sonraki_kontrol` sıfırlanır, `son_kontrol`
+    # DEĞİL: ikincisi "en son ne zaman okundu" olgusudur ve arayüzde
+    # gösterilir. Eskiden burada o da siliniyordu — yani başkasının aylardır
+    # izlediği bir ürüne yeni biri abone olunca, ürün herkes için "hiç
+    # kontrol edilmemiş" görünüyordu.
     urun = db.get(Product, kaynak.product_id)
-    urun.izleyen_sayisi = (urun.izleyen_sayisi or 0) + 1
-    # Yeni eklenen ürün ilk turda taransın (son_kontrol None → sırası gelmiş)
-    urun.son_kontrol = None
+    urun.sonraki_kontrol = None
 
     db.commit()
     db.refresh(w)
     return w
 
 
+# Kullanıcının PATCH ile değiştirebileceği alanların TAM listesi.
+#
+# Neden açık liste: eskiden döngü `hasattr(w, ad)` ile karar veriyordu, yani
+# Watch üzerindeki HER sütun yazılabilirdi. Bugün şema kazara koruyor
+# (Pydantic bilinmeyen alanı düşürüyor), ama bu tesadüfe dayanmak toplu atama
+# (mass assignment) açığının klasik reçetesidir: şemaya `user_id` eklendiği
+# gün kullanıcı başkasının izlemesine kendi kaydını taşıyabilir, ya da
+# `son_bildirim_ts` yazarak bildirim bekleme süresini sıfırlayabilir. Yetki
+# modelinde beyaz liste tek doğru varsayılandır.
+GUNCELLENEBILIR = frozenset({
+    "hedef_fiyat", "acil_fiyat", "aktif", "kilitli", "kilitli_fiyat", "set_id",
+})
+
+# Bunlara açıkça `null` gönderilmesi "değeri SİL" demektir.
+# `aktif`/`kilitli` burada YOK: onlar boolean, null'un anlamı yok.
+TEMIZLENEBILIR = frozenset({
+    "hedef_fiyat", "acil_fiyat", "kilitli_fiyat", "set_id",
+})
+
+
 def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
+    """İzlemeyi kısmi olarak günceller (PATCH semantiği).
+
+    Rota `exclude_unset=True` ile çağırır: bir anahtarın VARLIĞI kullanıcının
+    o alana bilerek dokunduğu anlamına gelir. Bu yüzden `None` "dokunulmadı"
+    değil, "temizle" demektir — eskiden ikisi ayırt edilemediği için hedef
+    fiyat bir kez konduktan sonra API'den ASLA kaldırılamıyordu.
+    """
     w = izleme_getir(db, kullanici, izleme_id)
+
+    bilinmeyen = set(alanlar) - GUNCELLENEBILIR - {"sustur_gun"}
+    if bilinmeyen:
+        raise IzlemeHatasi(
+            f"Bu alanlar güncellenemez: {', '.join(sorted(bilinmeyen))}")
 
     sustur_gun = alanlar.pop("sustur_gun", None)
     if sustur_gun is not None:
         w.sustur_bitis = (utc_simdi() + timedelta(days=sustur_gun)
                           if sustur_gun > 0 else None)
 
-    if (set_id := alanlar.get("set_id")) is not None:
-        _set_dogrula(db, kullanici, set_id)
+    if alanlar.get("set_id") is not None:
+        _set_dogrula(db, kullanici, alanlar["set_id"])
 
+    eski_hedef = w.hedef_fiyat
     for ad, deger in alanlar.items():
-        if deger is not None and hasattr(w, ad):
-            setattr(w, ad, deger)
+        if deger is None and ad not in TEMIZLENEBILIR:
+            continue
+        setattr(w, ad, deger)
 
     # Kilitlenirken fiyat verilmediyse güncel fiyatı sabitle
     if w.kilitli and w.kilitli_fiyat is None and w.product:
         w.kilitli_fiyat = w.product.guncel_fiyat
 
-    # Hedef değişince susturma kalkar: kullanıcı yeni hedeften alarm bekliyor
-    if "hedef_fiyat" in alanlar and alanlar["hedef_fiyat"] is not None:
-        w.sustur_bitis = None
+    # Hedef GERÇEKTEN değiştiyse bildirim geçmişi sıfırlanır: kullanıcı yeni
+    # hedeften alarm bekliyor, eski eşikte gönderilmiş bildirimin dedup kaydı
+    # yeni eşiği susturmamalı. Aynı değeri yeniden göndermek sıfırlama sayılmaz.
+    if w.hedef_fiyat != eski_hedef:
         w.son_bildirim_ts = None
         w.son_bildirim_fiyat = None
+        # Susturma da kalkar — AMA aynı istekte açıkça susturma istendiyse
+        # kullanıcının dediği kazanır (eskiden sessizce eziliyordu).
+        if sustur_gun is None:
+            w.sustur_bitis = None
 
     db.commit()
     db.refresh(w)
@@ -176,10 +260,10 @@ def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
 
 def sil(db: Session, kullanici: User, izleme_id: int) -> None:
     w = izleme_getir(db, kullanici, izleme_id)
-    urun = w.product
+    urun_id = w.product_id
     db.delete(w)
-    if urun is not None:
-        urun.izleyen_sayisi = max(0, (urun.izleyen_sayisi or 1) - 1)
+    db.flush()
+    _izleyen_sayaci(db, urun_id, -1)
     db.commit()
     # NOT: izleyeni kalmayan ürün ve geçmişi SİLİNMEZ. Küresel geçmiş ortak
     # varlıktır; birinin vazgeçmesi diğerlerinin (ve ileride eklenecek

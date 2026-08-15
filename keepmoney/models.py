@@ -91,6 +91,18 @@ class Product(Base):
     # Tarama sıklığı uyarlanabilir: hedefe yakın/oynak ürün sık, aylardır
     # kıpırdamayan ürün seyrek taranır. Ölçeklenmenin anahtarı bu alandır.
     kontrol_araligi_dk = Column(Integer, default=60)
+
+    # Sıradaki tarama zamanı — KUYRUĞUN KENDİSİ (bkz. MIMARI K24: DB kuyruk
+    # yerine geçiyor). `son_kontrol + kontrol_araligi_dk` her satırda farklı
+    # bir aralık demek; bu hesabı SQL'de taşınabilir biçimde yapmanın yolu yok
+    # (SQLite ile PostgreSQL'in tarih aritmetiği farklı). Sonucu sütunda
+    # tutmak, seçimi indeksli tek karşılaştırmaya indirger:
+    #     WHERE sonraki_kontrol IS NULL OR sonraki_kontrol <= now()
+    # Aksi hâlde her turda TÜM ürün tablosu belleğe çekilip Python'da
+    # süzülmek zorundaydı. NULL = "sırası gelmiş" (yeni eklendi ya da hiç
+    # taranmadı). İş kuyruklarının `next_run_at`/`visible_at` deseni.
+    sonraki_kontrol = Column(DateTime, nullable=True, index=True)
+
     izleyen_sayisi = Column(Integer, default=0)   # kaç Watch işaret ediyor
 
     created_at = Column(DateTime, default=utc_simdi)
