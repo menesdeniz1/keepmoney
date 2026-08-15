@@ -31,7 +31,7 @@ def getir(set_id: int, k: Kullanici, db: DB):
 
 
 @router.patch("/{set_id}", response_model=semalar.SetYaniti)
-def guncelle(set_id: int, istek: semalar.SetIstegi, k: Kullanici, db: DB):
+def guncelle(set_id: int, istek: semalar.SetGuncelleIstegi, k: Kullanici, db: DB):
     try:
         s = svc.guncelle(db, k, set_id, **istek.model_dump(exclude_unset=True))
     except svc.SetHatasi as e:

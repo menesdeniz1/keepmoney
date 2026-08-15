@@ -15,21 +15,25 @@ def okumalar(db: Session, urun_id: int) -> list[analiz.Okuma]:
     return [analiz.Okuma(ts=ts, fiyat=f) for ts, f in satirlar if f]
 
 
-def gunluk_seri(db: Session, urun_id: int) -> list[dict]:
+def gunluk_seri(db: Session, urun_id: int,
+                gecmis: list[analiz.Okuma] | None = None) -> list[dict]:
     """Grafik verisi: gün başına TEK nokta (bkz. MIMARI K4).
 
     Ham okumaları göndermek grafiği de bozar: sık taranan ürün 48 nokta,
     seyrek taranan 2 nokta üretir ve çizgi yanıltıcı biçimde 'yoğun' görünür.
     """
-    gunluk = analiz.gunluk_minimumlar(okumalar(db, urun_id))
-    return [{"gun": g, "fiyat": f} for g, f in sorted(gunluk.items())]
+    ham = okumalar(db, urun_id) if gecmis is None else gecmis
+    return [{"gun": g, "fiyat": f}
+            for g, f in sorted(analiz.gunluk_minimumlar(ham).items())]
 
 
-def baglam(db: Session, urun: Product) -> dict | None:
+def baglam(db: Session, urun: Product,
+           gecmis: list[analiz.Okuma] | None = None) -> dict | None:
     """'Bu iyi bir fiyat mı?' + insan cümlesi. Yeterli veri yoksa None."""
     if urun.guncel_fiyat is None:
         return None
-    b = analiz.fiyat_baglami(okumalar(db, urun.id), urun.guncel_fiyat)
+    ham = okumalar(db, urun.id) if gecmis is None else gecmis
+    b = analiz.fiyat_baglami(ham, urun.guncel_fiyat)
     if b is None:
         return None
     return {
@@ -61,7 +65,13 @@ def _kaynak(k) -> dict:
 
 
 def detay(db: Session, urun: Product) -> dict:
-    """UrunDetay şemasına uyan sözlük — grafik + kaynaklar + yorum."""
+    """UrunDetay şemasına uyan sözlük — grafik + kaynaklar + yorum.
+
+    Fiyat geçmişi BİR KEZ okunup hem grafiğe hem bağlama veriliyor. Eskiden
+    `gunluk_seri` ve `baglam` ayrı ayrı sorguluyordu: her ürün detayında iki
+    tam geçmiş taraması, üstelik bu uç arayüzde her ürün açılışında çağrılıyor.
+    """
+    gecmis = okumalar(db, urun.id)
     return {
         "id": urun.id,
         "ad": urun.ad,
@@ -72,6 +82,6 @@ def detay(db: Session, urun: Product) -> dict:
         "yorum_sayisi": urun.yorum_sayisi,
         "son_kontrol": urun.son_kontrol,
         "kaynaklar": [_kaynak(k) for k in urun.sources],
-        "gecmis": gunluk_seri(db, urun.id),
-        "baglam": baglam(db, urun),
+        "gecmis": gunluk_seri(db, urun.id, gecmis),
+        "baglam": baglam(db, urun, gecmis),
     }

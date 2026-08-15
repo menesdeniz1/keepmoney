@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..ayarlar import ayarlar
@@ -15,17 +16,32 @@ class KimlikHatasi(Exception):
     pass
 
 
+def _normalize(eposta: str) -> str:
+    return eposta.strip().lower()
+
+
 def eposta_ile(db: Session, eposta: str) -> User | None:
-    return db.query(User).filter(User.email == eposta.lower()).one_or_none()
+    # Normalleştirme TEK YERDE. Kayıt `.strip().lower()` uygularken arama
+    # yalnızca `.lower()` uygulasaydı, boşluklu girilen bir e-postayla açılan
+    # hesaba bir daha giriş yapılamazdı.
+    return db.query(User).filter(User.email == _normalize(eposta)).one_or_none()
 
 
 def kayit(db: Session, eposta: str, parola: str) -> User:
-    eposta = eposta.lower().strip()
+    eposta = _normalize(eposta)
     if eposta_ile(db, eposta) is not None:
         raise KimlikHatasi("Bu e-posta zaten kayıtlı")
+
     k = User(email=eposta, password_hash=parola_hashle(parola))
     db.add(k)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        # Kontrol ile INSERT arasında aynı e-posta ile ikinci bir kayıt
+        # gelebilir. Tekillik kısıtı veriyi korur; burada kullanıcıya 500
+        # yerine anlamlı hata dönmesini sağlıyoruz.
+        db.rollback()
+        raise KimlikHatasi("Bu e-posta zaten kayıtlı") from e
     db.refresh(k)
     return k
 

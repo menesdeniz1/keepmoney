@@ -5,17 +5,30 @@ bütçe yakalanınca haber verilir. Rakiplerde karşılığı yok.
 """
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..models import User, Watch, WatchSet
+from .ortak import alanlari_uygula
+
+# PATCH ile değiştirilebilecek alanlar; gerekçe için bkz. `ortak`.
+GUNCELLENEBILIR = frozenset({"ad", "hedef_butce", "sablon"})
+# Bütçe kaldırılabilmeli — kullanıcı seti bütçesiz gruplamaya döndürebilir.
+# `ad` burada YOK: isimsiz set anlamsız.
+TEMIZLENEBILIR = frozenset({"hedef_butce", "sablon"})
 
 
 class SetHatasi(Exception):
     pass
 
 
+# Üyeler ve ürünleri birlikte yüklenir: `ozet()` her üyenin fiyatına bakıyor,
+# tembel bırakılırsa set listesi set×üye kadar sorgu açar.
+_UYELERLE = selectinload(WatchSet.watches).selectinload(Watch.product)
+
+
 def listele(db: Session, kullanici: User) -> list[WatchSet]:
     return (db.query(WatchSet)
+            .options(_UYELERLE)
             .filter(WatchSet.user_id == kullanici.id)
             .order_by(WatchSet.created_at)
             .all())
@@ -23,6 +36,7 @@ def listele(db: Session, kullanici: User) -> list[WatchSet]:
 
 def getir(db: Session, kullanici: User, set_id: int) -> WatchSet:
     s = (db.query(WatchSet)
+         .options(_UYELERLE)
          .filter(WatchSet.id == set_id, WatchSet.user_id == kullanici.id)
          .one_or_none())
     if s is None:
@@ -43,9 +57,9 @@ def olustur(db: Session, kullanici: User, ad: str,
 
 def guncelle(db: Session, kullanici: User, set_id: int, **alanlar) -> WatchSet:
     s = getir(db, kullanici, set_id)
-    for ad, deger in alanlar.items():
-        if deger is not None and hasattr(s, ad):
-            setattr(s, ad, deger)
+    alanlari_uygula(s, alanlar, GUNCELLENEBILIR, TEMIZLENEBILIR, SetHatasi)
+    if s.ad is not None:
+        s.ad = s.ad.strip()
     db.commit()
     db.refresh(s)
     return s

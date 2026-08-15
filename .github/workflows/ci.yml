@@ -45,6 +45,11 @@ jobs:
           cache: npm
           cache-dependency-path: arayuz/package-lock.json
       - run: npm ci
+      # Backend'de ruff CI'da koşuyordu ama arayüz denetimsizdi: `lint`
+      # betiği vardı, yapılandırması yoktu ve kimse çağırmadığı için
+      # kırık olduğu fark edilmemişti.
+      - name: Lint
+        run: npm run lint
       - name: Tip kontrolü
         run: npx tsc -b
       - name: Testler

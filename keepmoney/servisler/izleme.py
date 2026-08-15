@@ -16,6 +16,7 @@ from .. import aglar, siteler
 from ..ayarlar import ayarlar
 from ..models import Product, Source, User, Watch, WatchSet
 from ..zaman import utc_simdi
+from .ortak import alanlari_uygula
 
 # URL'den atılacak takip parametreleri. Aynı ürünün linki farklı kampanya
 # etiketleriyle geldiğinde AYNI kaynağa düşsün — yoksa aynı sayfa 5 kez
@@ -117,8 +118,10 @@ def izlemeler(db: Session, kullanici: User) -> list[Watch]:
 
 
 def izleme_getir(db: Session, kullanici: User, izleme_id: int) -> Watch:
+    # Kaynaklar da yüklenir: detay ucu her kaynağın çıkış linkini üretiyor,
+    # tembel bırakılırsa kaynak başına ayrı sorgu açılır.
     w = (db.query(Watch)
-         .options(selectinload(Watch.product))
+         .options(selectinload(Watch.product).selectinload(Product.sources))
          .filter(Watch.id == izleme_id, Watch.user_id == kullanici.id)
          .one_or_none())
     if w is None:
@@ -190,14 +193,7 @@ def ekle(db: Session, kullanici: User, url: str,
 
 
 # Kullanıcının PATCH ile değiştirebileceği alanların TAM listesi.
-#
-# Neden açık liste: eskiden döngü `hasattr(w, ad)` ile karar veriyordu, yani
-# Watch üzerindeki HER sütun yazılabilirdi. Bugün şema kazara koruyor
-# (Pydantic bilinmeyen alanı düşürüyor), ama bu tesadüfe dayanmak toplu atama
-# (mass assignment) açığının klasik reçetesidir: şemaya `user_id` eklendiği
-# gün kullanıcı başkasının izlemesine kendi kaydını taşıyabilir, ya da
-# `son_bildirim_ts` yazarak bildirim bekleme süresini sıfırlayabilir. Yetki
-# modelinde beyaz liste tek doğru varsayılandır.
+# Kuralların gerekçesi için bkz. `ortak.alanlari_uygula`.
 GUNCELLENEBILIR = frozenset({
     "hedef_fiyat", "acil_fiyat", "aktif", "kilitli", "kilitli_fiyat", "set_id",
 })
@@ -219,11 +215,7 @@ def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
     """
     w = izleme_getir(db, kullanici, izleme_id)
 
-    bilinmeyen = set(alanlar) - GUNCELLENEBILIR - {"sustur_gun"}
-    if bilinmeyen:
-        raise IzlemeHatasi(
-            f"Bu alanlar güncellenemez: {', '.join(sorted(bilinmeyen))}")
-
+    # `sustur_gun` bir sütun değil, gün sayısından tarihe çevrilen bir komut.
     sustur_gun = alanlar.pop("sustur_gun", None)
     if sustur_gun is not None:
         w.sustur_bitis = (utc_simdi() + timedelta(days=sustur_gun)
@@ -233,10 +225,7 @@ def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
         _set_dogrula(db, kullanici, alanlar["set_id"])
 
     eski_hedef = w.hedef_fiyat
-    for ad, deger in alanlar.items():
-        if deger is None and ad not in TEMIZLENEBILIR:
-            continue
-        setattr(w, ad, deger)
+    alanlari_uygula(w, alanlar, GUNCELLENEBILIR, TEMIZLENEBILIR, IzlemeHatasi)
 
     # Kilitlenirken fiyat verilmediyse güncel fiyatı sabitle
     if w.kilitli and w.kilitli_fiyat is None and w.product:

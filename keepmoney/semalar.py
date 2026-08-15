@@ -159,6 +159,18 @@ class SetIstegi(BaseModel):
     sablon: str | None = None
 
 
+class SetGuncelleIstegi(BaseModel):
+    """Kısmi güncelleme — TÜM alanlar isteğe bağlı.
+
+    PATCH ucu bir dönem `SetIstegi`yi yeniden kullanıyordu; orada `ad`
+    zorunlu olduğu için "sadece bütçeyi değiştir" isteği 422 dönüyordu.
+    Oluşturma ile güncellemenin sözleşmesi aynı değildir.
+    """
+    ad: str | None = Field(default=None, min_length=1, max_length=60)
+    hedef_butce: float | None = Field(default=None, gt=0)
+    sablon: str | None = None
+
+
 class SetYaniti(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

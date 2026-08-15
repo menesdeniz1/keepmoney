@@ -849,3 +849,105 @@ def test_gecerli_hmac_algoritmalari_kabul_edilir(monkeypatch):
     from keepmoney.ayarlar import Ayarlar
     monkeypatch.setenv("KEEPMONEY_JWT_ALGORITMA", "HS512")
     assert Ayarlar().jwt_algoritma == "HS512"
+
+
+# ─────────────────── set kısmi güncelleme ───────────────────
+
+def test_set_sadece_butce_guncellenebilir(istemci):
+    """PATCH ucu oluşturma şemasını yeniden kullanıyordu; `ad` zorunlu
+    olduğu için "sadece bütçeyi değiştir" isteği 422 dönüyordu."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/setler", headers=b,
+                     json={"ad": "PC Toplama", "hedef_butce": 50000}).json()["id"]
+
+    y = istemci.patch(f"/api/setler/{i}", headers=b, json={"hedef_butce": 42000})
+    assert y.status_code == 200
+    assert y.json()["hedef_butce"] == 42000
+    assert y.json()["ad"] == "PC Toplama"      # dokunulmadı
+
+
+def test_set_butcesi_temizlenebilir(istemci):
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/setler", headers=b,
+                     json={"ad": "Kombin", "hedef_butce": 5000}).json()["id"]
+    y = istemci.patch(f"/api/setler/{i}", headers=b, json={"hedef_butce": None})
+    assert y.json()["hedef_butce"] is None
+    assert y.json()["hedefte"] is False
+
+
+def test_set_bilinmeyen_alan_reddedilir(istemci, db):
+    """İzleme servisindeki toplu atama düzeltmesinin ikizi — kural iki
+    serviste kopyalanmıştı, biri düzeltilip diğeri geride kalmıştı."""
+    from keepmoney.models import User
+    from keepmoney.servisler import setler as svc
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/setler", headers=b, json={"ad": "S"}).json()["id"]
+    k = db.query(User).one()
+
+    with pytest.raises(svc.SetHatasi):
+        svc.guncelle(db, k, i, user_id=999)
+
+
+def test_set_listesi_n_arti_bir_yapmaz(istemci, db):
+    from sqlalchemy import event
+
+    b = kayit_ol(istemci)
+    for n in range(4):
+        s = istemci.post("/api/setler", headers=b,
+                         json={"ad": f"S{n}"}).json()["id"]
+        for m in range(3):
+            istemci.post("/api/izlemeler", headers=b, json={
+                "url": f"https://magaza.com/s{n}-u{m}", "set_id": s})
+
+    sorgular: list[str] = []
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, *a, **kw):
+        if ifade.lstrip().upper().startswith("SELECT"):
+            sorgular.append(ifade)
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        y = istemci.get("/api/setler", headers=b)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert len(y.json()) == 4
+    # kullanıcı + setler + üyeler + ürünler ≈ 4; N+1 olsaydı 17+ olurdu
+    assert len(sorgular) <= 6, f"{len(sorgular)} SELECT"
+
+
+def test_urun_detayi_gecmisi_tek_kez_okur(istemci, db):
+    """`gunluk_seri` ve `baglam` ayrı ayrı tüm fiyat geçmişini çekiyordu."""
+    from datetime import timedelta
+
+    from keepmoney.servisler import urun as urun_svc
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    p = db.query(Product).one()
+    kaynak = db.query(Source).one()
+    p.guncel_fiyat = 1000
+    for gun in range(10):
+        db.add(PriceReading(product_id=p.id, source_id=kaynak.id, fiyat=1000,
+                            ts=utc_simdi() - timedelta(days=gun)))
+    db.commit()
+
+    cagrilar = []
+    gercek = urun_svc.okumalar
+
+    def sayan(dbo, urun_id):
+        cagrilar.append(urun_id)
+        return gercek(dbo, urun_id)
+
+    urun_svc.okumalar = sayan
+    try:
+        y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    finally:
+        urun_svc.okumalar = gercek
+
+    assert y.status_code == 200
+    assert len(cagrilar) == 1, f"{len(cagrilar)} kez okundu"

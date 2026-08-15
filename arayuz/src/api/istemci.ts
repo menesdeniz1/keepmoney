@@ -20,6 +20,21 @@ import type {
 
 const TABAN = '/api'
 
+/**
+ * Oturum düştüğünde yayılan olay.
+ *
+ * Token 7 gün ömürlü ve uygulama AÇIKKEN de dolabilir. Bu olay olmadan
+ * kullanıcı, süresi dolmuş bir oturumla ekranda kırık hata kutuları
+ * görüyordu: her sorgu 401 dönüyor ama kimse "oturumun bitti, yeniden gir"
+ * demiyordu. Tek yerde yakalanıp uygulamaya haber veriliyor — her çağrı
+ * yerine 401 kontrolü serpiştirmek yerine.
+ */
+export const OTURUM_BITTI = 'km:oturum-bitti'
+
+// Bu uçlarda 401 NORMALDİR, oturum düşmesi anlamına gelmez: `/auth/giris`
+// yanlış parolada, `/auth/ben` ise henüz hiç giriş yapılmamışken 401 döner.
+const OTURUM_OLAYI_HARIC = ['/auth/giris', '/auth/kayit', '/auth/ben']
+
 export class ApiHatasi extends Error {
   constructor(
     mesaj: string,
@@ -46,6 +61,9 @@ async function istek<T>(
   })
 
   if (!yanit.ok) {
+    if (yanit.status === 401 && !OTURUM_OLAYI_HARIC.includes(yol)) {
+      window.dispatchEvent(new CustomEvent(OTURUM_BITTI))
+    }
     // FastAPI hataları {detail: "..."} ya da doğrulama için {detail: [...]}
     const veri = await yanit.json().catch(() => ({}))
     const ayrinti = (veri as { detail?: unknown }).detail

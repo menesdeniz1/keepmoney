@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 
+import { OTURUM_BITTI } from './api/istemci'
 import { useBen } from './api/kancalar'
 import Duzen from './bilesenler/Duzen'
 import Ayarlar from './sayfalar/Ayarlar'
@@ -11,6 +14,17 @@ import Uyarilar from './sayfalar/Uyarilar'
 
 export default function App() {
   const { data: ben, isLoading, isError } = useBen()
+  const qc = useQueryClient()
+
+  // Oturum uygulama AÇIKKEN de dolabilir (token 7 gün ömürlü). Önbelleği
+  // temizlemek `useBen`i yeniden çalıştırır; 401 dönünce aşağıdaki dal
+  // kullanıcıyı giriş ekranına alır. Bu olmadan ekranda bayat veri ve
+  // her sorgudan gelen kırık hata kutuları kalıyordu.
+  useEffect(() => {
+    const isle = () => qc.clear()
+    window.addEventListener(OTURUM_BITTI, isle)
+    return () => window.removeEventListener(OTURUM_BITTI, isle)
+  }, [qc])
 
   // Oturum kontrolü tamamlanmadan yönlendirme yapma: aksi halde sayfa
   // yenilendiğinde kullanıcı bir an giriş ekranını görür (flash).
