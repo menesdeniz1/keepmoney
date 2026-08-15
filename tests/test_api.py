@@ -425,3 +425,53 @@ def test_bearer_hala_calisir(istemci):
     b = kayit_ol(istemci)
     istemci.cookies.clear()
     assert istemci.get("/api/auth/ben", headers=b).status_code == 200
+
+
+# ─────────────────────── sistem uçları ───────────────────────
+
+def test_saglik_veritabanina_dokunur(istemci):
+    """Sadece 'ayakta' dönen uç, DB düşmüşken de sağlıklı görünür."""
+    y = istemci.get("/saglik")
+    assert y.status_code == 200
+    assert y.json()["veritabani"] == "ayakta"
+
+
+def test_metrics_prometheus_bicimi(istemci):
+    y = istemci.get("/metrics")
+    assert y.status_code == 200
+    assert "keepmoney_" in y.text
+
+
+def test_domain_sagligi_oran_hesaplar(istemci, db):
+    from keepmoney.models import DomainHealth
+    b = kayit_ol(istemci)
+    db.add(DomainHealth(domain="magaza.com", basarili=8, basarisiz=2,
+                        son_durum="OK"))
+    db.commit()
+
+    y = istemci.get("/api/sistem/domainler", headers=b)
+    assert y.status_code == 200
+    kayit = y.json()[0]
+    assert kayit["domain"] == "magaza.com"
+    assert kayit["basari_orani"] == 80.0
+
+
+def test_sistem_ozeti_bayat_urunu_sayar(istemci, db):
+    from datetime import timedelta
+
+    from keepmoney.models import Product
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    db.add(Product(ad="Taze", son_kontrol=utc_simdi()))
+    db.add(Product(ad="Bayat", son_kontrol=utc_simdi() - timedelta(days=3)))
+    db.add(Product(ad="Hiç okunmamış"))
+    db.commit()
+
+    y = istemci.get("/api/sistem/ozet", headers=b).json()
+    assert y["toplam_urun"] == 3
+    assert y["bayat_urun"] == 2
+
+
+def test_sistem_uclari_kimlik_ister(istemci):
+    assert istemci.get("/api/sistem/domainler").status_code == 401

@@ -355,3 +355,35 @@ def test_tur_calistir_ozet_dondurur(db):
     assert sonuc.taranan_urun == 1
     assert sonuc.okunan_kaynak == 1
     assert sonuc.uretilen_uyari == 1
+
+
+# ---------- gözlemlenebilirlik ----------
+
+def test_basarili_okuma_domain_sagligina_yazilir(db):
+    from keepmoney.models import DomainHealth
+    _, p, _, _, t = kur(db, fiyat="1000")
+    t.urun_tara(p)
+
+    d = db.query(DomainHealth).filter(DomainHealth.domain == "magaza.com").one()
+    assert d.basarili == 1
+    assert d.basarisiz == 0
+    assert d.son_durum == "OK"
+
+
+def test_engelli_okuma_basarisiz_sayilir(db):
+    from keepmoney.models import DomainHealth
+    _, p, s, _, t = kur(db)
+    t.cekici.sayfalar[s.url] = "__403__"
+    t.urun_tara(p)
+
+    d = db.query(DomainHealth).filter(DomainHealth.domain == "magaza.com").one()
+    assert d.basarisiz == 1
+    assert d.son_durum == "ENGELLI"
+
+
+def test_olu_kaynak_domain_sagligina_yansir(db):
+    from keepmoney.models import DomainHealth
+    _, p, s, _, t = kur(db)
+    t.cekici.sayfalar[s.url] = "__404__"
+    t.urun_tara(p)
+    assert db.query(DomainHealth).one().son_durum == "OLU"

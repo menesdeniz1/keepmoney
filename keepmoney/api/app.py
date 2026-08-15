@@ -6,7 +6,6 @@ kuralı sızmaya başlarsa katmanlama bozuluyor demektir.
 """
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,14 +13,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..ayarlar import ayarlar
 from ..db import init_db
-from .rotalar import auth, izlemeler, setler, uyarilar
+from ..gunluk import kur as gunluk_kur
+from ..gunluk import log
+from .rotalar import auth, izlemeler, setler, sistem, uyarilar
 
-log = logging.getLogger("keepmoney.api")
+logger = log("keepmoney.api")
 
 
 @asynccontextmanager
 async def yasam_dongusu(app: FastAPI):
     a = ayarlar()
+    gunluk_kur()
     # SADECE geliştirmede tabloları otomatik kur.
     #  • Üretimde şema Alembic'in işi (K15) — `create_all` var olan tabloyu
     #    güncellemez, sessizce eski şemayla devam eder.
@@ -30,9 +32,9 @@ async def yasam_dongusu(app: FastAPI):
     #    ("table domain_health already exists" — CI bunu yakaladı).
     if a.ortam == "gelistirme":
         init_db()
-    log.info("KeepMoney API başladı (ortam=%s)", a.ortam)
+    logger.info("api_basladi", ortam=a.ortam)
     yield
-    log.info("KeepMoney API kapandı")
+    logger.info("api_kapandi")
 
 
 def uygulama_olustur() -> FastAPI:
@@ -52,12 +54,8 @@ def uygulama_olustur() -> FastAPI:
         allow_headers=["*"],
     )
 
-    for rota in (auth, izlemeler, setler, uyarilar):
+    for rota in (auth, izlemeler, setler, sistem, uyarilar):
         app.include_router(rota.router)
-
-    @app.get("/saglik", tags=["sistem"])
-    def saglik():
-        return {"durum": "ayakta", "ortam": a.ortam}
 
     return app
 

@@ -19,10 +19,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from . import analiz, ayikla, karar, siteler
+from . import analiz, ayikla, karar, olcumler, siteler
 from .cekici import Cekici
 from .fiyat import kisa_tl, tl
-from .models import Alert, PriceReading, Product, Source, Watch
+from .models import Alert, DomainHealth, PriceReading, Product, Source, Watch
 from .throttle import HostThrottle
 from .zaman import sessiz_saat_mi, tr_bugun, utc_simdi
 
@@ -87,6 +87,30 @@ class Tarayici:
         ]
         return sirasi_gelen[:limit]
 
+    # ── gözlemlenebilirlik ───────────────────────────────────────
+
+    def _sonucu_kaydet(self, host: str, sonuc: str) -> None:
+        """Domain sağlığını DB'ye, sayacı Prometheus'a yazar.
+
+        İkisi de gerekli: Prometheus anlık/kısa vadeli uyarı için, DB satırı
+        kullanıcıya gösterilen "hangi mağaza sorunlu" paneli için (Prometheus
+        tarihçesi bu ürün için tutulmuyor).
+        """
+        olcumler.kaynak_okuma.labels(domain=host, sonuc=sonuc).inc()
+
+        kayit = (self.db.query(DomainHealth)
+                 .filter(DomainHealth.domain == host).one_or_none())
+        if kayit is None:
+            kayit = DomainHealth(domain=host, basarili=0, basarisiz=0)
+            self.db.add(kayit)
+        if sonuc == "ok":
+            kayit.basarili = (kayit.basarili or 0) + 1
+            kayit.son_durum = "OK"
+        else:
+            kayit.basarisiz = (kayit.basarisiz or 0) + 1
+            kayit.son_durum = sonuc.upper()
+        kayit.son_kontrol = utc_simdi()
+
     # ── tek kaynak okuma ─────────────────────────────────────────
 
     def kaynak_oku(self, kaynak: Source) -> karar.KaynakOkumasi | None:
@@ -108,6 +132,7 @@ class Tarayici:
                         kaynak.host, ceza / 60)
             kaynak.durum = "ENGELLI"
             kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "engelli")
             return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host,
                                        engelli=True)
 
@@ -115,6 +140,7 @@ class Tarayici:
             kaynak.durum = "HATA"
             kaynak.hata_serisi = (kaynak.hata_serisi or 0) + 1
             kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "hata")
             return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host)
 
         c = ayikla.cikar(cekim.html, kural, cekim.http_kodu)
@@ -123,12 +149,14 @@ class Tarayici:
             self.throttle.cezalandir(kaynak.host)
             kaynak.durum = "ENGELLI"
             kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "engelli")
             return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host,
                                        engelli=True)
 
         if c.olu:
             kaynak.durum = "OLU"
             kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "olu")
             log.warning("Ölü kaynak: %s", kaynak.url)
             return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host, olu=True)
 
@@ -156,8 +184,11 @@ class Tarayici:
         kaynak.son_kontrol = utc_simdi()
         kaynak.son_guven = c.guven
 
+        olcumler.fiyat_guveni.labels(guven=c.guven).inc()
+
         if not guvenilir:
             kaynak.durum = "HATA" if sebep == "bozuk" else "BEKLEMEDE"
+            self._sonucu_kaydet(kaynak.host, "reddedildi")
             log.info("%s okuması kullanılmadı (%s): %s",
                      kaynak.host, sebep, tl(c.fiyat))
             okuma.ekstra["reddedildi"] = sebep
@@ -166,6 +197,7 @@ class Tarayici:
         kaynak.durum = "OK"
         kaynak.hata_serisi = 0
         kaynak.son_fiyat = c.fiyat
+        self._sonucu_kaydet(kaynak.host, "ok")
         if c.fiyat is not None:
             self.db.add(PriceReading(source_id=kaynak.id,
                                      product_id=kaynak.product_id,
@@ -380,6 +412,7 @@ class Tarayici:
     def _uyari_ekle(self, w: Watch, tur: str, baslik: str, mesaj: str) -> None:
         self.db.add(Alert(user_id=w.user_id, watch_id=w.id, tur=tur,
                           baslik=baslik, mesaj=mesaj, created_at=utc_simdi()))
+        olcumler.uretilen_uyari.labels(tur=tur).inc()
         log.info("Uyarı [%s] kullanıcı=%s: %s", tur, w.user_id, baslik)
 
     # ── yardımcılar ──────────────────────────────────────────────

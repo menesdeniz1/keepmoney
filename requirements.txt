@@ -23,6 +23,13 @@ requests>=2.31
 #   cloudscraper>=1.2.71   (Cloudflare atlatma denemesi)
 #   playwright>=1.45       (JS gerektiren siteler; playwright install chromium)
 
+# Gözlemlenebilirlik
+structlog>=24.4
+prometheus-client>=0.21
+
+# Postgres (üretim). SQLite geliştirmede yeterli, ek paket gerektirmez.
+# psycopg[binary]>=3.2
+
 # Telegram botu (isteğe bağlı bileşen — token yoksa devre dışı kalır)
 aiogram>=3.15
 
