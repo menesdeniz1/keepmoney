@@ -1,0 +1,230 @@
+"""Playwright yolunun GERÇEK entegrasyon testi.
+
+Bu dosya bir boşluğu kapatıyor: `_playwright` kod yolu uzun süre bir kez bile
+çalıştırılmamıştı (paket isteğe bağlı, ortamda kurulu değildi). Yani JS ile
+fiyat yükleyen siteler — `render: true` olan akakçe, trendyol vb. — için
+yazılmış her şey teoriydi. SSRF route süzgeci de dahil.
+
+Burada gerçek Chromium açılır ve yerelde çalışan gerçek bir HTTP sunucusuna
+gider. Dış ağa çıkılmaz.
+
+Playwright ya da tarayıcı yoksa test ATLANIR — isteğe bağlı bağımlılık
+yüzünden CI kırılmaz.
+"""
+from __future__ import annotations
+
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import ClassVar
+
+import pytest
+
+from keepmoney import aglar
+from keepmoney.ayarlar import ayarlar
+from keepmoney.cekici import HttpCekici
+
+pytest.importorskip("playwright", reason="playwright isteğe bağlı bağımlılık")
+
+# Tarayıcı nereden bulunacak?
+#   • Ortam değişkeni verilmişse o yol (bu geliştirme kabında /opt altında
+#     hazır bir chromium var, yeniden indirmenin anlamı yok).
+#   • Boş/tanımsızsa Playwright kendi indirdiğini bulur (CI böyle çalışır).
+# İkisi de yoksa test ATLANIR; testin içinde tarayıcı İNDİRMEYİZ.
+CHROMIUM = os.environ.get("KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR", "").strip()
+if CHROMIUM and not os.path.exists(CHROMIUM):
+    pytest.skip(f"chromium bulunamadı: {CHROMIUM}", allow_module_level=True)
+if not CHROMIUM and os.path.exists("/opt/pw-browsers/chromium"):
+    CHROMIUM = "/opt/pw-browsers/chromium"
+
+
+def _tarayici_var_mi() -> bool:
+    """Playwright kendi tarayıcısını bulabiliyor mu?"""
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as p:
+            p.chromium.launch(headless=True).close()
+        return True
+    except Exception:
+        return False
+
+
+if not CHROMIUM and not _tarayici_var_mi():
+    pytest.skip("kullanılabilir chromium yok", allow_module_level=True)
+
+
+# Fiyat yalnızca JS ÇALIŞTIKTAN SONRA DOM'a giriyor: `requests` bu sayfadan
+# fiyat okuyamaz, Playwright okuyabilmeli. `render: true`nin varlık sebebi.
+JS_ILE_FIYAT = """<!doctype html>
+<html><head><title>Yükleniyor…</title></head>
+<body><div id="fiyat">yükleniyor</div>
+<script>
+  document.title = "Ekran Kartı RTX 5080";
+  const s = document.createElement('script');
+  s.type = 'application/ld+json';
+  s.textContent = JSON.stringify({
+    "@type": "Product", "name": "Ekran Kartı RTX 5080",
+    "offers": {"price": "48999.90", "priceCurrency": "TRY"}
+  });
+  document.head.appendChild(s);
+  document.getElementById('fiyat').textContent = '48.999,90 TL';
+</script></body></html>"""
+
+# Sayfa iç ağdaki bir kaynağı çekmeye çalışıyor — SSRF süzgecinin
+# engellemesi gereken şey tam olarak bu.
+IC_AGA_ISTEK = """<!doctype html>
+<html><head><title>Ürün</title></head><body>
+<img src="http://169.254.169.254/latest/meta-data/iam/security-credentials/">
+<div>fiyat: 100 TL</div>
+</body></html>"""
+
+
+class _Islemci(BaseHTTPRequestHandler):
+    sayfalar: ClassVar[dict[str, str]] = {}
+
+    def do_GET(self):
+        govde = self.sayfalar.get(self.path)
+        if govde is None:
+            self.send_response(404)
+            self.end_headers()
+            return
+        ham = govde.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(ham)))
+        self.end_headers()
+        self.wfile.write(ham)
+
+    def log_message(self, *a):
+        pass                       # test çıktısını kirletme
+
+
+@pytest.fixture
+def sunucu():
+    """Yerelde gerçek HTTP sunucusu. Dönen: taban URL."""
+    _Islemci.sayfalar = {"/js": JS_ILE_FIYAT, "/ssrf": IC_AGA_ISTEK}
+    s = HTTPServer(("127.0.0.1", 0), _Islemci)
+    t = threading.Thread(target=s.serve_forever, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{s.server_port}"
+    s.shutdown()
+    s.server_close()
+
+
+@pytest.fixture
+def yerel_ag_serbest(monkeypatch):
+    """Mutlu yol için 127.0.0.1'i 'halka açık' say.
+
+    SSRF koruması yerel adresleri DOĞRU biçimde engelliyor; test sunucusu da
+    yerelde. Korumayı kaldırmıyoruz — yalnızca bu testte loopback'i geçerli
+    sayıyoruz ki gerçek tarayıcı + gerçek çıkarım zinciri sınanabilsin.
+    Engelleme davranışı ayrı testte, YAMASIZ olarak doğrulanıyor.
+    """
+    gercek = aglar._ip_halka_acik_mi
+    monkeypatch.setattr(
+        aglar, "_ip_halka_acik_mi",
+        lambda ip: True if str(ip) == "127.0.0.1" else gercek(ip))
+
+
+@pytest.fixture
+def cekici(monkeypatch):
+    if CHROMIUM:
+        monkeypatch.setenv("KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR", CHROMIUM)
+    else:
+        monkeypatch.delenv("KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR", raising=False)
+    ayarlar.cache_clear()
+    c = HttpCekici(zaman_asimi=30)
+    yield c
+    c.kapat()
+    ayarlar.cache_clear()
+
+
+# ── Mutlu yol: JS ile yüklenen fiyat gerçekten okunuyor mu? ──────
+
+def test_js_ile_yuklenen_fiyat_okunur(sunucu, cekici, yerel_ag_serbest):
+    """`render: true` olan siteler tam olarak buna bağlı. Bu doğrulanmadan
+    akakçe/trendyol kurallarının çalışacağını varsaymak temelsizdi."""
+    from keepmoney import ayikla
+
+    cekim = cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 1})
+
+    assert cekim.yontem == "playwright", cekim.hata
+    assert cekim.http_kodu == 200
+    assert "48.999,90" in cekim.html
+
+    # Uçtan uca: tarayıcıdan gelen HTML çıkarım zincirinden geçiyor mu?
+    c = ayikla.cikar(cekim.html, {"render": True}, 200)
+    assert c.fiyat == 48999.90
+    assert c.guven == "json-ld"
+    assert "RTX 5080" in (c.baslik or "")
+
+
+def test_requests_ayni_sayfadan_fiyat_okuyamaz(sunucu, yerel_ag_serbest):
+    """Kontrol grubu: JS çalışmazsa fiyat YOK. `render: true` gerçekten
+    gerekli mi sorusunun cevabı — süs değil."""
+    from keepmoney import ayikla
+
+    c = HttpCekici(zaman_asimi=10)
+    cekim = c._requests(f"{sunucu}/js")
+    assert cekim.http_kodu == 200
+    assert ayikla.cikar(cekim.html, {}, 200).fiyat is None
+
+
+def test_turkce_baslik_bozulmadan_gelir(sunucu, cekici, yerel_ag_serbest):
+    cekim = cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 1})
+    assert "Ekran Kartı" in cekim.html
+
+
+# ── SSRF: route süzgeci gerçek tarayıcıda çalışıyor mu? ─────────
+
+def test_sayfanin_ic_ag_istegi_engellenir(sunucu, cekici, yerel_ag_serbest):
+    """Sayfa `169.254.169.254`e (bulut metadata ucu) istek atıyor.
+
+    Bu, `requests` yolunda hiç oluşmayan bir risk: tarayıcı sayfanın ALT
+    KAYNAKLARINI da çeker. Süzgeç olmadan sayfaya gömülü tek bir <img>
+    sunucuyu iç ağa istek atmaya zorlayabilirdi.
+
+    Sayfanın yüklenmesi TEK BAŞINA hiçbir şey kanıtlamaz (istek engellense
+    de engellenmese de sayfa yüklenir). Bu yüzden iptal edilen isteklerin
+    listesi doğrudan gözleniyor.
+    """
+    # Tarayıcıyı önce ısıt: `_sayfa` ilk çekimde oluşuyor, dinleyiciyi
+    # ancak ondan sonra bağlayabiliriz.
+    cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 0})
+
+    iptal_edilenler: list[str] = []
+    cekici._sayfa.on("requestfailed",
+                     lambda i: iptal_edilenler.append(i.url))
+
+    cekim = cekici.cek(f"{sunucu}/ssrf", {"render": True, "bekleme_sn": 2})
+    assert cekim.yontem == "playwright", cekim.hata
+
+    # Sayfa yüklenmeli — engellenen YALNIZCA kötü alt istek.
+    assert "fiyat: 100 TL" in cekim.html
+    assert any("169.254.169.254" in u for u in iptal_edilenler), (
+        f"metadata isteği engellenmedi; iptal edilenler: {iptal_edilenler}")
+
+
+def test_hedefin_kendisi_ic_agdaysa_engellenir(sunucu, cekici):
+    """YAMASIZ: burada 127.0.0.1 gerçekten iç ağ sayılır ve çekim
+    başlamadan reddedilmeli — tarayıcı hiç açılmamalı."""
+    cekim = cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 1})
+    assert cekim.html is None
+    assert "guvensiz_hedef" in (cekim.hata or "")
+
+
+def test_metadata_ucuna_gidilmez(cekici):
+    cekim = cekici.cek("http://169.254.169.254/latest/meta-data/",
+                       {"render": True})
+    assert cekim.html is None
+    assert "guvensiz_hedef" in (cekim.hata or "")
+
+
+# ── Ayar gerçekten uygulanıyor mu? ──────────────────────────────
+
+def test_sistem_chromiumu_kullaniliyor(cekici, sunucu, yerel_ag_serbest):
+    """Ayar okunmasaydı Playwright kendi indirdiği sürümü arar ve
+    'Executable doesn't exist' ile düşerdi."""
+    assert ayarlar().playwright_calistirilabilir == (CHROMIUM or None)
+    cekim = cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 1})
+    assert cekim.html is not None, cekim.hata

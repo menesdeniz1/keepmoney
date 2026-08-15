@@ -56,3 +56,49 @@ def _hiz_sinirlari_sifirla():
     yield
     giris_sinirlayici.temizle()
     kayit_sinirlayici.temizle()
+
+
+# ─────────────────── veritabanı motoru ───────────────────
+#
+# Testler varsayılan olarak bellek içi SQLite'ta koşar (hızlı, kurulumsuz).
+# `KEEPMONEY_TEST_VERITABANI_URL` verilirse GERÇEK bir veritabanına karşı
+# koşar — üretimde Postgres kullanılıyor ve "SQLite'ta geçiyor" ile
+# "Postgres'te çalışıyor" aynı şey değil. Aradaki farklar sessizdir:
+# tarih/saat tipleri, boolean, dizi/sözlük dönüşümleri, kilitleme,
+# `CASE`/`GREATEST` gibi ifade farkları.
+#
+#   KEEPMONEY_TEST_VERITABANI_URL=postgresql+psycopg://... pytest -q
+
+import pytest as _pytest
+from sqlalchemy import create_engine as _create_engine
+from sqlalchemy.pool import StaticPool as _StaticPool
+
+
+def test_veritabani_url() -> str:
+    return os.environ.get("KEEPMONEY_TEST_VERITABANI_URL", "sqlite:///:memory:")
+
+
+def motor_olustur():
+    """Test motoru. SQLite bellek içi DB'nin tek bağlantıda paylaşılması
+    gerekir (StaticPool), yoksa her oturum boş bir veritabanı görür."""
+    url = test_veritabani_url()
+    if url.startswith("sqlite"):
+        return _create_engine(url, future=True,
+                              connect_args={"check_same_thread": False},
+                              poolclass=_StaticPool)
+    return _create_engine(url, future=True)
+
+
+@_pytest.fixture
+def motor():
+    """Her teste TEMİZ şema. Şemayı her testte kurup yıkmak, kimlik
+    sayaçlarını da sıfırlar — testler kayıt kimliklerinin 1'den başladığını
+    varsayabiliyor ve bu varsayım iki motorda da geçerli kalıyor."""
+    from keepmoney.db import Base
+
+    m = motor_olustur()
+    Base.metadata.drop_all(m)
+    Base.metadata.create_all(m)
+    yield m
+    Base.metadata.drop_all(m)
+    m.dispose()

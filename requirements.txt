@@ -28,7 +28,7 @@ structlog>=24.4
 prometheus-client>=0.21
 
 # Postgres (üretim). SQLite geliştirmede yeterli, ek paket gerektirmez.
-# psycopg[binary]>=3.2
+# psycopg[binary]>=3.2   (üretim: Postgres — CI'da gerçek Postgres'e karşı test ediliyor)
 
 # Telegram botu (isteğe bağlı bileşen — token yoksa devre dışı kalır)
 aiogram>=3.15

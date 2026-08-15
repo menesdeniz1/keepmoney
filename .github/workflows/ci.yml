@@ -32,6 +32,74 @@ jobs:
           alembic upgrade head
           alembic check
 
+  # ÜRETİM VERİTABANI POSTGRES. "SQLite'ta geçiyor" ile "Postgres'te
+  # çalışıyor" aynı şey değil ve aradaki farklar sessizdir: tarih/saat
+  # tipleri, boolean dönüşümü, `CASE`/`GREATEST` gibi ifade farkları,
+  # kilitleme davranışı. Aynı paket gerçek Postgres'e karşı da koşuyor.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      veritabani:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: keepmoney
+          POSTGRES_PASSWORD: keepmoney
+          POSTGRES_DB: keepmoney
+          # Açıkça UTF-8: SQL_ASCII bir veritabanı psycopg'ye metin yerine
+          # bytes döndürür ve sürücü katmanı patlar. Türkçe bir üründe
+          # kodlamayı varsayılana bırakmak ayrıca kabul edilemez.
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U keepmoney"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PG_URL: postgresql+psycopg://keepmoney:keepmoney@127.0.0.1:5432/keepmoney
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt "psycopg[binary]>=3.2"
+
+      - name: Göçler (Postgres)
+        run: alembic upgrade head && alembic check
+        env:
+          KEEPMONEY_VERITABANI_URL: ${{ env.PG_URL }}
+
+      - name: Göç geri alınabiliyor mu
+        run: alembic downgrade base && alembic upgrade head
+        env:
+          KEEPMONEY_VERITABANI_URL: ${{ env.PG_URL }}
+
+      - name: Testler (Postgres)
+        run: pytest -q
+        env:
+          KEEPMONEY_TEST_VERITABANI_URL: ${{ env.PG_URL }}
+
+  # Playwright yolu (JS ile fiyat yükleyen siteler — `render: true`) uzun
+  # süre bir kez bile çalıştırılmamıştı: paket isteğe bağlı olduğu için
+  # normal test koşusunda atlanıyordu. Gerçek tarayıcıyla, yerelde çalışan
+  # gerçek bir HTTP sunucusuna karşı koşuyor. Dış ağa çıkmaz.
+  tarayici-motoru:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt playwright
+      - run: playwright install --with-deps chromium
+      - name: Playwright entegrasyon testleri
+        run: pytest -q tests/test_playwright.py
+        env:
+          # Boş bırakılınca Playwright kendi indirdiği tarayıcıyı bulur.
+          KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR: ""
+
   arayuz:
     runs-on: ubuntu-latest
     defaults:

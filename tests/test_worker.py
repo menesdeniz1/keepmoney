@@ -3,11 +3,9 @@ import time
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from keepmoney.cekici import Cekim
-from keepmoney.db import Base
 from keepmoney.models import Alert, PriceReading, Product, Source, User, Watch, WatchSet
 from keepmoney.throttle import HostThrottle
 from keepmoney.worker import ARALIK_MAKS_DK, ARALIK_MIN_DK, Tarayici
@@ -43,10 +41,8 @@ def urun_sayfasi(fiyat: str, puan: str | None = None) -> str:
 
 
 @pytest.fixture
-def db():
-    engine = create_engine("sqlite:///:memory:", future=True)
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
+def db(motor):
+    s = sessionmaker(bind=motor)()
     yield s
     s.close()
 

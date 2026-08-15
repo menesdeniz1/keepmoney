@@ -64,6 +64,14 @@ class Ayarlar(BaseSettings):
     # ── Kota (ücretsiz katman) ────────────────────────────────────
     kullanici_basina_izleme_limiti: int = 30
 
+    # ── Tarama ────────────────────────────────────────────────────
+    # Playwright'ın kendi indirdiği tarayıcı yerine SİSTEM chromium'unu
+    # kullan. Boşsa Playwright kendi sürümünü arar. Konteynerde tarayıcıyı
+    # imaja ayrıca kurup buradan göstermek, her `playwright install` ile
+    # ~150 MB indirmekten ucuzdur; ayrıca dağıtımın güvenlik güncellemesi
+    # alan chromium'unu kullanmayı mümkün kılar.
+    playwright_calistirilabilir: str | None = None
+
     # ── Gözlemlenebilirlik ────────────────────────────────────────
     # Tarayıcı süreci ölçümlerini KENDİ ucundan yayınlar; API'nin /metrics'i
     # onları göremez (ayrı süreç = ayrı kayıt defteri, bkz. olcumler.py).

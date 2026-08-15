@@ -3,22 +3,15 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from keepmoney.api.app import uygulama_olustur
-from keepmoney.db import Base, get_db
+from keepmoney.db import get_db
 from keepmoney.models import Alert, PriceReading, Product, Source, Watch
 
 
 @pytest.fixture
-def oturum_fabrikasi():
-    # StaticPool + tek bağlantı: bellek içi DB testler arası paylaşılsın
-    motor = create_engine("sqlite:///:memory:", future=True,
-                          connect_args={"check_same_thread": False},
-                          poolclass=StaticPool)
-    Base.metadata.create_all(motor)
+def oturum_fabrikasi(motor):
     return sessionmaker(bind=motor)
 
 

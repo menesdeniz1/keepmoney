@@ -2,19 +2,15 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from keepmoney.bot import kartlar
 from keepmoney.bot.gonderici import bekleyenleri_gonder
-from keepmoney.db import Base
 from keepmoney.models import Alert, Product, User, Watch
 
 
 @pytest.fixture
-def db():
-    motor = create_engine("sqlite:///:memory:", future=True)
-    Base.metadata.create_all(motor)
+def db(motor):
     s = sessionmaker(bind=motor)()
     yield s
     s.close()

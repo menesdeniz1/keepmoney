@@ -29,6 +29,7 @@ from .aglar import (
     dogrula,
     guvenli_mi,
 )
+from .ayarlar import ayarlar
 
 VARSAYILAN_ZAMAN_ASIMI = 25
 
@@ -260,8 +261,14 @@ class HttpCekici:
         if self._sayfa is not None:
             return
         self._pw = sync_playwright().start()
-        tarayici = self._pw.chromium.launch(
-            headless=True, args=["--disable-blink-features=AutomationControlled"])
+        # Sistem chromium'u belirtilmişse onu kullan (bkz. ayarlar).
+        secenekler: dict = {
+            "headless": True,
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        if yol := ayarlar().playwright_calistirilabilir:
+            secenekler["executable_path"] = yol
+        tarayici = self._pw.chromium.launch(**secenekler)
         baglam = tarayici.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=TARAYICI_IZLERI[0],
