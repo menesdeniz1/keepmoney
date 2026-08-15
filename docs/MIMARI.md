@@ -311,3 +311,75 @@ Gönderim başarısızsa bayrak çevrilmez → sonraki turda yeniden denenir. Te
 **Neden elle service worker yazılmadı:** Bayat uygulama kabuğu, elle yazılan SW'lerin en yaygın hatasıdır — kullanıcı günlerce eski sürümü görür ve "temizle" demeden düzelmez. Plugin precache manifestini derlemeden üretir ve otomatik günceller.
 
 **Neden API önbelleğe alınmaz:** Bu ürünün tüm iddiası fiyatın *güncel* olması. Önbellekten dünkü fiyat servis edilirse kullanıcı "dip" sanıp alır. Çevrimdışı çalışması gereken tek şey kabuktur.
+
+---
+
+## K27 — SSRF: her sıçrama doğrulanır, tek kapı yetmez
+
+**Karar:** `aglar.py` tek doğrulama noktası; `url_sorunu()` şemayı, yazılı IP'yi ve **çözülmüş tüm A/AAAA kayıtlarını** denetler. Yönlendirmeler elle takip edilir ve **her adımda** yeniden doğrulanır.
+
+**Tehdit:** Kullanıcı keyfi URL veriyor, sunucu ona istek atıyor — SSRF'in ders kitabı tanımı (OWASP A10). `https://169.254.169.254/latest/meta-data/iam/security-credentials/` bulut IAM anahtarlarını döndürür ve sayfa başlığı ürün adı olarak kullanıcıya geri gösterildiği için bu kör bir SSRF bile değil, doğrudan sızdırma kanalı.
+
+**Neden tek kapı yetmedi (yaşandı):** İlk düzeltmede yalnızca `requests` yolu kapatıldı. `cloudscraper` yolunda tek bir `dogrula(url)` vardı ve yönlendirmeleri kütüphane takip ediyordu; Playwright yolunda tarayıcının kendisi takip ediyordu. Yani halka açık bir adres 302 ile iç ağa sapabiliyordu. **Ders:** koruma, ağa çıkan HER yolda olmalı ve kopyalanmamalı. Yönlendirme döngüsü artık requests/cloudscraper arasında paylaşılıyor, Playwright'ta ise yönlendirme ve alt kaynaklar dahil her istek `route` süzgecinden geçiyor.
+
+**Kabul edilen artık risk:** DNS rebinding (doğrulama ile bağlantı arasında DNS cevabının değişmesi). Tam çözüm çözülen IP'ye bağlanıp Host başlığını elle vermek; requests'te ek taşıyıcı gerektiriyor. Pencere dar, yüzey sınırlı — kayda geçirildi.
+
+---
+
+## K28 — Hız sınırı bellekte, Redis'te değil (şimdilik)
+
+**Karar:** Giriş/kayıt için süreç içi kayan pencere sayacı. IP+e-posta anahtarı.
+
+**Neden yeterli:** Amaç kararlı bir saldırganı durdurmak değil — o mümkün değil. Amaç sözlük saldırısını **ekonomik olmaktan çıkarmak**. Tek instance'ta bu doğru çalışır ve sıfır bağımlılık getirir.
+
+**Sınırı açıkça yazıyoruz:** Çok instance'ta her biri kendi sayacını tutar, efektif limit N katına çıkar; yeniden başlatmada sayaç sıfırlanır. Çok instance'a geçilen gün Redis'e taşınacak. Tek sayaç için bugünden koca bir bileşen işletmek, K24'teki kuyruk kararıyla aynı gerekçeyle reddedildi.
+
+---
+
+## K29 — Ölçümler: her SÜREÇ kendi ucunu yayınlar
+
+**Karar:** `api` → `/metrics` (HTTP ölçümleri), `tarayici` → `:9100/metrics` (tarama ve kapsam ölçümleri). Prometheus iki hedefi ayrı toplar.
+
+**Yakalanan hata:** Tarama sayaçları (`kaynak_okuma`, `fiyat_guveni`, `bayat_urun`…) `tarayici` sürecinde artıyordu ama `/metrics` yalnızca `api` sürecinde sunuluyordu. `prometheus_client`in kayıt defteri **süreç içidir** — API bu sayaçları hiçbir zaman göremezdi. Kod doğruydu, sayaçlar artıyordu, panolar boş kalıyordu. Bu, ölçüm olmamasından daha kötüdür: "ölçüyoruz" sanılır. Ürünün baştan beri yazdığı bir numaralı risk (scraping'in sessizce bozulması) tam da bu ölçümlerle görülecekti.
+
+**Etiket kuralı:** HTTP ölçümlerinde **rota şablonu** (`/api/izlemeler/{izleme_id}`) kullanılır, ham yol değil. Ham yol her izleme kimliği için yeni bir zaman serisi doğurur — Prometheus'u şişiren en yaygın hata. Eşleşmeyen yol (404) hiç ölçülmez, yoksa rastgele URL deneyen bir tarayıcı tek başına ölçüm deposunu doldurur.
+
+---
+
+## K30 — Tarama kuyruğu: `sonraki_kontrol` sütunu
+
+**Karar:** Sıradaki tarama zamanı satırda tutulur ve indekslenir; seçim `WHERE sonraki_kontrol IS NULL OR sonraki_kontrol <= now()`.
+
+**Neden sütun:** `son_kontrol + kontrol_araligi_dk` her satırda farklı bir aralık demek ve bu hesabın SQLite ile PostgreSQL'de taşınabilir bir yazımı yok. Sonuç sütunda tutulunca seçim tek indeksli karşılaştırmaya iniyor. Aksi hâlde her tur (dakikada bir) **tüm ürün tablosu belleğe çekilip Python'da süzülüyordu** — 50 üründe fark edilmez, 50.000 üründe tarayıcıyı tek başına dize getirir. İş kuyruklarının `next_run_at`/`visible_at` deseni; K24'te yazılan "DB kuyruğun kendisidir" kararının eksik kalan yarısı.
+
+**`son_kontrol`dan ayrı tutulur:** İkincisi "en son ne zaman okundu" olgusudur ve arayüzde gösterilir. Eskiden yeni bir abone geldiğinde `son_kontrol` sıfırlanıyordu — yani başkasının aylardır izlediği ürün, herkes için "hiç kontrol edilmemiş" görünüyordu.
+
+---
+
+## K31 — Bozuk kaynak bildirimi ÜRÜN seviyesinde
+
+**Karar:** "Fiyat okunamıyor" uyarısı, ürünün **hiçbir** kaynağından fiyat gelmediğinde üretilir; kaynak başına değil.
+
+**Yakalanan hata:** `KAYNAK_BOZUK` uyarı türü modelde tanımlı, arayüzde etiketi hazır, `karar.dogrula` "bozuk" deyip durumu işaretliyordu — ama **Alert satırını yazan kod hiç yoktu**. Kaynak sessizce bozulunca kullanıcı bayat fiyata bakmaya devam ediyordu. Aynı şekilde `hata_serisi` artırılıp sıfırlanıyor ama hiçbir kararda okunmuyordu.
+
+**Neden ürün seviyesinde:** Bir kaynak bozulsa da ürünün başka çalışan kaynağı varsa kullanıcı doğru fiyatı görmeye devam eder; ona bildirim göndermek gürültüdür. Haber değeri, ekrandaki fiyatın o andan itibaren **bayat** olmasındadır. Tek turluk arıza da gürültüdür (site bakımda olabilir) — üst üste tekrarlayan arıza haberdir. `bozuk_uyarildi` bayrağı tekrar bildirimi engeller, kaynak düzelince düşer.
+
+---
+
+## K32 — Host aralığı: koruma, koruduğu yolla aynı renkte olmalı
+
+**Karar:** `HostThrottle` API'si **senkrondur** ve tarama yolundan doğrudan çağrılır.
+
+**Yakalanan hata:** Sıraya girme `async with throttle.slot(host)` biçiminde asenkron bir bağlam yöneticisiydi; oysa `Tarayici.kaynak_oku` senkron ve `asyncio.to_thread` içinden çalışıyor. O arayüzü çağırmak **yapısal olarak mümkün değildi** ve hiç çağrılmadı. Sonuç: modülün kendi başlığında "ölçekli scraping'de tek başarısızlık noktası budur" diye yazan korumanın birinci maddesi üretimde hiç devreye girmiyordu — tarayıcı bir turda aynı siteye 50 isteği arka arkaya atıyordu, yani korumanın engellemek için yazıldığı şeyin tam kendisi. Ceza (ikinci madde) çalışıyordu, aralık çalışmıyordu.
+
+**Genel ders:** Bir korumanın eşzamanlılık modeli, koruduğu kod yolununkiyle uyuşmuyorsa o koruma **yoktur**. Testlerde `HostThrottle(min_gap=0)` enjekte ediliyor — bağımlılığın dışarıdan verilmesinin somut faydası.
+
+---
+
+## K33 — Kısmi güncelleme (PATCH) semantiği tek yerde
+
+**Karar:** `servisler/ortak.alanlari_uygula` — beyaz liste + "açık `null` = temizle".
+
+**İki hata birden:** (1) Alanlar `hasattr(nesne, ad)` ile kabul ediliyordu, yani modelin her sütunu yazılabilirdi; şema bilinmeyen anahtarı düşürdüğü için sömürülebilir değildi ama korumayı tesadüfe bırakmak toplu atama açığının klasik reçetesidir. (2) `None` "dokunulmadı" sayıldığı için bir kez konan hedef fiyat/bütçe API'den **bir daha silinemiyordu**.
+
+**Neden ortak modül:** Aynı desen iki serviste kopyalanmıştı; biri düzeltilip diğeri geride kaldı. Rotalar `exclude_unset=True` ile çağırdığından bir anahtarın **varlığı** kullanıcının o alana bilerek dokunduğu anlamına gelir — kuralın tek bir yerde yaşaması gerekiyordu.
