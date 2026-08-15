@@ -23,7 +23,7 @@ services:
     command: alembic upgrade head
     environment: &ortak
       KEEPMONEY_ORTAM: uretim
-      KEEPMONEY_VERITABANI_URL: postgresql+psycopg://keepmoney:${POSTGRES_PAROLA}@veritabani/keepmoney
+      KEEPMONEY_VERITABANI_URL: postgresql+psycopg://keepmoney:${POSTGRES_PAROLA:?POSTGRES_PAROLA gerekli}@veritabani/keepmoney
       KEEPMONEY_JWT_GIZLI_ANAHTAR: ${KEEPMONEY_JWT_GIZLI_ANAHTAR:?en az 32 bayt CSPRNG çıktısı}
       KEEPMONEY_CORS_KAYNAKLARI: ${KEEPMONEY_CORS_KAYNAKLARI:-https://keepmoney.com}
       KEEPMONEY_TELEGRAM_BOT_TOKEN: ${KEEPMONEY_TELEGRAM_BOT_TOKEN:-}

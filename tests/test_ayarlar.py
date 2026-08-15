@@ -142,3 +142,38 @@ def test_cors_json_dizisi_olarak_da_verilebilir(monkeypatch):
     monkeypatch.setenv("KEEPMONEY_CORS_KAYNAKLARI", '["https://a.com"]')
     ayarlar.cache_clear()
     assert ayarlar().cors_kaynaklari == ["https://a.com"]
+
+
+def test_her_ayar_env_ornekte_belgeli():
+    """`.env.example` yapılandırmanın TEK belgesi; eksik kalan ayar,
+    varlığından haberdar olunmayan ayardır.
+
+    Yeni bir ayar eklerken bu test onu belgelemeye zorlar — belge, koddan
+    ayrı yaşamaya başladığı anda yanlış belgeye dönüşür.
+    """
+    import pathlib
+
+    from keepmoney.ayarlar import Ayarlar
+
+    ornek = pathlib.Path(__file__).resolve().parents[1] / ".env.example"
+    metin = ornek.read_text(encoding="utf-8")
+
+    eksik = [f"KEEPMONEY_{ad.upper()}" for ad in Ayarlar.model_fields
+             if f"KEEPMONEY_{ad.upper()}" not in metin]
+    assert not eksik, f".env.example'da belgelenmemiş ayar: {eksik}"
+
+
+def test_env_ornekte_gercek_sir_yok():
+    """Örnek dosya depoya işleniyor: içinde çalışan bir sır bulunmamalı."""
+    import pathlib
+
+    from keepmoney.ayarlar import anahtar_sorunu
+
+    ornek = pathlib.Path(__file__).resolve().parents[1] / ".env.example"
+    for satir in ornek.read_text(encoding="utf-8").splitlines():
+        if satir.startswith("KEEPMONEY_JWT_GIZLI_ANAHTAR="):
+            deger = satir.split("=", 1)[1].strip()
+            # Boş olmalı; dolu ve politikadan GEÇEN bir değer, gerçek bir
+            # anahtarın yanlışlıkla işlendiği anlamına gelir.
+            assert not deger or anahtar_sorunu(deger) is not None, (
+                ".env.example'da politikaya uyan gerçek bir anahtar var")
