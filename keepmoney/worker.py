@@ -131,6 +131,13 @@ class Tarayici:
             log.info("%s geri çekilmede, bu tur atlandı", kaynak.host)
             return None
 
+        # Aynı hosta asgari aralık. Bu çağrı olmadan tarayıcı bir turda aynı
+        # siteye 50 isteği arka arkaya atar ve IP'yi yaktırır — throttle'ın
+        # var oluş sebebi buydu ama çağıran yoktu (bkz. throttle.py).
+        bekleme = self.throttle.bekle(kaynak.host)
+        if bekleme > 0:
+            log.debug("%s için %.1f sn beklendi", kaynak.host, bekleme)
+
         kural = siteler.kural(kaynak.url)
         cekim = self.cekici.cek(kaynak.url, kural)
 

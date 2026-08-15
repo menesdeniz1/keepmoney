@@ -1,4 +1,5 @@
 """Tarama motoru testleri — uçtan uca, sahte çekiciyle (gerçek ağ yok)."""
+import time
 from datetime import timedelta
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from keepmoney.cekici import Cekim
 from keepmoney.db import Base
 from keepmoney.models import Alert, PriceReading, Product, Source, User, Watch, WatchSet
+from keepmoney.throttle import HostThrottle
 from keepmoney.worker import ARALIK_MAKS_DK, ARALIK_MIN_DK, Tarayici
 from keepmoney.zaman import utc_simdi
 
@@ -63,7 +65,7 @@ def kur(db, fiyat="50000", url="https://magaza.com/urun", hedef=None,
     db.add(w)
     db.commit()
     cekici = SahteCekici({url: urun_sayfasi(fiyat, puan)})
-    return u, p, s, w, Tarayici(db, cekici)
+    return u, p, s, w, Tarayici(db, cekici, HostThrottle(min_gap=0))
 
 
 # ---------- temel tarama ----------
@@ -126,7 +128,7 @@ def test_en_ucuz_kaynak_secilir(db):
     t = Tarayici(db, SahteCekici({
         "https://a.com/u": urun_sayfasi("1200"),
         "https://b.com/u": urun_sayfasi("1100"),
-    }))
+    }), HostThrottle(min_gap=0))
     t.urun_tara(p)
     assert p.guncel_fiyat == 1100
 
@@ -146,7 +148,7 @@ def test_bir_kaynagin_hatasi_digerini_iptal_etmez(db):
     t = Tarayici(db, SahteCekici({
         "https://olu.com/u": "__404__",
         "https://iyi.com/u": urun_sayfasi("900"),
-    }))
+    }), HostThrottle(min_gap=0))
     t.urun_tara(p)
     assert p.guncel_fiyat == 900
 
@@ -240,7 +242,7 @@ def test_iki_kullanici_farkli_hedef_farkli_uyari(db):
                 Watch(user_id=b.id, product_id=p.id, hedef_fiyat=40000)])
     db.commit()
 
-    t = Tarayici(db, SahteCekici({"https://m.com/u": urun_sayfasi("45000")}))
+    t = Tarayici(db, SahteCekici({"https://m.com/u": urun_sayfasi("45000")}), HostThrottle(min_gap=0))
     t.urun_tara(p)
 
     assert db.query(Alert).filter(Alert.user_id == a.id).count() == 1
@@ -268,7 +270,7 @@ def test_set_toplami_butcenin_altina_inince_uyarir(db):
         urunler.append((p, fiyat))
 
     t = Tarayici(db, SahteCekici({
-        f"https://m.com/{p.ad}": urun_sayfasi(f) for p, f in urunler}))
+        f"https://m.com/{p.ad}": urun_sayfasi(f) for p, f in urunler}), HostThrottle(min_gap=0))
     for p, _ in urunler:
         t.urun_tara(p)
 
@@ -295,7 +297,7 @@ def test_eksik_uyeli_set_uyari_uretmez(db):
                 Watch(user_id=u.id, product_id=p2.id, set_id=s.id)])
     db.commit()
 
-    t = Tarayici(db, SahteCekici({"https://m.com/cpu": urun_sayfasi("30000")}))
+    t = Tarayici(db, SahteCekici({"https://m.com/cpu": urun_sayfasi("30000")}), HostThrottle(min_gap=0))
     t.urun_tara(p1)
     assert db.query(Alert).filter(Alert.tur == "SET_HEDEF").count() == 0
 
@@ -340,7 +342,7 @@ def test_secim_tum_tabloyu_belege_cekmez(db):
     for n in range(30):
         db.add(Product(ad=f"U{n}", izleyen_sayisi=1))
     db.commit()
-    t = Tarayici(db, SahteCekici())
+    t = Tarayici(db, SahteCekici(), HostThrottle(min_gap=0))
 
     sorgular = []
     from sqlalchemy import event
@@ -364,7 +366,7 @@ def test_cok_izlenen_urun_once_taranir(db):
     cok = Product(ad="Çok izlenen", izleyen_sayisi=50)
     db.add_all([az, cok])
     db.commit()
-    t = Tarayici(db, SahteCekici())
+    t = Tarayici(db, SahteCekici(), HostThrottle(min_gap=0))
     assert t.taranacak_urunler()[0].ad == "Çok izlenen"
 
 
@@ -548,3 +550,39 @@ def test_gecmis_urun_basina_tek_kez_okunur(db):
 
     t.urun_tara(p)
     assert len(cagrilar) == 1, f"{len(cagrilar)} kez okundu"
+
+
+def test_tarama_ayni_hosta_aralik_birakir(db):
+    """Throttle çağrılıyor mu? Bir dönem hiç çağrılmıyordu: tarayıcı bir
+    turda aynı siteye tüm istekleri arka arkaya atıp IP'yi yaktırırdı."""
+    u = User(email="a@x.com", password_hash="x")
+    db.add(u)
+    p = Product(ad="Ürün", izleyen_sayisi=1)
+    db.add(p)
+    db.commit()
+    sayfalar = {}
+    for n in range(3):
+        url = f"https://magaza.com/u{n}"
+        db.add(Source(product_id=p.id, url=url, host="magaza.com"))
+        sayfalar[url] = urun_sayfasi("1000")
+    db.commit()
+
+    throttle = HostThrottle(min_gap=0)
+    beklenenler = []
+    gercek = throttle.bekle
+    throttle.bekle = lambda h: (beklenenler.append(h), gercek(h))[1]
+
+    Tarayici(db, SahteCekici(sayfalar), throttle).urun_tara(p)
+    assert beklenenler == ["magaza.com"] * 3
+
+
+def test_geri_cekilmedeki_host_bekletilmez(db):
+    """Cezalı host atlanmalı, sırasını BEKLEMEMELİ — beklerse worker
+    slotu dakikalarca işgal edilir ve tüm tarama kilitlenir."""
+    _, p, _s, _, t = kur(db)
+    t.throttle.cezalandir("magaza.com")
+
+    basla = time.monotonic()
+    t.urun_tara(p)
+    assert time.monotonic() - basla < 1.0
+    assert t.cekici.cagrilar == []

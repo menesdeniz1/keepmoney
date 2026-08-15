@@ -798,3 +798,54 @@ def test_metrics_ucu_kendini_saymaz(istemci):
     istemci.get("/metrics")
     y = istemci.get("/metrics")
     assert 'rota="/metrics"' not in y.text
+
+
+# ─────────────────── yapılandırma tuzakları ───────────────────
+
+def test_ozel_cerez_adiyla_oturum_calisir(oturum_fabrikasi, monkeypatch):
+    """`KEEPMONEY_OTURUM_CEREZI` değiştirilince oturum BOZULUYORDU: çerezi
+    kuran taraf ayarı okuyor, okuyan taraf adı sabit yazıyordu. Giriş 200
+    dönüyor, çerez kuruluyor, sonraki her istek 401 oluyordu."""
+    from keepmoney.ayarlar import ayarlar
+
+    monkeypatch.setenv("KEEPMONEY_OTURUM_CEREZI", "km_ozel")
+    ayarlar.cache_clear()
+    try:
+        app = uygulama_olustur()
+
+        def test_db():
+            d = oturum_fabrikasi()
+            try:
+                yield d
+            finally:
+                d.close()
+
+        app.dependency_overrides[get_db] = test_db
+        with TestClient(app) as c:
+            c.post("/api/auth/kayit",
+                   json={"eposta": "a@ornek.com", "parola": "parola1234"})
+            g = c.post("/api/auth/giris",
+                       json={"eposta": "a@ornek.com", "parola": "parola1234"})
+            assert g.status_code == 200
+            assert "km_ozel" in c.cookies
+            assert c.get("/api/auth/ben").status_code == 200
+    finally:
+        ayarlar.cache_clear()
+
+
+def test_jwt_algoritmasi_none_olamaz(monkeypatch):
+    """`alg=none` JWT'nin klasik açığı: imza doğrulaması tümden kapanır ve
+    herkes istediği kullanıcı adına token üretir. Ayar açılışta reddetmeli."""
+    import pydantic
+
+    from keepmoney.ayarlar import Ayarlar
+
+    monkeypatch.setenv("KEEPMONEY_JWT_ALGORITMA", "none")
+    with pytest.raises(pydantic.ValidationError):
+        Ayarlar()
+
+
+def test_gecerli_hmac_algoritmalari_kabul_edilir(monkeypatch):
+    from keepmoney.ayarlar import Ayarlar
+    monkeypatch.setenv("KEEPMONEY_JWT_ALGORITMA", "HS512")
+    assert Ayarlar().jwt_algoritma == "HS512"

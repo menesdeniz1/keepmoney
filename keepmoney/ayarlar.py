@@ -36,7 +36,13 @@ class Ayarlar(BaseSettings):
     # brute-force'a açıktır ve token sahteciliği demektir.
     jwt_gizli_anahtar: str = ""
     jwt_omur_dk: int = 60 * 24 * 7          # 7 gün
-    jwt_algoritma: str = "HS256"
+
+    # Literal, `str` DEĞİL. Serbest string olsaydı ortam değişkeninden
+    # "none" verilebilirdi — imza doğrulamasının tümden kapatılması, yani
+    # herkesin istediği kullanıcı adına token üretebilmesi (JWT'nin klasik
+    # `alg=none` açığı). Yalnızca simetrik HMAC ailesi kabul edilir; anahtar
+    # politikası (aşağıda) bu aileye göre yazılmıştır.
+    jwt_algoritma: Literal["HS256", "HS384", "HS512"] = "HS256"
 
     # Oturum çerezi — tarayıcı istemcisi token'a HİÇ dokunmaz (bkz. K22).
     # httpOnly olduğu için XSS ile okunamaz; SameSite=lax CSRF'in büyük

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -20,9 +20,9 @@ DB = Annotated[Session, Depends(get_db)]
 
 
 def mevcut_kullanici(
+    istek: Request,
     db: DB,
     kimlik: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
-    km_oturum: Annotated[str | None, Cookie()] = None,
 ) -> User:
     """Oturumu İKİ kaynaktan kabul eder:
 
@@ -32,6 +32,12 @@ def mevcut_kullanici(
 
     İkisini de desteklemek yaygın profesyonel kalıptır: web'e en güvenli
     yolu verir, entegrasyonlara standart yolu bırakır.
+
+    Çerez YAPILANDIRILAN adla okunur. Eskiden imza `km_oturum` adını sabit
+    yazıyordu ama çerezi kuran taraf `ayarlar().oturum_cerezi` kullanıyordu:
+    `KEEPMONEY_OTURUM_CEREZI` değiştirildiği anda giriş başarılı oluyor,
+    çerez kuruluyor, ama sonraki her istek 401 dönüyordu. Ayarın tek
+    okuyucusu olmalı — yoksa "çalışıyor gibi görünen" bir ayar olur.
     """
     hata = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -39,7 +45,8 @@ def mevcut_kullanici(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    token = (kimlik.credentials if kimlik and kimlik.credentials else km_oturum)
+    cerez = istek.cookies.get(ayarlar().oturum_cerezi)
+    token = (kimlik.credentials if kimlik and kimlik.credentials else cerez)
     if not token:
         raise hata
 
