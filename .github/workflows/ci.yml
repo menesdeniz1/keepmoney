@@ -2,6 +2,10 @@ name: CI
 
 on: [push, pull_request]
 
+env:
+  KEEPMONEY_ORTAM: test
+  KEEPMONEY_JWT_GIZLI_ANAHTAR: ci-test-anahtari-degistirilmeyecek
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,7 +16,16 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+
       - name: Lint
         run: ruff check .
+
       - name: Testler
         run: pytest -q
+
+      # Model ile migrasyonlar uyuşuyor mu? Kolon ekleyip migrasyon üretmeyi
+      # unutmak, üretimde sessizce eski şemayla çalışmak demektir.
+      - name: Şema/migrasyon uyumu
+        run: |
+          alembic upgrade head
+          alembic check
