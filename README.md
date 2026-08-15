@@ -5,13 +5,15 @@
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. **409 backend + 18 arayüz testi**;
+> Docker ile üç süreç olarak ayağa kalkıyor. **422 backend + 18 arayüz testi**;
 > paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
 > ise **gerçek tarayıcıyla uçtan uca** koşuyor (23 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
 > **Henüz canlıda çalışmadı** — site seçicileri gerçek sayfalara karşı
-> doğrulanmayı bekliyor.
-> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (44 karar kaydı)
+> doğrulanmayı bekliyor ([`betikler/kaynak_dene.py`](betikler/kaynak_dene.py)
+> bunu tek komuta indiriyor).
+> Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (45 karar kaydı)
 
 ---
 
@@ -45,34 +47,61 @@ Ayrıntılı gerekçe: [`docs/MIMARI.md`](docs/MIMARI.md)
 
 ## Kurulum
 
-### Docker ile (önerilen)
+**Adım adım kurulum, test ve canlıya alma:
+[`docs/CALISTIRMA.md`](docs/CALISTIRMA.md).** Aşağısı özet.
 
-```bash
-cp .env.example .env    # KEEPMONEY_JWT_GIZLI_ANAHTAR'ı doldur
-docker compose up -d    # veritabanı + göçler + api + tarayıcı + bot
-```
-
-### Elle
+### Yerelde (~5 dakika)
 
 ```bash
 git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-alembic upgrade head                          # şemayı kur
-pytest                                        # 409 test
+cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
+mkdir -p data && alembic upgrade head         # şemayı kur
+pytest                                        # 422 test
+
 uvicorn keepmoney.api.app:app --reload        # API      :8000
-python -m keepmoney.zamanlayici               # tarayıcı
+python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
 python -m keepmoney.bot                       # bot (token varsa)
 
 cd arayuz && npm install && npm run dev       # arayüz   :5173
 ```
 
+Üretimdeki gibi tek adresten sunmak için arayüzü derle — API `statik/`
+dizinini aynı kaynaktan sunar:
+
+```bash
+cd arayuz && npm run build && cp -r dist ../statik
+```
+
+### Docker ile (önerilen)
+
+```bash
+cp .env.example .env    # JWT anahtarı + POSTGRES_PAROLA zorunlu
+docker compose up -d    # veritabanı + göçler + api + tarayıcı + bot
+```
+
 API dokümanı: http://localhost:8000/docs
 
 Üretimde `KEEPMONEY_JWT_GIZLI_ANAHTAR` ZORUNLUDUR (yoksa uygulama açılmaz).
+Elle yazma, üret: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 Tüm ayarlar `KEEPMONEY_` önekli ortam değişkenleriyle verilir — bkz.
 [`keepmoney/ayarlar.py`](keepmoney/ayarlar.py).
+
+### ⚠️ Canlıya çıkmadan önce: seçici doğrulaması
+
+Testler kayıtlı HTML'e karşı koşar — "ayıklayıcı doğru mu" sorusunu
+cevaplar, "site bugün hâlâ bu HTML'i mi veriyor" sorusunu **cevaplamaz**.
+Bunu ölçen araç repoda:
+
+```bash
+python betikler/kaynak_dene.py --dosya linkler.txt --html-kaydet hata_html/
+```
+
+Site başına 5-10 gerçek ürün linki ver; araç okuma oranını, fiyatın hangi
+yöntemle bulunduğunu ve kırık siteleri raporlar. Ayrıntı:
+[`docs/CALISTIRMA.md` §3](docs/CALISTIRMA.md).
 
 ---
 
@@ -105,7 +134,8 @@ keepmoney/
   gunluk.py        structlog · olcumler.py  Prometheus
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
-tests/             409 test, hepsi yeşil
+betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
+tests/             422 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

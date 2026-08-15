@@ -509,3 +509,19 @@ Gönderim başarısızsa bayrak çevrilmez → sonraki turda yeniden denenir. Te
 **Neden sayfalama:** Liste sabit 50'de kesiliyordu ve daha eski bildirimlere ulaşmanın hiçbir yolu yoktu — performans değil ERİŞİLEBİLİRLİK sorunuydu. Üst sınır ise performans: istemcinin `limit=100000` diyerek tabloyu belleğe çekmesi engellenmeli.
 
 **Neden ikinci sıralama anahtarı:** Bir tarama turu aynı saniyede kolayca birden çok bildirim üretir. `created_at` tek başına kararlı sıralama vermez; sayfalar arasında kayıt tekrarlanır ya da tamamen atlanır. Bu, sayfalamanın en sinsi ve en sık atlanan hatasıdır.
+
+---
+
+## K45 — Kapatılamayan tek boşluk ÖLÇÜLEBİLİR hale getirilir
+
+**Karar:** Gerçek ürün linklerine karşı çekme + çıkarım denemesi yapan bir tanı aracı yazıldı (`betikler/kaynak_dene.py`), ve bu aracın kendisi test edildi.
+
+**Neden:** Test paketi kayıtlı HTML'e karşı koşuyor. Bu, "ayıklayıcı doğru yazılmış mı" sorusunu cevaplar; "trendyol.com bugün hâlâ bu HTML'i mi veriyor" sorusunu **cevaplamaz**. İkincisi ancak gerçek ağa çıkarak ölçülür ve bu ürünün en büyük sessiz arıza modu tam olarak orasıdır: seçici kırılır, fiyat okunmaz, kimse fark etmez, kullanıcı bayat veriye bakar.
+
+Bu boşluğu "canlıda görürüz" diye bırakmak, kararı ölçüme değil umuda dayandırmaktır. Araç boşluğu kapatmıyor — ağa çıkmadan kapatılamaz — ama **ölçülebilir** kılıyor: canlıya alma kararının somut bir eşiği oluyor (okuma oranı %90+, hiçbir site KIRIK değil).
+
+**Ayrı bir "test yolu" YAZILMADI.** Araç, tarama worker'ının kullandığı aynı `HttpCekici` ve aynı `ayikla.cikar` fonksiyonunu çağırır. Ayrı bir yol yazmak, tam da ölçmek istediğimiz şeyi ölçmemek olurdu — aracın yeşil, üretimin kırık olduğu bir dünya mümkün hale gelirdi.
+
+**Araç robots.txt'ye uyar ve host aralığı uygular.** Elle test ederken bunları atlamak cazip; ama IP'yi tam da doğrulama yaparken yasaklatmak, aracı işe yaramaz hale getirir.
+
+**Aracın kendisi test edildi** (`tests/test_kaynak_dene.py`, gerçek yerel HTTP sunucusuna karşı). İki sebep: (1) canlıya alma kararının dayanağı bu araç — yanlışsa yanlış bir güvenle canlıya çıkılır; (2) betikler test edilmediği için sessizce çürür, bir fonksiyon adı değişince ancak biri elle çalıştırdığında patlar.
