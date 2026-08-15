@@ -53,12 +53,27 @@ class User(Base):
     telegram_token = Column(String, index=True, nullable=True)
     telegram_token_biter = Column(DateTime, nullable=True)
 
+    # ── Hesap yaşam döngüsü ──────────────────────────────────────
+    # Token'lar HASH'LENMİŞ saklanır, ham hâlleriyle değil. Sebep: bu
+    # sütunlar parolaya eşdeğer yetki taşır — sıfırlama token'ı olan kişi
+    # hesabı ele geçirir. Veritabanı yedeği sızarsa (ya da bir SQL enjeksiyonu
+    # okuma yaparsa) ham token doğrudan hesap devralmadır; hash'i işe yaramaz.
+    parola_sifirlama_hash = Column(String, index=True, nullable=True)
+    parola_sifirlama_biter = Column(DateTime, nullable=True)
+
+    eposta_dogrulandi = Column(Boolean, default=False, nullable=False)
+    eposta_dogrulama_hash = Column(String, index=True, nullable=True)
+    eposta_dogrulama_biter = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=utc_simdi)
 
     watches = relationship("Watch", back_populates="user",
                            cascade="all, delete-orphan")
     sets = relationship("WatchSet", back_populates="user",
                         cascade="all, delete-orphan")
+    # Uyarılar da kişisel veridir: hesap silinince gider (KVKK).
+    alerts = relationship("Alert", back_populates="user",
+                          cascade="all, delete-orphan")
 
 
 # ───────────────────────── KÜRESEL KATMAN ─────────────────────────
@@ -222,6 +237,9 @@ class Watch(Base):
     user = relationship("User", back_populates="watches")
     product = relationship("Product", back_populates="watches")
     set = relationship("WatchSet", back_populates="watches")
+    # İzleme silinince uyarı SİLİNMEZ, yalnızca bağı kopar (aşağıya bak).
+    # passive_deletes: bağı veritabanı koparır, ORM satırları belleğe çekmez.
+    alerts = relationship("Alert", back_populates="watch", passive_deletes=True)
 
     __table_args__ = (
         # Aynı kullanıcı aynı ürünü iki kez izleyemez.
@@ -233,8 +251,18 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    watch_id = Column(Integer, ForeignKey("watches.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    # ON DELETE SET NULL — SİLME DEĞİL: uyarı, olmuş bir olayın kaydıdır.
+    # Kullanıcı ürünü takipten çıkardığında geçmiş bildirimleri kaybolmamalı;
+    # yalnızca artık var olmayan izlemeye işaret etmemeli.
+    #
+    # Bu kural eksikti ve Postgres'te "takipten çıkar" düğmesi, o üründen bir
+    # kez bile uyarı almış her kullanıcı için yabancı anahtar ihlaliyle 500
+    # dönüyordu. SQLite yabancı anahtarları zorlamadığı için testler
+    # görmüyordu (bkz. db.py — artık SQLite'ta da açık).
+    watch_id = Column(Integer, ForeignKey("watches.id", ondelete="SET NULL"),
+                      nullable=True)
     tur = Column(String, nullable=False)   # HEDEF | DIP | SAHTE_INDIRIM | SET_HEDEF | KAYNAK_BOZUK
     baslik = Column(String, nullable=False)
     mesaj = Column(String, nullable=False)
@@ -244,3 +272,6 @@ class Alert(Base):
     # Telegram kesintisi taramayı durdurmaz ve uyarı kaybolmaz.
     telegram_gonderildi = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=utc_simdi, index=True)
+
+    user = relationship("User", back_populates="alerts")
+    watch = relationship("Watch", back_populates="alerts")

@@ -49,6 +49,24 @@ class Ayarlar(BaseSettings):
     # kısmını kapatır (GET dışı istekler çapraz siteden çerez taşımaz).
     oturum_cerezi: str = "km_oturum"
 
+    # ── E-posta ───────────────────────────────────────────────────
+    # Parola sıfırlama ve adres doğrulama bunlara bağlı. `smtp_sunucu` boşsa
+    # gönderim yapılmaz, bağlantı loga yazılır (geliştirme). Üretimde boş
+    # bırakmak "parolamı unuttum" akışının sessizce çalışmaması demektir —
+    # açılışta uyarılır.
+    smtp_sunucu: str = ""
+    smtp_port: int = 587                 # 465 → doğrudan SSL, diğerleri STARTTLS
+    smtp_kullanici: str = ""
+    smtp_parola: str = ""
+    eposta_gonderen: str = "KeepMoney <noreply@keepmoney.com>"
+
+    # Kullanıcıya gönderilen bağlantıların tabanı (arayüzün adresi).
+    site_adresi: str = "http://localhost:5173"
+
+    # Tek kullanımlık bağlantı ömürleri.
+    parola_sifirlama_omru_dk: int = 30   # kısa: e-posta kutusu ele geçebilir
+    eposta_dogrulama_omru_saat: int = 48
+
     # ── Telegram ──────────────────────────────────────────────────
     telegram_bot_token: str | None = None
     telegram_baglama_omru_dk: int = 10      # deep-link token ömrü
@@ -159,7 +177,22 @@ def ayarlar() -> Ayarlar:
     a = Ayarlar()
     _jwt_anahtarini_dogrula(a)
     _cors_dogrula(a)
+    _eposta_dogrula(a)
     return a
+
+
+def _eposta_dogrula(a: Ayarlar) -> None:
+    """Üretimde SMTP yoksa UYARIR — durdurmaz.
+
+    Neden durdurmuyoruz: e-posta olmadan da ürünün ana işlevi (fiyat takibi,
+    Telegram bildirimi) çalışır. Ama parola sıfırlama SESSİZCE çalışmaz —
+    kullanıcı "bağlantı gönderildi" görür, e-posta hiç gelmez. Sessiz
+    bozukluk, açık uyarıdan beterdir.
+    """
+    if a.uretim_mi and not a.smtp_sunucu:
+        logging.getLogger("keepmoney.ayarlar").warning(
+            "KEEPMONEY_SMTP_SUNUCU tanımsız — parola sıfırlama ve e-posta "
+            "doğrulama bağlantıları GÖNDERİLMEYECEK, yalnızca loga yazılacak.")
 
 
 def _jwt_anahtarini_dogrula(a: Ayarlar) -> None:

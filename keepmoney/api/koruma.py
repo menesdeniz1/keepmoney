@@ -23,6 +23,13 @@ GIRIS_LIMIT = 8                  # pencere başına başarısız deneme
 KAYIT_PENCERE_SN = 3600
 KAYIT_LIMIT = 5                  # IP başına saatte hesap açma
 
+# Parola sıfırlama isteği kimlik doğrulaması İSTEMEZ. Sınırsız bırakılırsa
+# birinin posta kutusuna e-posta bombardımanı yapılabilir (taciz aracı) ve
+# SMTP kotası tükenir. Anahtar IP+adres: hem tek IP'den birçok adrese, hem
+# birçok IP'den tek adrese saldırıyı yavaşlatır.
+SIFIRLAMA_PENCERE_SN = 3600
+SIFIRLAMA_LIMIT = 5
+
 
 class HizSinirlayici:
     """Bellek içi kayan pencere sayacı.
@@ -63,6 +70,7 @@ class HizSinirlayici:
 
 giris_sinirlayici = HizSinirlayici(GIRIS_LIMIT, GIRIS_PENCERE_SN)
 kayit_sinirlayici = HizSinirlayici(KAYIT_LIMIT, KAYIT_PENCERE_SN)
+sifirlama_sinirlayici = HizSinirlayici(SIFIRLAMA_LIMIT, SIFIRLAMA_PENCERE_SN)
 
 
 def istemci_ip(istek: Request) -> str:
@@ -108,6 +116,23 @@ def kayit_kontrol(istek: Request) -> None:
             headers={"Retry-After": str(KAYIT_PENCERE_SN)},
         )
     kayit_sinirlayici.kaydet(ip)
+
+
+def sifirlama_kontrol(istek: Request, eposta: str) -> None:
+    """Parola sıfırlama isteği hız sınırı.
+
+    Aşıldığında 429 döner. Hata mesajı NÖTR tutulur — "bu adrese çok istek
+    gönderildi" demek, adresin kayıtlı olduğunu sızdırırdı; oysa uç bunu
+    özellikle gizliyor.
+    """
+    anahtar = f"{istemci_ip(istek)}|{eposta.lower()}"
+    if sifirlama_sinirlayici.asildi_mi(anahtar):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Çok fazla istek gönderildi. Birazdan tekrar dene.",
+            headers={"Retry-After": str(SIFIRLAMA_PENCERE_SN)},
+        )
+    sifirlama_sinirlayici.kaydet(anahtar)
 
 
 class GuvenlikBasliklari(BaseHTTPMiddleware):

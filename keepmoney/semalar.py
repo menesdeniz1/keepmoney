@@ -37,7 +37,31 @@ class KullaniciYaniti(BaseModel):
     id: int
     eposta: str = Field(validation_alias="email")
     telegram_bagli: bool = False
+    eposta_dogrulandi: bool = False
     created_at: datetime
+
+
+class ParolaSifirlamaIstegi(BaseModel):
+    eposta: EmailStr
+
+
+class ParolaSifirlamaUygulaIstegi(BaseModel):
+    token: str = Field(min_length=16, max_length=200)
+    parola: str = Field(min_length=8, max_length=72)
+
+
+class TokenIstegi(BaseModel):
+    """E-posta doğrulama bağlantısındaki token."""
+    token: str = Field(min_length=16, max_length=200)
+
+
+class HesapSilmeIstegi(BaseModel):
+    """Yıkıcı işlem — parola YENİDEN sorulur.
+
+    Oturumu çalınmış birinin hesabı silmesini zorlaştırır ve kullanıcının
+    niyetini teyit eder.
+    """
+    parola: str = Field(max_length=72)
 
 
 class TelegramBaglamaYaniti(BaseModel):

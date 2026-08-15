@@ -5,6 +5,7 @@ en yaygın kaynağıdır — tek dosyada tutulunca denetlenebilir kalır.
 """
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import timedelta
 from typing import Any
@@ -72,6 +73,37 @@ def jwt_kullanici_id(token: str) -> int | None:
         return int(yuk["sub"])
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def tek_kullanimlik_token() -> str:
+    """Parola sıfırlama / e-posta doğrulama için URL güvenli token.
+
+    `token_urlsafe(32)` = 256 bit entropi; kaba kuvvetle bulunması pratikte
+    imkânsız. Ayrıca kısa ömürlü ve tek kullanımlıktır.
+    """
+    return secrets.token_urlsafe(32)
+
+
+def token_hashle(token: str) -> str:
+    """Token'ı SAKLAMAK için hash'ler.
+
+    Bu sütunlar paroladan farksız yetki taşır: geçerli sıfırlama token'ı
+    olan kişi hesabı devralır. Ham saklanırsa bir veritabanı yedeği sızdığında
+    ya da bir okuma açığında doğrudan hesap devralma olur; hash'i işe yaramaz.
+
+    Neden bcrypt değil SHA-256: bcrypt'in yavaşlığı DÜŞÜK ENTROPİLİ girdiler
+    (insan parolaları) içindir. Bu token 256 bit CSPRNG çıktısı — sözlük
+    saldırısı diye bir şey yok, hızlı hash hem yeterli hem doğrulamayı ucuz
+    tutuyor. Kritik olan veritabanında ham token bulunmaması.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def token_eslesir_mi(token: str, saklanan_hash: str | None) -> bool:
+    """Sabit zamanlı karşılaştırma."""
+    if not saklanan_hash:
+        return False
+    return secrets.compare_digest(token_hashle(token), saklanan_hash)
 
 
 def baglama_tokeni() -> str:

@@ -103,6 +103,30 @@ export const api = {
 
   telegramKaldir: () => istek<void>('/auth/telegram', { method: 'DELETE' }),
 
+  // ── Hesap yaşam döngüsü ───────────────────────────────────────
+  // Sıfırlama isteği HER ZAMAN başarılı döner (hesap sayımı sızmasın diye);
+  // arayüz de bu yüzden "gönderildiyse" dilini kullanır.
+  parolaSifirlamaIste: (eposta: string) =>
+    istek<{ durum: string }>('/auth/parola/sifirlama-iste', {
+      method: 'POST',
+      gövde: { eposta },
+    }),
+
+  parolaSifirla: (token: string, parola: string) =>
+    istek<Kullanici>('/auth/parola/sifirla', {
+      method: 'POST',
+      gövde: { token, parola },
+    }),
+
+  epostaDogrula: (token: string) =>
+    istek<Kullanici>('/auth/eposta/dogrula', { method: 'POST', gövde: { token } }),
+
+  dogrulamaYenidenGonder: () =>
+    istek<{ durum: string }>('/auth/eposta/dogrulama-gonder', { method: 'POST' }),
+
+  hesabiSil: (parola: string) =>
+    istek<void>('/auth/hesap', { method: 'DELETE', gövde: { parola } }),
+
   // ── İzleme ────────────────────────────────────────────────────
   izlemeler: () => istek<Izleme[]>('/izlemeler'),
 

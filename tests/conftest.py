@@ -49,13 +49,17 @@ def _hiz_sinirlari_sifirla():
     bağımsız bir senaryodur; sayaç sıfırlanır. Sınırın KENDİSİ ayrıca
     test_api.py'de açıkça test ediliyor.
     """
-    from keepmoney.api.koruma import giris_sinirlayici, kayit_sinirlayici
+    from keepmoney.api.koruma import (
+        giris_sinirlayici,
+        kayit_sinirlayici,
+        sifirlama_sinirlayici,
+    )
 
-    giris_sinirlayici.temizle()
-    kayit_sinirlayici.temizle()
+    for s_ in (giris_sinirlayici, kayit_sinirlayici, sifirlama_sinirlayici):
+        s_.temizle()
     yield
-    giris_sinirlayici.temizle()
-    kayit_sinirlayici.temizle()
+    for s_ in (giris_sinirlayici, kayit_sinirlayici, sifirlama_sinirlayici):
+        s_.temizle()
 
 
 # ─────────────────── veritabanı motoru ───────────────────

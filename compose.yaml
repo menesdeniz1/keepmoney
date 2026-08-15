@@ -27,6 +27,13 @@ services:
       KEEPMONEY_JWT_GIZLI_ANAHTAR: ${KEEPMONEY_JWT_GIZLI_ANAHTAR:?en az 32 bayt CSPRNG çıktısı}
       KEEPMONEY_CORS_KAYNAKLARI: ${KEEPMONEY_CORS_KAYNAKLARI:-https://keepmoney.com}
       KEEPMONEY_TELEGRAM_BOT_TOKEN: ${KEEPMONEY_TELEGRAM_BOT_TOKEN:-}
+      # E-posta olmadan parola sıfırlama SESSİZCE çalışmaz.
+      KEEPMONEY_SMTP_SUNUCU: ${KEEPMONEY_SMTP_SUNUCU:-}
+      KEEPMONEY_SMTP_PORT: ${KEEPMONEY_SMTP_PORT:-587}
+      KEEPMONEY_SMTP_KULLANICI: ${KEEPMONEY_SMTP_KULLANICI:-}
+      KEEPMONEY_SMTP_PAROLA: ${KEEPMONEY_SMTP_PAROLA:-}
+      KEEPMONEY_EPOSTA_GONDEREN: ${KEEPMONEY_EPOSTA_GONDEREN:-KeepMoney <noreply@keepmoney.com>}
+      KEEPMONEY_SITE_ADRESI: ${KEEPMONEY_SITE_ADRESI:-https://keepmoney.com}
     depends_on:
       veritabani: {condition: service_healthy}
     restart: "no"          # tek seferlik iş

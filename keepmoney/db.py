@@ -10,9 +10,11 @@ buradan başka hiçbir yerde okuma.
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .ayarlar import ayarlar
@@ -26,6 +28,30 @@ _baglanti_args = (
 
 engine = create_engine(VERITABANI_URL, connect_args=_baglanti_args, future=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+@event.listens_for(Engine, "connect")
+def _sqlite_yabanci_anahtar(dbapi_baglanti, _):
+    """SQLite'ta yabancı anahtar kısıtlarını AÇ.
+
+    SQLite bunu varsayılan olarak KAPALI tutar — yani `ON DELETE` kuralları
+    hiç çalışmaz ve bozuk referanslar sessizce kabul edilir. Postgres ise
+    zorlar. Bu fark, "testler yeşil ama üretimde 500" üreten en sinsi
+    kaynaklardan biri: uyarısı olan bir izlemeyi silmek Postgres'te yabancı
+    anahtar ihlaliyle patlarken SQLite'ta sorunsuz görünüyordu ve o hâliyle
+    337 test bunu göremiyordu.
+
+    Dinleyici TEK BİR motora değil, `Engine` sınıfına bağlı: testler kendi
+    motorlarını kuruyor ve yalnızca uygulama motoruna bağlansaydı testler
+    yine gevşek kurallarla koşardı — yani düzeltme, düzeltmek istediği
+    boşluğu kapatmazdı.
+
+    Geliştirme veritabanı üretimle aynı katılıkta davranmalı.
+    """
+    if isinstance(dbapi_baglanti, sqlite3.Connection):
+        imlec = dbapi_baglanti.cursor()
+        imlec.execute("PRAGMA foreign_keys=ON")
+        imlec.close()
 
 
 class Base(DeclarativeBase):

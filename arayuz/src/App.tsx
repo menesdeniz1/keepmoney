@@ -6,7 +6,9 @@ import { OTURUM_BITTI } from './api/istemci'
 import { useBen } from './api/kancalar'
 import Duzen from './bilesenler/Duzen'
 import Ayarlar from './sayfalar/Ayarlar'
+import EpostaDogrula from './sayfalar/EpostaDogrula'
 import Giris from './sayfalar/Giris'
+import ParolaSifirla from './sayfalar/ParolaSifirla'
 import IzlemeDetay from './sayfalar/IzlemeDetay'
 import Panel from './sayfalar/Panel'
 import Setler from './sayfalar/Setler'
@@ -40,6 +42,11 @@ export default function App() {
     return (
       <Routes>
         <Route path="/giris" element={<Giris />} />
+        {/* Bu iki yol OTURUM İSTEMEZ: kullanıcı zaten giriş yapamadığı için
+            buraya geliyor. Giriş duvarının arkasına koymak, parola sıfırlama
+            bağlantısını kullanılamaz hâle getirirdi. */}
+        <Route path="/parola-sifirla" element={<ParolaSifirla />} />
+        <Route path="/eposta-dogrula" element={<EpostaDogrula />} />
         <Route path="*" element={<Navigate to="/giris" replace />} />
       </Routes>
     )
@@ -54,6 +61,8 @@ export default function App() {
         <Route path="/uyarilar" element={<Uyarilar />} />
         <Route path="/ayarlar" element={<Ayarlar />} />
       </Route>
+      <Route path="/eposta-dogrula" element={<EpostaDogrula />} />
+      <Route path="/parola-sifirla" element={<ParolaSifirla />} />
       <Route path="/giris" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

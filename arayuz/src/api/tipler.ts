@@ -19,6 +19,7 @@ export interface Kullanici {
   id: number
   eposta: string
   telegram_bagli: boolean
+  eposta_dogrulandi: boolean
   created_at: string
 }
 

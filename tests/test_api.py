@@ -944,3 +944,273 @@ def test_urun_detayi_gecmisi_tek_kez_okur(istemci, db):
 
     assert y.status_code == 200
     assert len(cagrilar) == 1, f"{len(cagrilar)} kez okundu"
+
+
+# ─────────────────── yabancı anahtar silme kuralları ───────────────────
+
+def test_uyarisi_olan_izleme_silinebilir(istemci, db):
+    """GERÇEK HATA: kural yokken Postgres'te "takipten çıkar" düğmesi, o
+    üründen bir kez bile uyarı almış her kullanıcı için yabancı anahtar
+    ihlaliyle 500 dönüyordu. SQLite yabancı anahtarları zorlamadığı için
+    testler görmüyordu (artık zorluyor — bkz. db.py)."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    k = db.query(User).one()
+    db.add(Alert(user_id=k.id, watch_id=i, tur="HEDEF", baslik="b", mesaj="m"))
+    db.commit()
+
+    assert istemci.delete(f"/api/izlemeler/{i}", headers=b).status_code == 204
+
+    # Uyarı SİLİNMEZ — olmuş bir olayın kaydıdır; yalnızca bağı kopar.
+    db.expire_all()
+    uyari = db.query(Alert).one()
+    assert uyari.watch_id is None
+    assert uyari.baslik == "b"
+
+
+def test_hesap_silinince_uyarilari_da_gider(istemci, db):
+    from keepmoney.models import User
+    from keepmoney.servisler import kullanici as k_svc
+
+    b = kayit_ol(istemci)
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+    k = db.query(User).one()
+    db.add(Alert(user_id=k.id, tur="DIP", baslik="b", mesaj="m"))
+    db.commit()
+
+    k_svc.hesabi_sil(db, k, "parola1234")
+    db.expire_all()
+    assert db.query(User).count() == 0
+    assert db.query(Alert).count() == 0
+    assert db.query(Watch).count() == 0
+    # Küresel geçmiş KİŞİSEL VERİ DEĞİL — kalır.
+    assert db.query(Product).count() == 1
+
+
+# ─────────────────── parola sıfırlama ───────────────────
+
+@pytest.fixture
+def sahte_posta(monkeypatch):
+    """Gönderilen e-postaları yakalar — gerçek SMTP yok."""
+    from keepmoney import eposta
+
+    kutu: list[tuple[str, str, str]] = []
+
+    class Sahte:
+        def gonder(self, alici, konu, govde):
+            kutu.append((alici, konu, govde))
+            return True
+
+    monkeypatch.setattr(eposta, "postaci", lambda: Sahte())
+    # Rota modülü `postaci`yi kendi ad alanına almış
+    from keepmoney.api.rotalar import auth as auth_rota
+    monkeypatch.setattr(auth_rota, "postaci", lambda: Sahte())
+    return kutu
+
+
+def _tokeni_al(kutu, yol: str) -> str:
+    """Kutudaki SON e-postadan token çıkarır.
+
+    Yol adıyla arıyoruz: kayıt sırasında doğrulama e-postası da gidiyor ve
+    ikisi de `?token=` içeriyor — ilk eşleşmeyi almak yanlış token verir.
+    """
+    for _, _, govde in reversed(kutu):
+        if f"/{yol}?token=" in govde:
+            return govde.split(f"/{yol}?token=")[1].split()[0]
+    raise AssertionError(f"kutuda /{yol} bağlantısı yok: {kutu}")
+
+
+def test_parola_sifirlama_uctan_uca(istemci, sahte_posta):
+    """Bu akış HİÇ YOKTU: parolasını unutan kullanıcı hesabını tamamen
+    kaybediyordu. Gerçek bir üründe pazarlık konusu değil."""
+    kayit_ol(istemci, "a@ornek.com", "eskiparola123")
+
+    y = istemci.post("/api/auth/parola/sifirlama-iste",
+                     json={"eposta": "a@ornek.com"})
+    assert y.status_code == 202
+
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+    y = istemci.post("/api/auth/parola/sifirla",
+                     json={"token": token, "parola": "yeniparola456"})
+    assert y.status_code == 200
+
+    # Yeni parola çalışır, eskisi çalışmaz
+    assert istemci.post("/api/auth/giris", json={
+        "eposta": "a@ornek.com", "parola": "yeniparola456"}).status_code == 200
+    assert istemci.post("/api/auth/giris", json={
+        "eposta": "a@ornek.com", "parola": "eskiparola123"}).status_code == 401
+
+
+def test_sifirlama_tokeni_tek_kullanimlik(istemci, sahte_posta):
+    kayit_ol(istemci, "a@ornek.com")
+    istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+
+    assert istemci.post("/api/auth/parola/sifirla",
+                        json={"token": token, "parola": "yeni12345"}).status_code == 200
+    # İkinci kullanım reddedilmeli
+    assert istemci.post("/api/auth/parola/sifirla",
+                        json={"token": token, "parola": "baska12345"}).status_code == 400
+
+
+def test_suresi_dolmus_sifirlama_tokeni_reddedilir(istemci, sahte_posta, db):
+    from datetime import timedelta
+
+    from keepmoney.models import User
+    from keepmoney.zaman import utc_simdi
+
+    kayit_ol(istemci, "a@ornek.com")
+    istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+
+    k = db.query(User).one()
+    k.parola_sifirlama_biter = utc_simdi() - timedelta(minutes=1)
+    db.commit()
+
+    assert istemci.post("/api/auth/parola/sifirla",
+                        json={"token": token, "parola": "yeni12345"}).status_code == 400
+
+
+def test_olmayan_eposta_ayni_cevabi_verir(istemci, sahte_posta):
+    """HESAP SAYIMI SIZMASIN: farklı cevap, hangi adreslerin kayıtlı
+    olduğunu söyler ve o liste doğrudan kimlik avı için kullanılır."""
+    kayit_ol(istemci, "var@ornek.com")
+    sahte_posta.clear()
+
+    a = istemci.post("/api/auth/parola/sifirlama-iste",
+                     json={"eposta": "var@ornek.com"})
+    b = istemci.post("/api/auth/parola/sifirlama-iste",
+                     json={"eposta": "yok@ornek.com"})
+
+    assert a.status_code == b.status_code == 202
+    assert a.json() == b.json()
+    assert len(sahte_posta) == 1        # yalnızca gerçek adrese gitti
+
+
+def test_token_veritabaninda_ham_saklanmaz(istemci, sahte_posta, db):
+    """Sıfırlama token'ı paroladan farksız yetki taşır. Ham saklanırsa bir
+    veritabanı sızıntısı doğrudan hesap devralmadır."""
+    from keepmoney.models import User
+
+    kayit_ol(istemci, "a@ornek.com")
+    istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+
+    db.expire_all()
+    k = db.query(User).one()
+    assert k.parola_sifirlama_hash != token
+    assert len(k.parola_sifirlama_hash) == 64      # sha256 hex
+
+
+def test_sifirlama_hiz_siniri(istemci, sahte_posta):
+    """Sınırsız bırakılırsa birinin posta kutusuna bombardıman yapılabilir."""
+    from keepmoney.api.koruma import SIFIRLAMA_LIMIT
+
+    kayit_ol(istemci, "a@ornek.com")
+    for _ in range(SIFIRLAMA_LIMIT):
+        istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    y = istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    assert y.status_code == 429
+
+
+def test_sifirlama_sonrasi_oturum_acilir(istemci, sahte_posta):
+    kayit_ol(istemci, "a@ornek.com")
+    istemci.cookies.clear()
+    istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+    istemci.post("/api/auth/parola/sifirla",
+                 json={"token": token, "parola": "yeni12345"})
+    assert istemci.get("/api/auth/ben").status_code == 200
+
+
+# ─────────────────── e-posta doğrulama ───────────────────
+
+def test_kayitta_dogrulama_baglantisi_gider(istemci, sahte_posta):
+    kayit_ol(istemci, "a@ornek.com")
+    assert any("doğrula" in konu for _, konu, _ in sahte_posta)
+
+
+def test_eposta_dogrulanir(istemci, sahte_posta):
+    b = kayit_ol(istemci, "a@ornek.com")
+    assert istemci.get("/api/auth/ben", headers=b).json()["eposta_dogrulandi"] is False
+
+    token = _tokeni_al(sahte_posta, "eposta-dogrula")
+    y = istemci.post("/api/auth/eposta/dogrula", json={"token": token})
+    assert y.status_code == 200
+    assert y.json()["eposta_dogrulandi"] is True
+
+
+def test_gecersiz_dogrulama_tokeni_reddedilir(istemci):
+    y = istemci.post("/api/auth/eposta/dogrula", json={"token": "x" * 40})
+    assert y.status_code == 400
+
+
+def test_dogrulama_yeniden_gonderilebilir(istemci, sahte_posta):
+    b = kayit_ol(istemci, "a@ornek.com")
+    sahte_posta.clear()
+    y = istemci.post("/api/auth/eposta/dogrulama-gonder", headers=b)
+    assert y.status_code == 202
+    assert len(sahte_posta) == 1
+
+
+def test_parola_sifirlama_epostayi_da_dogrular(istemci, sahte_posta):
+    """Kullanıcı o kutuya erişebildiğini kanıtladı — ayrıca doğrulatmak
+    gereksiz sürtünme olurdu."""
+    b = kayit_ol(istemci, "a@ornek.com")
+    istemci.post("/api/auth/parola/sifirlama-iste", json={"eposta": "a@ornek.com"})
+    token = _tokeni_al(sahte_posta, "parola-sifirla")
+    y = istemci.post("/api/auth/parola/sifirla",
+                     json={"token": token, "parola": "yeni12345"})
+    assert y.json()["eposta_dogrulandi"] is True
+    _ = b
+
+
+# ─────────────────── hesap silme (KVKK) ───────────────────
+
+def test_hesap_silinir(istemci, db):
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci, "a@ornek.com", "parola1234")
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+
+    y = istemci.request("DELETE", "/api/auth/hesap", headers=b,
+                        json={"parola": "parola1234"})
+    assert y.status_code == 204
+    assert db.query(User).count() == 0
+    assert db.query(Watch).count() == 0
+
+
+def test_hesap_silmede_parola_dogrulanir(istemci, db):
+    """Oturumu çalınmış birinin hesabı silmesini zorlaştırır."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci, "a@ornek.com", "parola1234")
+    y = istemci.request("DELETE", "/api/auth/hesap", headers=b,
+                        json={"parola": "yanlisparola"})
+    assert y.status_code == 403
+    assert db.query(User).count() == 1
+
+
+def test_hesap_silinince_kuresel_gecmis_kalir(istemci, db):
+    """Fiyat geçmişi KİŞİSEL VERİ DEĞİL — bir ekran kartının dünkü fiyatı
+    kimseye ait değildir ve diğer kullanıcıların hafızasıdır."""
+    b = kayit_ol(istemci, "a@ornek.com", "parola1234")
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+    urun = db.query(Product).one()
+    kaynak = db.query(Source).one()
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak.id, fiyat=1000))
+    db.commit()
+
+    istemci.request("DELETE", "/api/auth/hesap", headers=b,
+                    json={"parola": "parola1234"})
+    db.expire_all()
+    assert db.query(PriceReading).count() == 1
+    assert db.query(Product).one().izleyen_sayisi == 0
+
+
+def test_hesap_silmek_kimlik_ister(istemci):
+    y = istemci.request("DELETE", "/api/auth/hesap", json={"parola": "x"})
+    assert y.status_code == 401

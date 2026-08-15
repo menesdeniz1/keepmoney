@@ -7,7 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..ayarlar import ayarlar
-from ..guvenlik import baglama_tokeni, jwt_uret, parola_dogrula, parola_hashle
+from ..guvenlik import (
+    baglama_tokeni,
+    jwt_uret,
+    parola_dogrula,
+    parola_hashle,
+    tek_kullanimlik_token,
+    token_eslesir_mi,
+    token_hashle,
+)
 from ..models import User
 from ..zaman import utc_simdi
 
@@ -112,3 +120,121 @@ def chat_id_ile(db: Session, chat_id: str) -> User | None:
     """Bot gelen mesajı hangi hesaba ait çözecek."""
     return db.query(User).filter(
         User.telegram_chat_id == str(chat_id)).one_or_none()
+
+
+# ─────────────────── Parola sıfırlama ───────────────────
+#
+# GÜVENLİK İLKESİ — HESAP SAYIMI SIZMASIN: "bu e-posta kayıtlı değil" demek,
+# saldırgana hangi adreslerin sistemde olduğunu söyler. Bu yüzden istek ucu
+# HER ZAMAN aynı nötr cevabı döner; kullanıcı yoksa hiçbir şey yapılmaz.
+
+
+def parola_sifirlama_iste(db: Session, eposta: str) -> tuple[User, str] | None:
+    """Sıfırlama token'ı üretir. Kullanıcı yoksa None — çağıran YİNE de
+    aynı nötr mesajı döndürür.
+
+    Token ham hâliyle DÖNER (e-postaya konacak) ama veritabanına HASH'İ
+    yazılır (bkz. guvenlik.token_hashle).
+    """
+    k = eposta_ile(db, eposta)
+    if k is None:
+        return None
+
+    ham = tek_kullanimlik_token()
+    k.parola_sifirlama_hash = token_hashle(ham)
+    k.parola_sifirlama_biter = utc_simdi() + timedelta(
+        minutes=ayarlar().parola_sifirlama_omru_dk)
+    db.commit()
+    return k, ham
+
+
+def parola_sifirla(db: Session, token: str, yeni_parola: str) -> User:
+    """Token'ı harcar ve parolayı değiştirir.
+
+    Token TEK KULLANIMLIKTIR. Ayrıca parola değişince e-posta adresi de
+    doğrulanmış sayılır: kullanıcı o kutuya erişebildiğini kanıtladı.
+    """
+    hash_ = token_hashle(token)
+    k = (db.query(User)
+         .filter(User.parola_sifirlama_hash == hash_)
+         .one_or_none())
+    if k is None or not k.parola_sifirlama_biter:
+        raise KimlikHatasi("Bağlantı geçersiz ya da süresi dolmuş")
+    if k.parola_sifirlama_biter < utc_simdi():
+        raise KimlikHatasi("Bağlantı geçersiz ya da süresi dolmuş")
+    if not token_eslesir_mi(token, k.parola_sifirlama_hash):
+        raise KimlikHatasi("Bağlantı geçersiz ya da süresi dolmuş")
+
+    k.password_hash = parola_hashle(yeni_parola)
+    k.parola_sifirlama_hash = None
+    k.parola_sifirlama_biter = None
+    k.eposta_dogrulandi = True          # kutuya erişimi kanıtlandı
+    db.commit()
+    db.refresh(k)
+    return k
+
+
+# ─────────────────── E-posta doğrulama ───────────────────
+
+
+def dogrulama_tokeni_uret(db: Session, kullanici: User) -> str:
+    ham = tek_kullanimlik_token()
+    kullanici.eposta_dogrulama_hash = token_hashle(ham)
+    kullanici.eposta_dogrulama_biter = utc_simdi() + timedelta(
+        hours=ayarlar().eposta_dogrulama_omru_saat)
+    db.commit()
+    return ham
+
+
+def epostayi_dogrula(db: Session, token: str) -> User:
+    hash_ = token_hashle(token)
+    k = (db.query(User)
+         .filter(User.eposta_dogrulama_hash == hash_)
+         .one_or_none())
+    if (k is None or not k.eposta_dogrulama_biter
+            or k.eposta_dogrulama_biter < utc_simdi()
+            or not token_eslesir_mi(token, k.eposta_dogrulama_hash)):
+        raise KimlikHatasi("Bağlantı geçersiz ya da süresi dolmuş")
+
+    k.eposta_dogrulandi = True
+    k.eposta_dogrulama_hash = None
+    k.eposta_dogrulama_biter = None
+    db.commit()
+    db.refresh(k)
+    return k
+
+
+# ─────────────────── Hesap silme (KVKK) ───────────────────
+
+
+def hesabi_sil(db: Session, kullanici: User, parola: str) -> None:
+    """Hesabı ve KİŞİSEL verilerini siler.
+
+    KVKK/GDPR gereği kullanıcı verisinin silinmesi bir HAKTIR; bu ucun
+    olmaması ürünü yayına alınamaz yapıyordu.
+
+    NE SİLİNİR: kullanıcı kaydı, izlemeleri, setleri, uyarıları — yani
+    kişiye bağlanabilen her şey. Cascade `models.py`de tanımlı.
+
+    NE SİLİNMEZ: küresel ürün ve fiyat geçmişi. Bunlar kişisel veri DEĞİL
+    (bir ekran kartının dünkü fiyatı kimseye ait değildir) ve diğer
+    kullanıcıların hafızasıdır. Silinmesi hem gereksiz hem zararlı olurdu.
+    İzleyen sayacı düşürülür ki tarama önceliği doğru kalsın.
+
+    Parola YENİDEN SORULUR: oturumu çalınmış birinin hesabı silmesini
+    zorlaştırır ve yıkıcı işlemlerde niyeti teyit eder.
+    """
+    if not parola_dogrula(parola, kullanici.password_hash):
+        raise KimlikHatasi("Parola hatalı")
+
+    from ..models import Watch
+    from .izleme import _izleyen_sayaci
+
+    urun_idleri = [w.product_id for w in
+                   db.query(Watch).filter(Watch.user_id == kullanici.id).all()]
+
+    db.delete(kullanici)                # cascade: watches, sets
+    db.flush()
+    for urun_id in urun_idleri:
+        _izleyen_sayaci(db, urun_id, -1)
+    db.commit()
