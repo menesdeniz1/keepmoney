@@ -23,6 +23,11 @@ export interface Kullanici {
   created_at: string
 }
 
+export interface SetGuncelleGirdi {
+  ad?: string
+  hedef_butce?: number | null
+}
+
 export interface Kaynak {
   id: number
   url: string

@@ -1,7 +1,7 @@
 """Bildirim merkezi rotaları."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import semalar
 from ...servisler import uyari as svc
@@ -11,8 +11,19 @@ router = APIRouter(prefix="/api/uyarilar", tags=["uyarı"])
 
 
 @router.get("", response_model=list[semalar.UyariYaniti])
-def listele(k: Kullanici, db: DB, sadece_okunmamis: bool = False):
-    return svc.listele(db, k, sadece_okunmamis)
+def listele(
+    k: Kullanici,
+    db: DB,
+    sadece_okunmamis: bool = False,
+    limit: int = Query(svc.VARSAYILAN_LIMIT, ge=1, le=svc.AZAMI_LIMIT),
+    offset: int = Query(0, ge=0),
+):
+    """Sayfalı bildirim listesi (en yeniden eskiye).
+
+    `limit` üst sınırı şemada zorlanıyor: sınırsız bırakmak, tek istekle
+    tüm tablonun belleğe çekilmesine izin vermek olurdu.
+    """
+    return svc.listele(db, k, sadece_okunmamis, limit, offset)
 
 
 @router.get("/sayi")

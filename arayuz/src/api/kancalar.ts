@@ -8,6 +8,7 @@
  * alanları, açık modal) bileşen içinde `useState` ile kalır.
  */
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -22,7 +23,7 @@ import type {
   IzlemeGuncelleGirdi,
   KmSet,
   Kullanici,
-  Uyari,
+  SetGuncelleGirdi,
 } from './tipler'
 
 /** Sorgu anahtarları tek yerde — yazım hatası kaynaklı "neden tazelenmiyor"
@@ -61,10 +62,24 @@ export function useSetler(): UseQueryResult<KmSet[]> {
   return useQuery({ queryKey: anahtar.setler, queryFn: api.setler })
 }
 
-export function useUyarilar(sadeceOkunmamis = false): UseQueryResult<Uyari[]> {
-  return useQuery({
+/** Sayfa boyutu — sunucudaki üst sınırla (100) uyumlu kalmalı. */
+export const UYARI_SAYFA = 50
+
+/**
+ * Bildirimler SAYFALI çekilir.
+ *
+ * Eskiden tek istekle ilk 50 kayıt geliyordu ve daha eskisine ulaşmanın
+ * hiçbir yolu yoktu — liste sessizce kesiliyordu.
+ */
+export function useUyarilar(sadeceOkunmamis = false) {
+  return useInfiniteQuery({
     queryKey: anahtar.uyarilar(sadeceOkunmamis),
-    queryFn: () => api.uyarilar(sadeceOkunmamis),
+    queryFn: ({ pageParam }) =>
+      api.uyarilar(sadeceOkunmamis, pageParam as number, UYARI_SAYFA),
+    initialPageParam: 0,
+    // Dolu sayfa geldiyse devamı olabilir; eksik sayfa son sayfadır.
+    getNextPageParam: (sonSayfa, tumSayfalar) =>
+      sonSayfa.length < UYARI_SAYFA ? undefined : tumSayfalar.length * UYARI_SAYFA,
   })
 }
 
@@ -118,6 +133,15 @@ export function useSetOlustur() {
   return useMutation({
     mutationFn: ({ ad, butce }: { ad: string; butce?: number | null }) =>
       api.setOlustur(ad, butce),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: anahtar.setler }),
+  })
+}
+
+export function useSetGuncelle() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, girdi }: { id: number; girdi: SetGuncelleGirdi }) =>
+      api.setGuncelle(id, girdi),
     onSuccess: () => void qc.invalidateQueries({ queryKey: anahtar.setler }),
   })
 }

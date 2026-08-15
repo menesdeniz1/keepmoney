@@ -14,21 +14,20 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..ayarlar import ayarlar
 
-# ── Hız sınırı ayarları ──────────────────────────────────────────
+# ── Hız sınırı ──────────────────────────────────────────────────
 # Kaba ama etkili: parola denemesini insan hızına indirmek yeterlidir.
 # Amaç kararlı bir saldırganı tamamen durdurmak değil (o mümkün değil),
 # sözlük saldırısını ekonomik olmaktan çıkarmaktır.
-GIRIS_PENCERE_SN = 300           # 5 dakika
-GIRIS_LIMIT = 8                  # pencere başına başarısız deneme
-KAYIT_PENCERE_SN = 3600
-KAYIT_LIMIT = 5                  # IP başına saatte hesap açma
-
-# Parola sıfırlama isteği kimlik doğrulaması İSTEMEZ. Sınırsız bırakılırsa
+#
+# Değerler AYARLARDAN gelir (bkz. ayarlar.py): doğru sayı dağıtıma göre
+# değişir — ofis NAT'ı arkasındaki tek IP ile halka açık bir kayıt sayfası
+# aynı limiti kaldırmaz. Sınırlayıcılar ilk kullanımda kurulur ki ayarlar
+# testlerde değiştirilebilsin.
+#
+# Parola sıfırlama isteği kimlik doğrulaması İSTEMEZ: sınırsız bırakılırsa
 # birinin posta kutusuna e-posta bombardımanı yapılabilir (taciz aracı) ve
-# SMTP kotası tükenir. Anahtar IP+adres: hem tek IP'den birçok adrese, hem
+# SMTP kotası tükenir. Anahtar IP+adres — hem tek IP'den birçok adrese, hem
 # birçok IP'den tek adrese saldırıyı yavaşlatır.
-SIFIRLAMA_PENCERE_SN = 3600
-SIFIRLAMA_LIMIT = 5
 
 
 class HizSinirlayici:
@@ -68,9 +67,49 @@ class HizSinirlayici:
         self._olaylar.clear()
 
 
-giris_sinirlayici = HizSinirlayici(GIRIS_LIMIT, GIRIS_PENCERE_SN)
-kayit_sinirlayici = HizSinirlayici(KAYIT_LIMIT, KAYIT_PENCERE_SN)
-sifirlama_sinirlayici = HizSinirlayici(SIFIRLAMA_LIMIT, SIFIRLAMA_PENCERE_SN)
+class _Sinirlayicilar:
+    """Ayarlardan kurulan sınırlayıcılar; ilk kullanımda oluşturulur.
+
+    Modül yüklenirken kurulsalardı ayarlar donardı ve testler farklı limit
+    deneyemezdi. `sifirla()` hem testlerde hem ayar değişiminde kullanılır.
+    """
+
+    def __init__(self) -> None:
+        self._giris: HizSinirlayici | None = None
+        self._kayit: HizSinirlayici | None = None
+        self._sifirlama: HizSinirlayici | None = None
+
+    def _kur(self) -> None:
+        a = ayarlar()
+        self._giris = HizSinirlayici(a.giris_limiti, a.giris_penceresi_sn)
+        self._kayit = HizSinirlayici(a.kayit_limiti, a.kayit_penceresi_sn)
+        self._sifirlama = HizSinirlayici(
+            a.sifirlama_limiti, a.sifirlama_penceresi_sn)
+
+    @property
+    def giris(self) -> HizSinirlayici:
+        if self._giris is None:
+            self._kur()
+        return self._giris                                  # type: ignore[return-value]
+
+    @property
+    def kayit(self) -> HizSinirlayici:
+        if self._kayit is None:
+            self._kur()
+        return self._kayit                                  # type: ignore[return-value]
+
+    @property
+    def sifirlama(self) -> HizSinirlayici:
+        if self._sifirlama is None:
+            self._kur()
+        return self._sifirlama                              # type: ignore[return-value]
+
+    def sifirla(self) -> None:
+        """Sayaçları ve yapılandırmayı sıfırla (testler / ayar değişimi)."""
+        self._giris = self._kayit = self._sifirlama = None
+
+
+sinirlayicilar = _Sinirlayicilar()
 
 
 def istemci_ip(istek: Request) -> str:
@@ -91,31 +130,31 @@ def giris_denemesi_kontrol(istek: Request, eposta: str) -> None:
     """Limit aşıldıysa 429. Anahtar IP+e-posta: tek IP'den birçok hesaba
     saldırıyı da, birçok IP'den tek hesaba saldırıyı da yavaşlatır."""
     anahtar = f"{istemci_ip(istek)}|{eposta.lower()}"
-    if giris_sinirlayici.asildi_mi(anahtar):
+    if sinirlayicilar.giris.asildi_mi(anahtar):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Çok fazla başarısız giriş denemesi. Birkaç dakika sonra tekrar dene.",
-            headers={"Retry-After": str(GIRIS_PENCERE_SN)},
+            headers={"Retry-After": str(ayarlar().giris_penceresi_sn)},
         )
 
 
 def giris_basarisiz(istek: Request, eposta: str) -> None:
-    giris_sinirlayici.kaydet(f"{istemci_ip(istek)}|{eposta.lower()}")
+    sinirlayicilar.giris.kaydet(f"{istemci_ip(istek)}|{eposta.lower()}")
 
 
 def giris_basarili(istek: Request, eposta: str) -> None:
-    giris_sinirlayici.sifirla(f"{istemci_ip(istek)}|{eposta.lower()}")
+    sinirlayicilar.giris.sifirla(f"{istemci_ip(istek)}|{eposta.lower()}")
 
 
 def kayit_kontrol(istek: Request) -> None:
     ip = istemci_ip(istek)
-    if kayit_sinirlayici.asildi_mi(ip):
+    if sinirlayicilar.kayit.asildi_mi(ip):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Çok fazla hesap oluşturma denemesi. Daha sonra tekrar dene.",
-            headers={"Retry-After": str(KAYIT_PENCERE_SN)},
+            headers={"Retry-After": str(ayarlar().kayit_penceresi_sn)},
         )
-    kayit_sinirlayici.kaydet(ip)
+    sinirlayicilar.kayit.kaydet(ip)
 
 
 def sifirlama_kontrol(istek: Request, eposta: str) -> None:
@@ -126,13 +165,13 @@ def sifirlama_kontrol(istek: Request, eposta: str) -> None:
     özellikle gizliyor.
     """
     anahtar = f"{istemci_ip(istek)}|{eposta.lower()}"
-    if sifirlama_sinirlayici.asildi_mi(anahtar):
+    if sinirlayicilar.sifirlama.asildi_mi(anahtar):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Çok fazla istek gönderildi. Birazdan tekrar dene.",
-            headers={"Retry-After": str(SIFIRLAMA_PENCERE_SN)},
+            headers={"Retry-After": str(ayarlar().sifirlama_penceresi_sn)},
         )
-    sifirlama_sinirlayici.kaydet(anahtar)
+    sinirlayicilar.sifirlama.kaydet(anahtar)
 
 
 class GuvenlikBasliklari(BaseHTTPMiddleware):

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { ApiHatasi, api } from '../api/istemci'
@@ -8,7 +7,6 @@ import { anahtar, useBen } from '../api/kancalar'
 export default function Ayarlar() {
   const { data: ben } = useBen()
   const qc = useQueryClient()
-  const navigate = useNavigate()
   const [baglanti, setBaglanti] = useState<string | null>(null)
   const [hata, setHata] = useState<string | null>(null)
   const [dogrulamaBilgi, setDogrulamaBilgi] = useState<string | null>(null)
@@ -33,7 +31,11 @@ export default function Ayarlar() {
     try {
       await api.hesabiSil(silParola)
       qc.clear()
-      navigate('/giris', { replace: true })
+      // TAM SAYFA YENİLEME — çıkıştaki gerekçenin aynısı (bkz. Duzen.tsx):
+      // istemci yönlendirmesi, "giriş yapılmışken /giris → /" kuralıyla
+      // yarışıyor ve kullanıcı silinmiş bir hesapla panele geri atılıyordu.
+      // Ayrıca yeniden yükleme, JS belleğinde kalan kişisel veriyi de siler.
+      window.location.assign('/giris')
     } catch (e) {
       setSilHata(e instanceof ApiHatasi ? e.message : 'Hesap silinemedi')
     }

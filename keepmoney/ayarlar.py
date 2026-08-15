@@ -71,6 +71,12 @@ class Ayarlar(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_baglama_omru_dk: int = 10      # deep-link token ömrü
 
+    # Botun @kullanıcı adı (baştaki @ olmadan). Deep-link BUNA göre kurulur:
+    # `https://t.me/<ad>?start=<token>`. Sabit yazılıydı ("KeepMoneyBot") —
+    # yani başka adla kayıtlı her bot için bağlantı YANLIŞ bir hesaba
+    # gidiyordu ve Telegram bağlama akışı sessizce çalışmıyordu.
+    telegram_bot_adi: str = "KeepMoneyBot"
+
     # ── Web ───────────────────────────────────────────────────────
     # NoDecode: pydantic-settings karmaşık tipleri env'den JSON olarak
     # çözmeye çalışır ve `a.com,b.com` girdisinde patlar. NoDecode ham
@@ -79,8 +85,25 @@ class Ayarlar(BaseSettings):
     cors_kaynaklari: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5173"])
 
+    # Derlenmiş arayüzün dizini. Boşsa varsayılan (`<kök>/statik`) kullanılır;
+    # dizin yoksa arayüz mount EDİLMEZ (yerel geliştirmede Vite sunar).
+    arayuz_dizini: str = ""
+
     # ── Kota (ücretsiz katman) ────────────────────────────────────
     kullanici_basina_izleme_limiti: int = 30
+
+    # ── Hız sınırları ─────────────────────────────────────────────
+    # Sabit yazılıydı. Yapılandırılabilir olmalı çünkü doğru değer dağıtıma
+    # göre değişir: tek IP'nin arkasında ofis NAT'ı varsa 5 kayıt/saat çok
+    # düşük, halka açık bir kayıt sayfasında ise yüksek olabilir. Ayrıca
+    # uçtan uca testler gerçek sunucuya karşı birden çok hesap açıyor.
+    # Varsayılanlar üretim için makul değerler; SINIRIN KENDİSİ kapanmaz.
+    giris_limiti: int = 8                # başarısız deneme / pencere
+    giris_penceresi_sn: int = 300
+    kayit_limiti: int = 5                # IP başına hesap açma / pencere
+    kayit_penceresi_sn: int = 3600
+    sifirlama_limiti: int = 5            # parola sıfırlama isteği / pencere
+    sifirlama_penceresi_sn: int = 3600
 
     # ── Tarama ────────────────────────────────────────────────────
     # Playwright'ın kendi indirdiği tarayıcı yerine SİSTEM chromium'unu

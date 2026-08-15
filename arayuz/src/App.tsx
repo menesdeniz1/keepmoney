@@ -3,7 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { OTURUM_BITTI } from './api/istemci'
-import { useBen } from './api/kancalar'
+import { anahtar, useBen } from './api/kancalar'
 import Duzen from './bilesenler/Duzen'
 import Ayarlar from './sayfalar/Ayarlar'
 import EpostaDogrula from './sayfalar/EpostaDogrula'
@@ -18,12 +18,21 @@ export default function App() {
   const { data: ben, isLoading, isError } = useBen()
   const qc = useQueryClient()
 
-  // Oturum uygulama AÇIKKEN de dolabilir (token 7 gün ömürlü). Önbelleği
-  // temizlemek `useBen`i yeniden çalıştırır; 401 dönünce aşağıdaki dal
-  // kullanıcıyı giriş ekranına alır. Bu olmadan ekranda bayat veri ve
-  // her sorgudan gelen kırık hata kutuları kalıyordu.
+  // Oturum uygulama AÇIKKEN de dolabilir (token 7 gün ömürlü).
+  //
+  // DİKKAT — burada yalnızca `qc.clear()` çağırmak SONSUZ DÖNGÜ kuruyordu:
+  // önbellek temizlenince bağlı bileşenlerin sorguları hemen yeniden
+  // çalışıyor, 401 alıyor, olayı yeniden tetikliyor… Ekran "giriş yapılmış"
+  // düzeninde kilitlenip arka planda 401 yağdırıyordu.
+  //
+  // Çözüm: `ben`i AÇIKÇA null yap. Aşağıdaki dal anında giriş ekranına
+  // geçer, korumalı sayfalar ve sorguları unmount olur — yeniden çekecek
+  // kimse kalmaz, döngü kapanır.
   useEffect(() => {
-    const isle = () => qc.clear()
+    const isle = () => {
+      qc.clear()
+      qc.setQueryData(anahtar.ben, null)
+    }
     window.addEventListener(OTURUM_BITTI, isle)
     return () => window.removeEventListener(OTURUM_BITTI, isle)
   }, [qc])

@@ -8,4 +8,8 @@ data/
 .env
 .pytest_cache/
 .ruff_cache/
-.venv/
+
+# Yedekler asla depoya girmemeli — içlerinde kullanıcı verisi var
+yedekler/
+*.dump
+statik/

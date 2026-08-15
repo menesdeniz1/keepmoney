@@ -451,3 +451,61 @@ Gönderim başarısızsa bayrak çevrilmez → sonraki turda yeniden denenir. Te
 **Doğrulanmamış yedek bir temennidir:** bozuk olduğu ancak felaket anında anlaşılır. Aynı sebeple geri yükleme betiği de düzenli TATBİKAT ister — denenmemiş prosedür, felaket anında ilk kez denenen prosedürdür.
 
 **Betikler yazılıp bırakılmadı:** iki motorda da çalıştırıldı (yedek al → veriyi sil → geri yükle → verinin döndüğünü doğrula). Bu belgedeki diğer kararların aksine bu, bir tasarım tercihi değil bir kabul kriteridir.
+
+---
+
+## K40 — Arayüz API ile AYNI KAYNAKTAN sunulur
+
+**Karar:** Derlenmiş arayüzü FastAPI'nin kendisi sunar (`api/statik.py`); ayrı bir statik sunucu ya da CDN yok.
+
+**Yakalanan hata — bu belgedeki en ağır bulgulardan biri:** `Dockerfile` arayüzü derleyip imaja `/uygulama/statik` altına kopyalıyordu ama **hiçbir yerde mount edilmiyordu**. Yani `docker compose up` sonrası API ayaktaydı, `/api/*` çalışıyordu ve **web panosu tamamen erişilemezdi** — ürünün yarısı deploy edilmiş görünüp yok hükmündeydi. CSP'nin `default-src 'self'` olması ve Vite'ın geliştirme vekili de hep aynı kaynaktan sunumu VARSAYIYORDU; varsayım vardı, uygulaması yoktu.
+
+**Aynı kaynak tercihi ayrı sunucudan daha basit:** httpOnly oturum çerezi çapraz kaynak sorunu olmadan taşınır (K22), CORS üretimde fiilen devre dışı kalır, CSP dar tutulabilir, dağıtım tek konteynerdir.
+
+**SPA geri düşüşü `/api` önekini GÖLGELEMEZ:** `/izleme/12` adresini doğrudan yazan kullanıcıya `index.html` dönmeli (istemci tarafı yönlendirme), ama var olmayan bir API ucu HTML değil JSON 404 dönmeli — yoksa istemci "beklenmeyen yanıt" hatası verir. Yakalayıcı rota EN SONDA bağlanır; ondan sonra eklenen her rota ölü kalır ve bunu bir test koruyor.
+
+---
+
+## K41 — Yıkıcı işlem onay ister, çıkış sayfayı yeniler
+
+**Karar:** Silme işlemleri `<dialog>` tabanlı onaydan geçer; çıkış ve hesap silme TAM SAYFA YENİLEME yapar.
+
+**Onay neden:** "Seti sil" ve "Takipten çıkar" tek tıkla, onaysız çalışıyordu — yanlışlıkla tıklanan bir düğme aylarca biriken bir takibi geri alınamaz biçimde siliyordu. `<div role="dialog">` yerine yerel `<dialog>`: odak tuzağı, Esc ile kapanma ve arka planın etkisizleşmesi tarayıcıdan geliyor; elle ARIA kurmak aynı davranışın eksik bir taklidini üretirdi. Odak yıkıcı olmayan düğmede başlar.
+
+**Tam yenileme neden — iki sebep:**
+1. **Doğruluk.** `navigate('/giris')` ile React Router'ın "giriş yapılmışken `/giris` → `/`" kuralı YARIŞIYORDU: kullanıcı panele geri atılıyor, arka planda 401 yağıyor ve çıkış fiilen gerçekleşmiyordu. Aynı hata hesap silmede de vardı — silinmiş bir hesapla panoda kalınıyordu.
+2. **Güvenlik.** Yeniden yükleme JS belleğindeki her şeyi (bileşen durumunda kalmış kişisel veri dahil) siler. Çıkışta bunu garanti etmek, önbelleği tek tek temizlemeye çalışmaktan sağlamdır.
+
+**Oturum düşme işleyicisi de düzeltildi:** yalnızca `qc.clear()` çağırmak SONSUZ DÖNGÜ kuruyordu — önbellek temizlenince bağlı sorgular hemen yeniden çalışıyor, 401 alıyor, olayı yeniden tetikliyordu. Çözüm `ben`i açıkça `null` yapmak: uygulama giriş ekranına geçiyor, korumalı sorgular unmount oluyor, yeniden çekecek kimse kalmıyor.
+
+---
+
+## K42 — Hız sınırları ve statik dizin YAPILANDIRILABİLİR
+
+**Karar:** Sınır değerleri ve arayüz dizini sabit yazılmaz, ayarlardan gelir.
+
+**Neden:** Doğru sayı dağıtıma göre değişir — ofis NAT'ı arkasındaki tek IP ile halka açık bir kayıt sayfası aynı limiti kaldırmaz. Sabit yazılmış sınır, "yapılandırma" sayfasında görünmeyen ve değiştirmek için kod dağıtımı gerektiren bir karardır.
+
+**SINIR KAPANMAZ:** uçtan uca testler limiti yalnızca kendi koşumları için genişletir; 429 davranışının kendisi ayrı testlerle doğrulanır. Ayarı "kapatılabilir" yapmak yerine "ayarlanabilir" yapmak, güvenliği yanlışlıkla devre dışı bırakmayı zorlaştırır.
+
+---
+
+## K43 — İstek kimliği ve merkezî hata yakalama
+
+**Karar:** Her isteğe korelasyon kimliği bağlanır (`X-Request-ID`), işlenmemiş istisnalar tek yerden yakalanır.
+
+**Yakalanan iki eksik:** (1) `gunluk.py` zaten `merge_contextvars` işlemcisini kuruyordu ama bağlama yazan kimse yoktu — altyapı vardı, kullanan yoktu; bir kullanıcı "hata aldım" dediğinde o isteğe ait log satırlarını toplamanın yolu yoktu. (2) Beklenmeyen hatalar Starlette'in varsayılan işleyicisine düşüyor, gövdesi düz metin oluyor ve iz kaydı yapılandırılmamış biçimde stderr'e gidiyordu.
+
+**Kullanıcıya iz kaydı GÖSTERİLMEZ:** yığın izi iç yapıyı (dosya yolları, kütüphane sürümleri, hatta bağlantı dizesindeki sırlar) sızdırır. Kullanıcı yalnızca istek kimliğini görür ve desteğe onu söyler.
+
+**Gelen `X-Request-ID` korunur:** ters vekil ya da çağıran servis zaten kimlik ürettiyse zincir kopmamalı.
+
+---
+
+## K44 — Bildirimler sayfalanır, sıralama KARARLI olmalı
+
+**Karar:** `/api/uyarilar` `limit`/`offset` alır; üst sınır şemada zorlanır; sıralama `(created_at DESC, id DESC)`.
+
+**Neden sayfalama:** Liste sabit 50'de kesiliyordu ve daha eski bildirimlere ulaşmanın hiçbir yolu yoktu — performans değil ERİŞİLEBİLİRLİK sorunuydu. Üst sınır ise performans: istemcinin `limit=100000` diyerek tabloyu belleğe çekmesi engellenmeli.
+
+**Neden ikinci sıralama anahtarı:** Bir tarama turu aynı saniyede kolayca birden çok bildirim üretir. `created_at` tek başına kararlı sıralama vermez; sayfalar arasında kayıt tekrarlanır ya da tamamen atlanır. Bu, sayfalamanın en sinsi ve en sık atlanan hatasıdır.

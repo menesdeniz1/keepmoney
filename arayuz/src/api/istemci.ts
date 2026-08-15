@@ -15,6 +15,7 @@ import type {
   IzlemeGuncelleGirdi,
   KmSet,
   Kullanici,
+  SetGuncelleGirdi,
   Uyari,
 } from './tipler'
 
@@ -147,11 +148,16 @@ export const api = {
   setOlustur: (ad: string, hedef_butce?: number | null) =>
     istek<KmSet>('/setler', { method: 'POST', gövde: { ad, hedef_butce } }),
 
+  setGuncelle: (id: number, girdi: SetGuncelleGirdi) =>
+    istek<KmSet>(`/setler/${id}`, { method: 'PATCH', gövde: girdi }),
+
   setSil: (id: number) => istek<void>(`/setler/${id}`, { method: 'DELETE' }),
 
   // ── Uyarı ─────────────────────────────────────────────────────
-  uyarilar: (sadeceOkunmamis = false) =>
-    istek<Uyari[]>(`/uyarilar?sadece_okunmamis=${sadeceOkunmamis}`),
+  uyarilar: (sadeceOkunmamis = false, offset = 0, limit = 50) =>
+    istek<Uyari[]>(
+      `/uyarilar?sadece_okunmamis=${sadeceOkunmamis}&offset=${offset}&limit=${limit}`,
+    ),
 
   okunmamisSayisi: () => istek<{ okunmamis: number }>('/uyarilar/sayi'),
 

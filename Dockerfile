@@ -20,12 +20,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxml2 libxslt1.1 curl \
     && rm -rf /var/lib/apt/lists/*
 
+# pip/setuptools önce güncellenir: taban imajdaki sürümlerde bilinen
+# açıklar çıkabiliyor (pip-audit yakaladı) ve bunlar uygulamanın kendi
+# bağımlılıkları değil, imajın taşıdığı araçlar.
+RUN pip install --no-cache-dir --upgrade pip setuptools
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY keepmoney/ ./keepmoney/
 COPY migrations/ ./migrations/
 COPY alembic.ini .
+# Derlenmiş arayüz. API bunu AYNI KAYNAKTAN sunar (bkz. api/statik.py) —
+# bir dönem buraya kopyalanıyor ama hiç sunulmuyordu, yani üretimde web
+# panosu tamamen erişilemezdi.
 COPY --from=arayuz /arayuz/dist ./statik
 
 # Kök olmayan kullanıcı: konteyner ele geçirilse bile host'a sıçrama zorlaşır.

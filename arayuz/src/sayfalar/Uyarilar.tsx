@@ -13,9 +13,16 @@ const TUR_ETIKETI: Record<UyariTuru, string> = {
 }
 
 export default function Uyarilar() {
-  const { data: uyarilar } = useUyarilar()
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useUyarilar()
   const okundu = useUyariOkundu()
   const hepsi = useHepsiOkundu()
+  const uyarilar = data?.pages.flat()
 
   return (
     <div className="space-y-4">
@@ -23,11 +30,15 @@ export default function Uyarilar() {
         <h1 className="text-xl font-semibold">Bildirimler</h1>
         <button
           onClick={() => hepsi.mutate()}
-          className="text-sm text-slate-500 hover:underline"
+          disabled={hepsi.isPending || !uyarilar?.some((u) => !u.okundu)}
+          className="text-sm text-slate-500 hover:underline
+                     disabled:cursor-not-allowed disabled:opacity-40"
         >
           Hepsini okundu işaretle
         </button>
       </div>
+
+      {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}
 
       <div className="space-y-2">
         {uyarilar?.map((u) => (
@@ -65,6 +76,18 @@ export default function Uyarilar() {
             </div>
           </div>
         ))}
+        {hasNextPage && (
+          <button
+            onClick={() => void fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="w-full rounded-lg border border-slate-300 py-2 text-sm
+                       text-slate-600 hover:bg-slate-50 disabled:opacity-50
+                       dark:border-slate-700 dark:text-slate-400
+                       dark:hover:bg-slate-900"
+          >
+            {isFetchingNextPage ? 'Yükleniyor…' : 'Daha eski bildirimler'}
+          </button>
+        )}
         {uyarilar?.length === 0 && (
           <p className="rounded-lg border border-dashed border-slate-300 p-8 text-center
                         text-sm text-slate-500 dark:border-slate-700">

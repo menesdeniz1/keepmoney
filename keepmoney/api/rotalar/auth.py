@@ -93,14 +93,14 @@ def ben(k: Kullanici):
 @router.post("/telegram/baglanti", response_model=semalar.TelegramBaglamaYaniti)
 def telegram_baglanti(k: Kullanici, db: DB):
     """Tek kullanımlık deep-link üretir. Kullanıcı chat ID kopyalamaz."""
-    bot = ayarlar().telegram_bot_token
-    if not bot:
+    a = ayarlar()
+    if not a.telegram_bot_token:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "Sunucuda Telegram botu yapılandırılmamış")
-    # Token'ın ilk parçası bot kullanıcı adı değil, sayısal ID'dir; deep-link
-    # için bot adı ayrı ayarlanmalı. Şimdilik ortam değişkeninden gelen adı
-    # kullanmıyoruz — bot adı Faz 4'te bot modülüyle birlikte gelecek.
-    baglanti, omur = svc.telegram_baglantisi(db, k, "KeepMoneyBot")
+    # Bot ADI token'dan türetilemez (token sayısal ID taşır), ayrı ayarlanır.
+    # Sabit yazılıydı: başka adla kayıtlı bir bot kullanıldığında deep-link
+    # yanlış hesaba gidiyor ve bağlama sessizce çalışmıyordu.
+    baglanti, omur = svc.telegram_baglantisi(db, k, a.telegram_bot_adi)
     return {"baglanti": baglanti, "gecerlilik_dk": omur}
 
 

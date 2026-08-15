@@ -1,5 +1,5 @@
 import { Bell, LayoutGrid, LogOut, Package, Settings } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { api } from '../api/istemci'
@@ -15,13 +15,31 @@ const BAGLANTILAR = [
 export default function Duzen() {
   const { data: ben } = useBen()
   const { data: sayi } = useOkunmamisSayisi()
-  const navigate = useNavigate()
   const qc = useQueryClient()
 
   async function cikisYap() {
-    await api.cikis()
+    // Sunucu çağrısı BEST-EFFORT: ağ koptuysa ya da sunucu hata verdiyse
+    // bile yerel oturum kapanmalı. Eskiden hata yakalanmıyordu — çağrı
+    // düşerse `qc.clear()` ve yönlendirme hiç çalışmıyor, kullanıcı çıkış
+    // yapamıyordu (üstelik hiçbir geri bildirim de almadan).
+    try {
+      await api.cikis()
+    } catch {
+      // yut: çerezi sunucu siliyor, yerel durum aşağıda zaten sıfırlanıyor
+    }
     qc.clear()
-    navigate('/giris', { replace: true })
+
+    // TAM SAYFA YENİLEME — istemci tarafı yönlendirme DEĞİL.
+    //
+    // İki sebep:
+    //  1) DOĞRULUK. `navigate('/giris')` ile React Router'ın "giriş
+    //     yapılmışken /giris → /" yönlendirmesi yarışıyordu: kullanıcı
+    //     panele geri atılıyor, arka planda 401 yağıyor ve çıkış fiilen
+    //     gerçekleşmiyordu.
+    //  2) GÜVENLİK. Yeniden yükleme JS belleğindeki her şeyi (bileşen
+    //     durumunda kalmış kişisel veri dahil) siler. Çıkışta bunu garanti
+    //     etmek, önbelleği tek tek temizlemeye çalışmaktan sağlamdır.
+    window.location.assign('/giris')
   }
 
   return (
@@ -49,8 +67,11 @@ export default function Duzen() {
                 <Ikon size={16} />
                 <span className="hidden sm:inline">{etiket}</span>
                 {yol === '/uyarilar' && (sayi?.okunmamis ?? 0) > 0 && (
-                  <span className="ml-0.5 rounded-full bg-red-600 px-1.5 text-[11px]
-                                   font-semibold text-white">
+                  <span
+                    className="ml-0.5 rounded-full bg-red-600 px-1.5 text-[11px]
+                               font-semibold text-white"
+                    aria-label={`${sayi?.okunmamis} okunmamış bildirim`}
+                  >
                     {sayi?.okunmamis}
                   </span>
                 )}
@@ -58,13 +79,20 @@ export default function Duzen() {
             ))}
           </nav>
 
+          {/* İKON-ONLY DÜĞMEDE ERİŞİLEBİLİR AD ŞART. Burada yalnızca bir
+              SVG vardı ve `title` kullanıcının e-postasıydı — ekran okuyucu
+              "çıkış" yerine e-posta adresini okuyordu, yani düğmenin ne
+              yaptığı hiç duyurulmuyordu. `aria-label` amacı söyler; e-posta
+              görsel ipucu olarak `title`da kalır. */}
           <button
             onClick={() => void cikisYap()}
-            title={ben?.eposta}
+            aria-label="Çıkış yap"
+            title={ben?.eposta ? `Çıkış yap (${ben.eposta})` : 'Çıkış yap'}
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm
                        text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900"
           >
-            <LogOut size={16} />
+            <LogOut size={16} aria-hidden="true" />
+            <span className="sr-only">Çıkış yap</span>
           </button>
         </div>
       </header>

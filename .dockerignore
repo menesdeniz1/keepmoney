@@ -1,0 +1,41 @@
+# Derleme bağlamına GİRMEMESİ gerekenler.
+#
+# Bu dosya yoktu: `docker build` bağlamı `.venv`, `node_modules`, `.git` ve
+# `data/` dizinlerini de gönderiyordu. İki sonucu vardı — derleme gereksiz
+# yere yavaş, ve daha kötüsü, bağlamda bulunan bir `.env` ya da yedek dosyası
+# imaj katmanına sızabilirdi.
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node — imajda `npm ci` yeniden çalışıyor, host'unki taşınmamalı
+arayuz/node_modules/
+arayuz/dist/
+arayuz/dev-dist/
+
+# Sürüm kontrolü ve yerel durum
+.git/
+.github/
+.gitignore
+
+# Veri ve sırlar — KESİNLİKLE imaja girmemeli
+.env
+.env.*
+!.env.example
+data/
+yedekler/
+*.sqlite
+*.db
+*.dump
+
+# Geliştirme ürünleri
+docs/
+tests/
+*.md
+!README.md

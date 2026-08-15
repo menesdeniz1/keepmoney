@@ -5,12 +5,13 @@
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. 379 backend + 18 arayüz testi;
-> paket hem SQLite hem gerçek PostgreSQL'e karşı koşuyor.
+> Docker ile üç süreç olarak ayağa kalkıyor. **409 backend + 18 arayüz testi**;
+> paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
+> ise **gerçek tarayıcıyla uçtan uca** koşuyor (23 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
 > **Henüz canlıda çalışmadı** — site seçicileri gerçek sayfalara karşı
 > doğrulanmayı bekliyor.
-> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (39 karar kaydı)
+> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (44 karar kaydı)
 
 ---
 
@@ -59,7 +60,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 alembic upgrade head                          # şemayı kur
-pytest                                        # 379 test
+pytest                                        # 409 test
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı
 python -m keepmoney.bot                       # bot (token varsa)
@@ -104,7 +105,7 @@ keepmoney/
   gunluk.py        structlog · olcumler.py  Prometheus
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
-tests/             379 test, hepsi yeşil
+tests/             409 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

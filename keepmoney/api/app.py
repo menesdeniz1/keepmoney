@@ -15,9 +15,11 @@ from ..ayarlar import ayarlar
 from ..db import init_db
 from ..gunluk import kur as gunluk_kur
 from ..gunluk import log
+from .izleme import IstekKimligi, beklenmeyen_hata
 from .koruma import GuvenlikBasliklari
 from .olcum import OlcumAraKatmani
 from .rotalar import auth, izlemeler, setler, sistem, uyarilar
+from .statik import arayuzu_bagla
 
 logger = log("keepmoney.api")
 
@@ -48,8 +50,10 @@ def uygulama_olustur() -> FastAPI:
         lifespan=yasam_dongusu,
     )
 
-    # Sıra önemli: başlık ara katmanı en dışta olmalı ki CORS ön-uçuş
-    # (preflight) yanıtları da güvenlik başlıklarını taşısın.
+    # Sıra önemli — `add_middleware` ile eklenen SON katman EN DIŞTA çalışır.
+    # İstek kimliği en dışta olmalı: güvenlik başlıkları ya da CORS
+    # aşamasında oluşan bir hata bile kimlikli loglanabilsin.
+    app.add_middleware(IstekKimligi)
     app.add_middleware(GuvenlikBasliklari)
     app.add_middleware(
         CORSMiddleware,
@@ -62,8 +66,17 @@ def uygulama_olustur() -> FastAPI:
     # işlenen istekleri saysın.
     app.add_middleware(OlcumAraKatmani)
 
+    # İşlenmemiş istisnalar: yapılandırılmış log + kullanıcıya iz kaydı
+    # SIZDIRMAYAN JSON yanıt (bkz. api/izleme.py).
+    app.add_exception_handler(Exception, beklenmeyen_hata)
+
     for rota in (auth, izlemeler, setler, sistem, uyarilar):
         app.include_router(rota.router)
+
+    # Derlenmiş arayüz EN SONDA bağlanır: yakalayıcı `/{yol:path}` rotası
+    # daha önce eklenseydi tüm API uçlarını gölgelerdi. Dizin yoksa (yerel
+    # geliştirme — Vite kendi sunucusunu çalıştırır) sessizce atlanır.
+    arayuzu_bagla(app)
 
     return app
 

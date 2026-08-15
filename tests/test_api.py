@@ -485,7 +485,9 @@ def test_kaynak_cikis_linki_dondurur(istemci, db):
 
 def test_giris_brute_force_frenleniyor(istemci):
     """OWASP A07 — sözlük saldırısını ekonomik olmaktan çıkarır."""
-    from keepmoney.api.koruma import GIRIS_LIMIT
+    from keepmoney.ayarlar import ayarlar as _a
+
+    GIRIS_LIMIT = _a().giris_limiti
 
     istemci.post("/api/auth/kayit",
                  json={"eposta": "a@ornek.com", "parola": "parola1234"})
@@ -503,7 +505,9 @@ def test_giris_brute_force_frenleniyor(istemci):
 
 def test_dogru_parola_sayaci_sifirlar(istemci):
     """Meşru kullanıcı, birkaç yanlış denemeden sonra kilitlenmemeli."""
-    from keepmoney.api.koruma import GIRIS_LIMIT
+    from keepmoney.ayarlar import ayarlar as _a
+
+    GIRIS_LIMIT = _a().giris_limiti
 
     istemci.post("/api/auth/kayit",
                  json={"eposta": "a@ornek.com", "parola": "parola1234"})
@@ -522,7 +526,9 @@ def test_dogru_parola_sayaci_sifirlar(istemci):
 
 
 def test_kayit_spam_frenleniyor(istemci):
-    from keepmoney.api.koruma import KAYIT_LIMIT
+    from keepmoney.ayarlar import ayarlar as _a
+
+    KAYIT_LIMIT = _a().kayit_limiti
 
     for n in range(KAYIT_LIMIT):
         assert istemci.post("/api/auth/kayit", json={
@@ -1107,7 +1113,9 @@ def test_token_veritabaninda_ham_saklanmaz(istemci, sahte_posta, db):
 
 def test_sifirlama_hiz_siniri(istemci, sahte_posta):
     """Sınırsız bırakılırsa birinin posta kutusuna bombardıman yapılabilir."""
-    from keepmoney.api.koruma import SIFIRLAMA_LIMIT
+    from keepmoney.ayarlar import ayarlar as _ayarlar
+
+    SIFIRLAMA_LIMIT = _ayarlar().sifirlama_limiti
 
     kayit_ol(istemci, "a@ornek.com")
     for _ in range(SIFIRLAMA_LIMIT):
@@ -1214,3 +1222,104 @@ def test_hesap_silinince_kuresel_gecmis_kalir(istemci, db):
 def test_hesap_silmek_kimlik_ister(istemci):
     y = istemci.request("DELETE", "/api/auth/hesap", json={"parola": "x"})
     assert y.status_code == 401
+
+
+# ─────────────────── bildirim sayfalama ───────────────────
+
+def test_uyarilar_sayfalanir(istemci, db):
+    """Liste sabit 50'de kesiliyordu ve daha eskisine ulaşmanın yolu yoktu."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    for n in range(120):
+        db.add(Alert(user_id=k.id, tur="HEDEF", baslik=f"u{n:03d}", mesaj="m"))
+    db.commit()
+
+    ilk = istemci.get("/api/uyarilar?limit=50&offset=0", headers=b).json()
+    ikinci = istemci.get("/api/uyarilar?limit=50&offset=50", headers=b).json()
+    ucuncu = istemci.get("/api/uyarilar?limit=50&offset=100", headers=b).json()
+
+    assert len(ilk) == 50
+    assert len(ikinci) == 50
+    assert len(ucuncu) == 20            # kalan
+    # Sayfalar ÇAKIŞMAMALI
+    kimlikler = [u["id"] for u in ilk + ikinci + ucuncu]
+    assert len(set(kimlikler)) == 120
+
+
+def test_uyari_limiti_ust_sinirla_kisitli(istemci):
+    """İstemci `limit=100000` diyerek tabloyu belleğe çekememeli."""
+    b = kayit_ol(istemci)
+    assert istemci.get("/api/uyarilar?limit=100000", headers=b).status_code == 422
+    assert istemci.get("/api/uyarilar?limit=0", headers=b).status_code == 422
+    assert istemci.get("/api/uyarilar?offset=-5", headers=b).status_code == 422
+
+
+def test_uyari_sirasi_kararli(istemci, db):
+    """Aynı saniyede üretilen bildirimlerde `created_at` tek başına kararlı
+    sıralama vermez; sayfalar arasında kayıt tekrarlanır ya da atlanır."""
+    from keepmoney.models import User
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    ayni_an = utc_simdi()
+    for n in range(10):
+        db.add(Alert(user_id=k.id, tur="DIP", baslik=f"a{n}", mesaj="m",
+                     created_at=ayni_an))
+    db.commit()
+
+    a = [u["id"] for u in istemci.get("/api/uyarilar?limit=5&offset=0",
+                                      headers=b).json()]
+    c = [u["id"] for u in istemci.get("/api/uyarilar?limit=5&offset=5",
+                                      headers=b).json()]
+    assert not set(a) & set(c), "sayfalar çakışıyor — sıralama kararsız"
+
+
+# ─────────────────── istek kimliği ve hata yakalama ───────────────────
+
+def test_istek_kimligi_yanitta_doner(istemci):
+    y = istemci.get("/saglik")
+    assert y.headers.get("X-Request-ID")
+
+
+def test_gelen_istek_kimligi_korunur(istemci):
+    """Ters vekil ya da çağıran servis kimlik ürettiyse zincir kopmamalı."""
+    y = istemci.get("/saglik", headers={"X-Request-ID": "yukaridan-gelen"})
+    assert y.headers["X-Request-ID"] == "yukaridan-gelen"
+
+
+def test_beklenmeyen_hata_iz_kaydi_sizdirmaz():
+    """Veritabanı erişilemezken kullanıcı YIĞIN İZİ değil, istek kimliği görür.
+
+    Gerçek bir üretim arızasını taklit ediyor: bağlantı kurulamıyor. Eskiden
+    böyle bir hata Starlette'in varsayılan işleyicisine düşüyor, gövdesi düz
+    metin oluyor ve iz kaydı yapılandırılmamış biçimde stderr'e gidiyordu.
+    """
+    app = uygulama_olustur()
+
+    def patlayan_db():
+        raise RuntimeError("gizli iç ayrıntı: parola=hunter2 ile bağlanılamadı")
+
+    app.dependency_overrides[get_db] = patlayan_db
+    with TestClient(app, raise_server_exceptions=False) as c:
+        y = c.get("/api/izlemeler", headers={"Authorization": "Bearer x"})
+
+    assert y.status_code == 500
+    assert "hunter2" not in y.text          # sır sızmıyor
+    assert "Traceback" not in y.text        # iz kaydı sızmıyor
+    govde = y.json()
+    assert govde["istek_kimligi"]
+    assert y.headers.get("X-Request-ID") == govde["istek_kimligi"]
+
+
+def test_spa_yakalayicisi_api_uclarini_golgelemiyor(istemci):
+    """SPA geri düşüşü EN SONDA bağlanır; ondan sonra eklenen her rota ölü
+    kalır. Bu testin varlığı, sıranın kazara bozulmasını yakalar."""
+    b = kayit_ol(istemci)
+    assert istemci.get("/api/izlemeler", headers=b).status_code == 200
+    assert istemci.get("/api/uyarilar", headers=b).status_code == 200
+    y = istemci.get("/api/olmayan-uc")
+    assert y.status_code == 404
+    assert "application/json" in y.headers.get("content-type", "")
