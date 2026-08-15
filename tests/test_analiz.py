@@ -5,10 +5,12 @@ from keepmoney.analiz import (
     MIN_GUN,
     Okuma,
     dip_kirildi_mi,
+    en_dusuk_sure,
     fiyat_baglami,
     gunluk_minimumlar,
     sahte_indirim_mi,
     trend,
+    yorum,
 )
 
 BUGUN = date(2026, 8, 15)
@@ -169,3 +171,73 @@ def test_dip_kirilmadi():
 
 def test_dip_veri_yoksa():
     assert dip_kirildi_mi([], 900, 30, BUGUN) == (False, None, 0)
+
+
+# ---------- "kaç gündür en düşüğü" ----------
+
+def test_en_dusuk_sure_rekor_kirildi():
+    """30 gündür düşmeyen fiyat bugün dibi kırdı → 30 gün."""
+    o = seri([1000] * 30 + [900])
+    assert en_dusuk_sure(o, 900, BUGUN) == 30
+
+
+def test_en_dusuk_sure_daha_ucuz_gun_varsa_kisalir():
+    """5 gün önce daha ucuzdu → rekor sadece o güne kadar."""
+    o = seri([1000, 1000, 800, 1000, 1000, 900])
+    assert en_dusuk_sure(o, 900, BUGUN) == 2
+
+
+def test_en_dusuk_sure_rekor_yoksa_sifir():
+    o = seri([1000, 900, 800, 1000, 1000, 1200])
+    assert en_dusuk_sure(o, 1200, BUGUN) == 0
+
+
+def test_en_dusuk_sure_veri_yoksa_sifir():
+    assert en_dusuk_sure([], 900, BUGUN) == 0
+
+
+def test_baglam_en_dusuk_gunu_tasir():
+    b = fiyat_baglami(seri([1000] * 20 + [850]), 850, BUGUN)
+    assert b.en_dusuk_gun == 20
+
+
+# ---------- yorum (insan cümlesi) ----------
+
+def test_yorum_veri_yoksa_durust():
+    metin = yorum(None)
+    assert "yeterli geçmiş yok" in metin
+
+
+def test_yorum_aylik_rekoru_ay_olarak_soyler():
+    b = fiyat_baglami(seri([1000] * 190 + [850]), 850, BUGUN)
+    metin = yorum(b, 850)
+    assert "6 ayın en düşüğü" in metin
+    assert "🟢" in metin
+
+
+def test_yorum_gunluk_rekoru_gun_olarak_soyler():
+    b = fiyat_baglami(seri([1000] * 20 + [850]), 850, BUGUN)
+    assert "20 günün en düşüğü" in yorum(b, 850)
+
+
+def test_yorum_pahali_donemde_uyarir():
+    b = fiyat_baglami(seri([900, 900, 900, 900, 900, 1400]), 1400, BUGUN)
+    metin = yorum(b, 1400)
+    assert "🔴" in metin
+    assert "medyan" in metin
+
+
+def test_yorum_sahte_indirimi_bildirir():
+    b = fiyat_baglami(seri([900, 900, 900, 900, 1500, 1300]), 1300, BUGUN)
+    metin = yorum(b, 1300)
+    assert "şişirilmiş" in metin
+
+
+def test_yorum_iyi_firsati_isaretler():
+    b = fiyat_baglami(seri([1000] * 40 + [800]), 800, BUGUN)
+    assert "iyi bir alım noktası" in yorum(b, 800)
+
+
+def test_yorum_yuzdelik_her_zaman_var():
+    b = fiyat_baglami(seri([1000, 1100, 1200, 1300, 1400, 950]), 950, BUGUN)
+    assert "'inden ucuz" in yorum(b, 950)

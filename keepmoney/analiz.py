@@ -60,6 +60,9 @@ class Baglam:
     sahte_indirim: bool
     trend_yonu: str             # "dusuyor" | "yukseliyor" | "sabit"
     trend_gucu: float           # 0.0 - 1.0
+    # "Son N gündür bu kadar ucuz değildi" — ürünün en anlaşılır cümlesi.
+    # 0 = bugün daha ucuz bir gün var, yani rekor değil.
+    en_dusuk_gun: int = 0
 
     @property
     def emoji(self) -> str:
@@ -144,6 +147,94 @@ def sahte_indirim_mi(guncel: float, gunluk: dict[date, float],
     return any(v > guncel for v in son_iki_hafta)
 
 
+def en_dusuk_sure(okumalar: list[Okuma], guncel: float,
+                  bugun: date | None = None) -> int:
+    """Güncel fiyat KAÇ GÜNDÜR bu kadar ucuz değildi?
+
+    Sabit pencere ("90 günün dibi") yerine gerçek soruyu cevaplar: geriye
+    doğru ne kadar gidebiliriz ve bugünkü fiyat hâlâ en düşük kalır? Çıktı
+    doğrudan cümleye dönüşür — "son 187 gündür en düşüğü".
+
+    Bu, sabit pencereden daha dürüst: 90 günlük veride "90 günün dibi" demek
+    kullanıcıya bilgi vermez, çünkü zaten tüm veri o kadar. 187 gün ise
+    gerçek bir rekordur.
+
+    Bugün hariç tutulur (bugünkü okuma karşılaştırmanın kendisidir).
+    0 döner = daha ucuz bir gün var, rekor değil.
+    """
+    bugun = bugun or tr_bugun()
+    gunluk = gunluk_minimumlar(okumalar)
+    gunluk.pop(bugun, None)
+    if not gunluk or guncel <= 0:
+        return 0
+
+    sure = 0
+    for g in sorted(gunluk, reverse=True):      # en yeniden en eskiye
+        if gunluk[g] < guncel:                  # daha ucuz bir gün — dur
+            break
+        sure = (bugun - g).days
+    return sure
+
+
+def yorum(baglam: Baglam | None, guncel: float | None = None) -> str:
+    """Bağlamı İNSAN CÜMLESİNE çevirir — bildirimlerin ve kartın altındaki
+    yorumlayıcı metin.
+
+    Ürünün kullanıcıya dokunduğu yer burası. Rakamlar (dip90, yüzdelik,
+    medyan) tek başına anlam taşımıyor; "bu iyi bir fiyat, al" ya da
+    "pahalı dönem, bekle" cümlesi taşıyor.
+
+    Tasarım: metin ÜRETİLİR ama karar VERİLMEZ — "alman lazım" demez,
+    "şu an tarihsel olarak iyi bir nokta" der. Sorumluluk kullanıcıda kalır.
+    """
+    if baglam is None:
+        return ("Henüz yeterli geçmiş yok — birkaç gün içinde bu fiyatın "
+                "iyi olup olmadığını söyleyebileceğim.")
+
+    parcalar: list[str] = []
+
+    if baglam.en_dusuk_gun >= 300:
+        parcalar.append(f"{baglam.emoji} Yaklaşık {baglam.en_dusuk_gun // 30} aydır "
+                        "bu kadar ucuz olmamıştı")
+    elif baglam.en_dusuk_gun >= 60:
+        parcalar.append(f"{baglam.emoji} Son {baglam.en_dusuk_gun // 30} ayın "
+                        "en düşüğü")
+    elif baglam.en_dusuk_gun >= 7:
+        parcalar.append(f"{baglam.emoji} Son {baglam.en_dusuk_gun} günün en düşüğü")
+    elif baglam.sinyal == "dip":
+        parcalar.append(f"{baglam.emoji} Dip bölgesinde")
+    elif baglam.sinyal == "ucuz":
+        parcalar.append(f"{baglam.emoji} Ortalamanın altında")
+    else:
+        parcalar.append(f"{baglam.emoji} Pahalı dönem")
+
+    parcalar.append(f"son {baglam.gun_sayisi} günün "
+                    f"%{baglam.yuzdelik}'inden ucuz")
+
+    if baglam.sinyal == "pahali":
+        parcalar.append(f"medyan {_tl(baglam.medyan90)}")
+    elif baglam.tum_zamanlar_dibi and guncel and guncel > baglam.tum_zamanlar_dibi:
+        parcalar.append(f"tüm zamanlar dibi {_tl(baglam.tum_zamanlar_dibi)}")
+
+    cumle = " · ".join(parcalar) + "."
+
+    if baglam.sahte_indirim:
+        cumle += (" ⚠️ Dikkat: bu indirim şişirilmiş bir fiyattan yapılmış "
+                  "görünüyor.")
+    elif baglam.sinyal == "pahali" and baglam.trend_yonu == "dusuyor":
+        cumle += " Fiyat düşüş eğiliminde, beklemek mantıklı olabilir."
+    elif baglam.iyi_firsat:
+        cumle += " Tarihsel olarak iyi bir alım noktası."
+
+    return cumle
+
+
+def _tl(v: float) -> str:
+    """Yorum metni için kısa TL. (fiyat.py'ye bağımlılık yaratmamak için
+    burada minimal tutuldu — analiz katmanı bağımsız kalsın.)"""
+    return f"{v:,.0f}".replace(",", ".") + " TL"
+
+
 def fiyat_baglami(okumalar: list[Okuma], guncel: float,
                   bugun: date | None = None) -> Baglam | None:
     """Ana giriş noktası. Yeterli veri yoksa None döner — yanıltıcı bağlam
@@ -187,6 +278,7 @@ def fiyat_baglami(okumalar: list[Okuma], guncel: float,
         sahte_indirim=sahte_indirim_mi(guncel, gunluk, bugun),
         trend_yonu=yon,
         trend_gucu=guc,
+        en_dusuk_gun=en_dusuk_sure(okumalar, guncel, bugun),
     )
 
 

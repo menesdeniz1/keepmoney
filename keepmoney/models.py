@@ -72,6 +72,11 @@ class Product(Base):
     ad = Column(String, nullable=False)
     kategori = Column(String, nullable=True, index=True)
 
+    # Ürün eklenirken ad URL'den türetilir (istek içinde ağa çıkıp kullanıcıyı
+    # bekletmemek için). İlk başarılı taramada gerçek başlıkla değiştirilir ve
+    # bu bayrak düşer — sonraki taramalar kullanıcının düzelttiği adı EZMEZ.
+    ad_gecici = Column(Boolean, default=True)
+
     # Denormalize (hız için) — her taramada en ucuz kaynaktan güncellenir
     guncel_fiyat = Column(Float, nullable=True)
     guncel_satici = Column(String, nullable=True)

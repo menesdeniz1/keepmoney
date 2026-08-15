@@ -1,0 +1,181 @@
+"""API şemaları (Pydantic v2).
+
+ORM modellerinden AYRI tutulur. Sebep: veritabanı şeması iç mesele, API
+sözleşmesi dış mesele. `Watch.son_bildirim_ts` gibi iç alanlar dışarı
+sızmamalı; `yorum` gibi hesaplanan alanlar DB'de olmadığı halde dışarı
+verilmeli. İkisini tek sınıfa bindirmek, zamanla ya API'yi ya şemayı rehin alır.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, HttpUrl
+
+# ─────────────────────────── Kimlik ───────────────────────────
+
+
+class KayitIstegi(BaseModel):
+    eposta: EmailStr
+    # Üst sınır bcrypt'in 72 baytlık sessiz kesme davranışı yüzünden;
+    # alt sınır asgari makullük.
+    parola: str = Field(min_length=8, max_length=72)
+
+
+class GirisIstegi(BaseModel):
+    eposta: EmailStr
+    parola: str = Field(max_length=72)
+
+
+class TokenYaniti(BaseModel):
+    erisim_tokeni: str
+    tur: str = "bearer"
+
+
+class KullaniciYaniti(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    eposta: str = Field(validation_alias="email")
+    telegram_bagli: bool = False
+    created_at: datetime
+
+
+class TelegramBaglamaYaniti(BaseModel):
+    """Kullanıcıya verilen deep-link. Chat ID elle girilmez."""
+    baglanti: str
+    gecerlilik_dk: int
+
+
+# ─────────────────────────── Ürün ───────────────────────────
+
+
+class KaynakYaniti(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    url: str
+    host: str
+    satici: str | None = None
+    son_fiyat: float | None = None
+    durum: str
+    son_kontrol: datetime | None = None
+
+
+class FiyatNoktasi(BaseModel):
+    """Grafik verisi — gün başına tek nokta (bkz. MIMARI K4)."""
+    gun: date
+    fiyat: float
+
+
+class BaglamYaniti(BaseModel):
+    """'Bu iyi bir fiyat mı?' — Keepa'nın karşılığı olan katman."""
+    sinyal: str                       # dip | ucuz | pahali
+    emoji: str
+    yorum: str                        # kullanıcıya gösterilecek İNSAN CÜMLESİ
+    dip90: float
+    medyan90: float
+    yuzdelik: int
+    tum_zamanlar_dibi: float
+    tum_zamanlar_dibi_tarih: date
+    en_dusuk_gun: int
+    gun_sayisi: int
+    sahte_indirim: bool
+    trend_yonu: str
+    iyi_firsat: bool
+
+
+class UrunOzet(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ad: str
+    kategori: str | None = None
+    guncel_fiyat: float | None = None
+    guncel_satici: str | None = None
+    puan: float | None = None
+    yorum_sayisi: int | None = None
+    son_kontrol: datetime | None = None
+
+
+class UrunDetay(UrunOzet):
+    kaynaklar: list[KaynakYaniti] = []
+    gecmis: list[FiyatNoktasi] = []
+    baglam: BaglamYaniti | None = None
+
+
+# ─────────────────────────── İzleme ───────────────────────────
+
+
+class IzlemeEkleIstegi(BaseModel):
+    """Kullanıcı sadece linki yapıştırır; ad/kategori sayfadan çıkarılır."""
+    url: HttpUrl
+    hedef_fiyat: float | None = Field(default=None, gt=0)
+    acil_fiyat: float | None = Field(default=None, gt=0)
+    set_id: int | None = None
+
+
+class IzlemeGuncelleIstegi(BaseModel):
+    hedef_fiyat: float | None = Field(default=None, gt=0)
+    acil_fiyat: float | None = Field(default=None, gt=0)
+    aktif: bool | None = None
+    kilitli: bool | None = None
+    kilitli_fiyat: float | None = Field(default=None, ge=0)
+    set_id: int | None = None
+    sustur_gun: int | None = Field(default=None, ge=0, le=365)
+
+
+class IzlemeYaniti(BaseModel):
+    # populate_by_name: ORM nesnesi (`Watch.product`) de, servis sözlüğü
+    # (`{"urun": ...}`) de aynı şemaya doğrulanabilsin.
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: int
+    hedef_fiyat: float | None = None
+    acil_fiyat: float | None = None
+    aktif: bool
+    kilitli: bool
+    kilitli_fiyat: float | None = None
+    sustur_bitis: datetime | None = None
+    set_id: int | None = None
+    urun: UrunOzet = Field(validation_alias=AliasChoices("urun", "product"))
+
+
+class IzlemeDetay(IzlemeYaniti):
+    urun: UrunDetay = Field(validation_alias=AliasChoices("urun", "product"))
+
+
+# ─────────────────────────── Set ───────────────────────────
+
+
+class SetIstegi(BaseModel):
+    ad: str = Field(min_length=1, max_length=60)
+    hedef_butce: float | None = Field(default=None, gt=0)
+    sablon: str | None = None
+
+
+class SetYaniti(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ad: str
+    hedef_butce: float | None = None
+    # Hesaplanan alanlar — DB'de yok, API sözleşmesinde var
+    toplam: float = 0.0
+    eksik_uye: int = 0
+    hedefte: bool = False
+    uye_sayisi: int = 0
+
+
+# ─────────────────────────── Uyarı ───────────────────────────
+
+
+class UyariYaniti(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tur: str
+    baslik: str
+    mesaj: str
+    okundu: bool
+    created_at: datetime
+    watch_id: int | None = None

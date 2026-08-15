@@ -90,9 +90,11 @@ Bu yüzden `dogrula()` üç durum döner: `temiz` / `beklemede` / `bozuk` — so
 
 ## K9 — SQLite ile başla
 
-**Karar:** Varsayılan SQLite; `DATABASE_URL` ile Postgres'e geçilir. Migration için şimdilik `create_all`, Alembic yok.
+**Karar:** Varsayılan SQLite; `KEEPMONEY_VERITABANI_URL` ile Postgres'e geçilir.
 
-**Neden:** Asıl darboğaz her zaman scraping olacak, veritabanı değil. SQLite tek makinede birkaç bin kullanıcıyı taşır. Postgres'e geçiş noktası net: tarama worker'ını ayrı makineye alacağın gün. Alembic'e geçiş noktası da net: şema gerçekten evrilmeye başladığında — üretimde veri varken.
+**Neden:** Asıl darboğaz her zaman scraping olacak, veritabanı değil. SQLite tek makinede birkaç bin kullanıcıyı taşır. Postgres'e geçiş noktası net: tarama worker'ını ayrı makineye alacağın gün — SQLite'ın tek yazar kısıtı orada bağlar.
+
+*Güncelleme (Faz 2):* Migrasyon için Alembic kuruldu (bkz. K15). Katman zaten soyut olduğu için geçiş tek satırlık ayar değişikliği.
 
 ---
 
@@ -137,3 +139,57 @@ Bu yüzden `dogrula()` üç durum döner: `temiz` / `beklemede` / `bozuk` — so
 - **AI karar motoru** — şimdilik hayır. Deterministik analiz `iyi_firsat` sinyalini zaten üretiyor; LLM katmanı ücretsiz kotalarla ölçeklenmez ve açıklanabilirliği düşürür. İleride "gerekçe metni yaz" rolüyle geri gelebilir, karar verici olarak değil.
 - **Benchmark/performans skoru** — canlı veri kaynağı olmadan elle küratörlü 37 satırlık liste, kapsamı dar ve bakımı belirsiz bir özellikti
 - **Celery/Redis** — tek worker süreci bu ölçekte yeterli; kuyruk altyapısı gerçek bir darboğaz görülmeden eklenmeyecek
+
+---
+
+## K13 — Katmanlar: bağımlılık yönü içeri doğru
+
+**Karar:** Dört katman, tek yönlü bağımlılık.
+
+```
+SUNUM      api/ (rotalar) · [Faz 4] telegram botu
+UYGULAMA   servisler/ — use-case'ler, iş kuralları
+ALAN       analiz · karar · fiyat · zaman — SAF, sıfır bağımlılık
+ALTYAPI    models · db · ayikla · cekici · siteler · throttle
+```
+
+**Kurallar:**
+- `servisler/` içinde `fastapi` import edilmez. Aynı fonksiyonları Telegram botu da çağıracak; kural iki yerde yazılmasın.
+- Rotalar iş kuralı içermez — servis çağırır, istisnayı HTTP koduna çevirir.
+- Alan katmanı ORM bilmez; girdisi ve çıktısı veri sınıflarıdır.
+
+**Neden:** Öncül projelerin en pahalı hatası, iş mantığının rota fonksiyonlarına yayılmasıydı — `setprice`'ta link çözümleme bloğu iki endpoint'te **birebir kopyalanmıştı** (~50 satır). Bot eklendiğinde üçüncü kopya kaçınılmazdı.
+
+---
+
+## K14 — API şemaları ORM modellerinden ayrı
+
+**Karar:** `semalar.py` (Pydantic v2) ile `models.py` (SQLAlchemy) ayrı.
+
+**Neden:** Veritabanı şeması iç mesele, API sözleşmesi dış mesele. `Watch.son_bildirim_ts` gibi iç alanlar dışarı sızmamalı; `yorum` gibi hesaplanan alanlar DB'de olmadığı halde dışarı verilmeli. Tek sınıfa bindirmek zamanla ya API'yi ya şemayı rehin alır.
+
+---
+
+## K15 — Alembic, `create_all` değil
+
+**Karar:** Şema değişikliği migrasyonla yapılır. `create_all` yalnızca geliştirme ortamında, testlerde ve ilk kurulumda.
+
+**Neden:** `create_all` VAR OLAN tabloyu güncellemez — modele kolon eklersin, üretimde sessizce eski şemayla çalışmaya devam eder ve hata ancak o kolona yazmaya kalkınca çıkar. `setprice`'ın "hafif otomatik migrasyon"u (ALTER TABLE ile kolon ekleme) bu yaranın üstünü kapatan bir yamaydı; kolon silme/tip değiştirme desteklemiyordu. Alembic `render_as_batch=True` ile SQLite'ta da tam yetenekli.
+
+**Doğrulama:** `alembic check` — model ile migrasyonların uyuşup uyuşmadığını CI'da denetler.
+
+---
+
+## K16 — Kanonik URL, küresel ürün modelinin can damarı
+
+**Karar:** Ekleme sırasında URL normalize edilir: şema/host sabitlenir, takip parametreleri (`utm_*`, `gclid`, `sellerId`, `boutiqueId`…) atılır.
+
+**Neden:** Aynı ürünün linki kampanya etiketleriyle geliyor. Normalize edilmezse aynı sayfa N kez taranır (maliyet), fiyat geçmişi N'e bölünür (analiz bozulur) ve kullanıcı aynı ürünü iki kez ekleyebilir. K1'deki paylaşım kazancı tamamen buna bağlı.
+
+---
+
+## K17 — Ürün adı önce URL'den, sonra gerçek başlıktan
+
+**Karar:** İzleme eklenirken ağa ÇIKILMAZ; ad URL'den türetilir ve `ad_gecici=True` işaretlenir. İlk başarılı taramada gerçek başlıkla değiştirilir, bayrak düşer.
+
+**Neden:** İstek içinde sayfa çekmek kullanıcıyı 10-20 saniye bekletir ve mağaza yavaşsa istek zaman aşımına uğrar. Bayrak, kullanıcının sonradan düzelttiği adın taramalarca ezilmesini de önler.

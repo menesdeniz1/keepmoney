@@ -4,9 +4,10 @@
 
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
-> Durum: **tarama motoru çalışıyor** — link ver, fiyatı okusun, geçmişi tutsun,
-> hedefe inince uyarı üretsin. 151 test yeşil.
-> Sıradaki: API → web dashboard → Telegram botu. Bkz. [`docs/MIMARI.md`](docs/MIMARI.md).
+> Durum: **API + tarama motoru çalışıyor.** Kayıt ol, link yapıştır, fiyat
+> geçmişi birikssin, "bu iyi fiyat mı" yorumunu al, hedefe inince uyarı gelsin.
+> 192 test yeşil. Sıradaki: web dashboard → Telegram botu.
+> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md)
 
 ---
 
@@ -42,10 +43,19 @@ Ayrıntılı gerekçe: [`docs/MIMARI.md`](docs/MIMARI.md)
 
 ```bash
 git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney
-python3 -m venv venv && source venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest                      # 82 test
+
+alembic upgrade head        # şemayı kur
+pytest                      # 192 test
+uvicorn keepmoney.api.app:app --reload
 ```
+
+API dokümanı: http://localhost:8000/docs
+
+Üretimde `KEEPMONEY_JWT_GIZLI_ANAHTAR` ZORUNLUDUR (yoksa uygulama açılmaz).
+Tüm ayarlar `KEEPMONEY_` önekli ortam değişkenleriyle verilir — bkz.
+[`keepmoney/ayarlar.py`](keepmoney/ayarlar.py).
 
 ---
 
@@ -53,19 +63,32 @@ pytest                      # 82 test
 
 ```
 keepmoney/
-  analiz.py     ⭐ fiyat zekâsı — "bu iyi fiyat mı" (saf fonksiyonlar, DB'siz)
-  karar.py      🛡  koruma — okumaya güvenilir mi, alarm gitmeli mi
-  worker.py     🔁 tarama motoru — çek, çıkar, doğrula, yaz, uyar
-  ayikla.py        HTML → fiyat (güven zinciri) + puan/yorum + başlık
-  cekici.py        requests → cloudscraper → Playwright
-  siteler.py       site kuralları (siteler/*.yaml — 10 Türk sitesi tanımlı)
+  ── ALAN (saf Python, sıfır bağımlılık) ────────────────
+  analiz.py     ⭐ "bu iyi fiyat mı" + insan cümlesi (yorum)
+  karar.py      🛡  okumaya güvenilir mi, alarm gitmeli mi
   fiyat.py         TL parse ve biçimleme
-  throttle.py      site bazlı kuyruk + üstel geri çekilme
-  zaman.py      🇹🇷 saat dilimi politikası (DB'de UTC, her yerde TR saati)
+  zaman.py      🇹🇷 saat dilimi politikası (DB'de UTC, gösterimde TR)
+  ── UYGULAMA ───────────────────────────────────────────
+  servisler/       use-case'ler: kullanici · izleme · urun · setler · uyari
+  worker.py     🔁 tarama motoru — çek, çıkar, doğrula, yaz, uyar
+  ── ALTYAPI ────────────────────────────────────────────
   models.py     🗄  şema — küresel ürün / kişisel izleme ayrımı
   db.py            bağlantı (SQLite → Postgres)
-tests/           151 test, hepsi yeşil
+  ayikla.py        HTML → fiyat (güven zinciri) + puan + başlık
+  cekici.py        requests → cloudscraper → Playwright
+  siteler.py       site kuralları (siteler/*.yaml — 10 Türk sitesi)
+  throttle.py      site kuyruğu + üstel geri çekilme
+  ── SUNUM ──────────────────────────────────────────────
+  api/             FastAPI: rotalar + bağımlılıklar
+  semalar.py       Pydantic v2 API sözleşmesi
+  ayarlar.py       tiplenmiş yapılandırma · guvenlik.py  JWT + bcrypt
+migrations/        Alembic
+tests/             192 test, hepsi yeşil
 ```
+
+**Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework
+bilmez; bu yüzden testlerin çoğu hiçbir kurulum gerektirmez. Aynı iş kuralları
+hem API'yi hem Telegram botunu besleyecek — iki yerde iki tanım oluşamaz.
 
 ### Tarama akışı
 
@@ -107,7 +130,7 @@ print(f"trend: {b.trend_yonu}")              # dusuyor
 
 - [x] **Faz 0** — çekirdek: analiz, koruma, şema, testler
 - [x] **Faz 1** — tarama motoru: çekme zinciri + çıkarım + koruma + uyarı üretimi
-- [ ] **Faz 2** — FastAPI: auth, watch CRUD, geçmiş, alert
+- [x] **Faz 2** — API: JWT kimlik, izleme/set/uyarı uçları, Alembic, kota
 - [ ] **Faz 3** — web dashboard (grafik, set, bütçe çubuğu)
 - [ ] **Faz 4** — Telegram botu (deep-link bağlama, kart/buton UX, iki yönlü)
 - [ ] **Faz 5** — kota, affiliate, gözlemlenebilirlik paneli

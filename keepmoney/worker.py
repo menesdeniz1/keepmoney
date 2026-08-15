@@ -215,6 +215,13 @@ class Tarayici:
             if okuma.ekstra.get("yorum") is not None:
                 urun.yorum_sayisi = okuma.ekstra["yorum"]
 
+            # Ürün eklenirken ad URL'den türetilmişti (istek içinde ağa
+            # çıkmamak için). İlk gerçek başlıkla değiştir — ama SADECE bir
+            # kez: kullanıcı adı düzelttiyse sonraki taramalar ezmesin.
+            if urun.ad_gecici and okuma.ekstra.get("baslik"):
+                urun.ad = okuma.ekstra["baslik"]
+                urun.ad_gecici = False
+
         urun.son_kontrol = utc_simdi()
         sonuc.taranan_urun += 1
 
@@ -285,25 +292,29 @@ class Tarayici:
 
         uretilen = 0
 
+        # Bildirim metni TEK YERDEN üretilir (analiz.yorum) — aynı cümle
+        # web kartında, bot mesajında ve e-postada birebir aynı çıksın.
+        aciklama = analiz.yorum(baglam, fiyat)
+
         if hedefte and self._hatirlatma_zamani(w, fiyat, simdi, acil):
             onek = "🚨 ACİL — " if acil else "🎯 "
-            mesaj = f"{tl(fiyat)} (hedef {tl(w.hedef_fiyat)}) · {urun.guncel_satici}"
-            if baglam:
-                mesaj += (f"\n{baglam.emoji} {baglam.etiket} — 90g dip "
-                          f"{kisa_tl(baglam.dip90)}, günlerin "
-                          f"%{baglam.yuzdelik}'inden ucuz")
-                if baglam.sahte_indirim:
-                    mesaj += "\n⚠️ Dikkat: bu indirim şişirilmiş fiyattan yapılmış"
-            self._uyari_ekle(w, "HEDEF", f"{onek}{urun.ad}", mesaj)
+            self._uyari_ekle(
+                w, "HEDEF", f"{onek}{urun.ad}",
+                f"{tl(fiyat)} (hedef {tl(w.hedef_fiyat)}) · "
+                f"{urun.guncel_satici}\n{aciklama}")
             w.son_bildirim_ts = simdi
             w.son_bildirim_fiyat = fiyat
             uretilen += 1
 
         # Hedefe inmese bile haber değeri olan olay — ürünün ana vaadi bu.
         elif dip_kirildi and onceki_dip and baglam and baglam.gun_sayisi >= 7:
+            sure = baglam.en_dusuk_gun
+            baslik = (f"📉 {urun.ad} son {sure} günün en düşüğünde"
+                      if sure >= 7 else f"📉 {urun.ad} dip kırdı")
             self._uyari_ekle(
-                w, "DIP", f"📉 {urun.ad} son 30 günün en düşüğünde",
-                f"{tl(fiyat)} — önceki dip {tl(onceki_dip)} · {urun.guncel_satici}")
+                w, "DIP", baslik,
+                f"{tl(fiyat)} — önceki dip {tl(onceki_dip)} · "
+                f"{urun.guncel_satici}\n{aciklama}")
             uretilen += 1
 
         if baglam and baglam.sahte_indirim and eski_fiyat and fiyat < eski_fiyat:
