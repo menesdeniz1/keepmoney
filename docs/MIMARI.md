@@ -96,13 +96,31 @@ Bu yüzden `dogrula()` üç durum döner: `temiz` / `beklemede` / `bozuk` — so
 
 ---
 
-## K10 — Saat dilimi politikası: bilinçli olarak ertelendi
+## K10 — Saat dilimi: DB'de UTC, her yerde Türkiye saati
 
-**Durum:** Açık konu. Şu an tüm `datetime`'lar naive (saat dilimi taşımıyor); linter'da DTZ kuralları bu yüzden kapalı.
+**Karar:** Veritabanına naive UTC yazılır; kullanıcıya gösterilen ve analizde kullanılan her şey `Europe/Istanbul`. Tek dönüşüm noktası `zaman.py`.
 
-**Neden şimdi çözülmedi:** Analiz katmanı zaman dilimi bilmez — kendisine verilen `datetime`'ı olduğu gibi kullanır, dolayısıyla burada verilecek bir karar yok. Politika, zaman damgasının **yazıldığı** yerde (Faz 1, tarama worker'ı) anlamlı olur.
+**Neden önemli:** "Gün" sınırı günlük minimum hesabını doğrudan belirler. UTC gününe göre gruplasaydık, Türkiye saatiyle 01:00'de görülen bir fiyat düşüşü bir *önceki* günün minimumuna yazılırdı — kullanıcı "dün 48.500'dü" derken Türkiye gününü kastediyor, "son 30 günün dibi" bildirimi yanlış günü işaret ederdi.
 
-**Neden önemli — kararı verirken hatırla:** "Gün" sınırı günlük minimum hesabını doğrudan etkiliyor. UTC kullanılırsa Türkiye saatiyle 01:00'de görülen bir fiyat düşüşü bir *önceki* günün minimumuna yazılır. Kullanıcı "dün 48.500'dü" derken Türkiye gününü kastediyor. Muhtemel karar: veritabanında UTC sakla, analiz girdisini `Europe/Istanbul`'a çevirerek üret.
+**Neden DB'de UTC:** SQLite saat dilimi bilgisini saklamaz; yarı-aware bir şema en kötü seçenektir (bazı satırlar aware, bazıları değil). Tüm DB değerleri koşulsuz UTC kabul edilir.
+
+**Kural:** Kodda `datetime.now()` / `date.today()` yasak — `zaman.py` fonksiyonları kullanılır. Linter'da DTZ kuralları bu yüzden kapalı (politika tek yerde, her modülde susturma gerekmesin diye).
+
+---
+
+## K11 — Koruma durumu kaynağa ait, kullanıcıya değil
+
+**Karar:** 2-okuma doğrulaması ve "bozuk kaynak" sayacı `Source` tablosunda tutulur; cooldown/susturma `Watch`'ta.
+
+**Neden:** "Bu okuma güvenilir mi?" nesnel bir sorudur — cevabı her kullanıcı için aynıdır. Kullanıcı başına tutulsaydı aynı şüpheli fiyat her izleyici için ayrı ayrı doğrulanır, N kat gereksiz istek atılırdı. "Bildirim gitmeli mi?" ise özneldir (kimin hedefi, kimin susturması) — o Watch'ta kalır.
+
+---
+
+## K12 — Tarama sıklığı sabit değil, uyarlanabilir
+
+**Karar:** Her ürünün kendi `kontrol_araligi_dk` değeri var, her taramadan sonra yeniden hesaplanıyor: hedefe %10'dan yakınsa 30 dk, bir haftadır %1'den az oynadıysa 24 saat, aksi halde 3 saat. Sıra `izleyen_sayisi`'na göre — çok izlenen ürün önce.
+
+**Neden:** Ölçeklenmenin tek gerçek kaldıracı bu. Her ürünü saatte bir taramak 500 kullanıcıda imkânsız; ama izlenen ürünlerin çoğu aylarca kıpırdamıyor. Bütçe yetmediğinde en çok kişiyi etkileyen ürünün güncel kalması, herkesin eşit derecede bayat kalmasından iyidir.
 
 ---
 

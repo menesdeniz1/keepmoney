@@ -22,8 +22,6 @@ olduğu, en son ne zaman bildirim aldığı. Watch tablosu tam olarak budur.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -37,6 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .db import Base
+from .zaman import utc_simdi
 
 
 class User(Base):
@@ -54,7 +53,7 @@ class User(Base):
     telegram_token = Column(String, index=True, nullable=True)
     telegram_token_biter = Column(DateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_simdi)
 
     watches = relationship("Watch", back_populates="user",
                            cascade="all, delete-orphan")
@@ -79,12 +78,17 @@ class Product(Base):
     guncel_kaynak_id = Column(Integer, nullable=True)
     son_kontrol = Column(DateTime, nullable=True)
 
+    # Puan/yorum — fiyatın tek başına yetmediği yer. 40.000 TL'lik dip fiyat,
+    # 2.1 puanlı bir üründe fırsat değildir. Grafiğin yanında gösterilir.
+    puan = Column(Float, nullable=True)            # 0-5
+    yorum_sayisi = Column(Integer, nullable=True)
+
     # Tarama sıklığı uyarlanabilir: hedefe yakın/oynak ürün sık, aylardır
     # kıpırdamayan ürün seyrek taranır. Ölçeklenmenin anahtarı bu alandır.
     kontrol_araligi_dk = Column(Integer, default=60)
     izleyen_sayisi = Column(Integer, default=0)   # kaç Watch işaret ediyor
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_simdi)
 
     sources = relationship("Source", back_populates="product",
                            cascade="all, delete-orphan")
@@ -112,6 +116,13 @@ class Source(Base):
     son_kontrol = Column(DateTime, nullable=True)
     hata_serisi = Column(Integer, default=0)
 
+    # Koruma katmanı durumu (karar.IzlemeDurumu) — KAYNAĞA ait, kullanıcıya
+    # değil: "bu okuma güvenilir mi" sorusu nesneldir, herkes için aynı cevabı
+    # verir. Kişisel olan yalnızca bildirim durumudur (Watch'ta).
+    bekleyen_fiyat = Column(Float, nullable=True)     # 2-okuma doğrulaması bekliyor
+    asiri_supheli_seri = Column(Integer, default=0)   # üst üste bozuk okuma
+    bozuk_uyarildi = Column(Boolean, default=False)
+
     product = relationship("Product", back_populates="sources")
     readings = relationship("PriceReading", back_populates="source",
                             cascade="all, delete-orphan")
@@ -128,7 +139,7 @@ class PriceReading(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False,
                         index=True)
     fiyat = Column(Float, nullable=False)
-    ts = Column(DateTime, default=datetime.utcnow, index=True)
+    ts = Column(DateTime, default=utc_simdi, index=True)
 
     source = relationship("Source", back_populates="readings")
 
@@ -143,7 +154,7 @@ class DomainHealth(Base):
     basarili = Column(Integer, default=0)
     basarisiz = Column(Integer, default=0)
     son_durum = Column(String, nullable=True)
-    son_kontrol = Column(DateTime, default=datetime.utcnow)
+    son_kontrol = Column(DateTime, default=utc_simdi)
 
 
 # ───────────────────────── KİŞİSEL KATMAN ─────────────────────────
@@ -160,7 +171,7 @@ class WatchSet(Base):
     hedef_butce = Column(Float, nullable=True)
     sablon = Column(String, nullable=True)
     son_bildirim_ts = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_simdi)
 
     user = relationship("User", back_populates="sets")
     watches = relationship("Watch", back_populates="set")
@@ -189,7 +200,7 @@ class Watch(Base):
     son_bildirim_ts = Column(DateTime, nullable=True)
     son_bildirim_fiyat = Column(Float, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_simdi)
 
     user = relationship("User", back_populates="watches")
     product = relationship("Product", back_populates="watches")
@@ -211,4 +222,4 @@ class Alert(Base):
     baslik = Column(String, nullable=False)
     mesaj = Column(String, nullable=False)
     okundu = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utc_simdi, index=True)

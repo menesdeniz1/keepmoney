@@ -1,0 +1,4 @@
+domain: "vatanbilgisayar.com"
+satici: "Vatan Bilgisayar"
+render: false
+fiyat_secici: ".product-list__price, .product-detail__price"

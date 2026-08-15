@@ -1,0 +1,5 @@
+domain: "hepsiburada.com"
+satici: "Hepsiburada"
+render: false
+fiyat_secici: "[data-test-id='price-current-price'], [data-test-id='default-price']"
+notlar: "Bot duvarı başlığı 'güvenlik' içerir — engel tespiti bunu yakalar."

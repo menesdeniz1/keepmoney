@@ -1,0 +1,9 @@
+domain: "amazon.com.tr"
+satici: "Amazon"
+render: false
+# Ana fiyat bloğuna sınırlı: sayfadaki "diğer satıcılar" ve önerilen ürün
+# fiyatlarını yakalamasın diye geniş "span.a-price" bilerek kullanılmıyor.
+fiyat_secici: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen"
+# Regex son çaresi SADECE ana ürün kolonuna baksın (sponsorlu karusel hariç)
+metin_alani: "#centerCol"
+notlar: "Bot koruması agresif; sık engel görülürse toplayıcı kaynağa yönlendir."

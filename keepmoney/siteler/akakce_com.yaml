@@ -1,0 +1,10 @@
+domain: "akakce.com"
+satici: "Akakçe"
+render: true
+toplayici: true          # tek sayfada tüm satıcıların en ucuzu
+fiyat_secici: "span.pt_v8"
+notlar: |
+  Toplayıcı kaynak — tarama bütçesinde önceliklidir: 10 mağaza taramak
+  yerine 1 sayfa okunur.
+  DİKKAT: tek satıcının hatalı girdiği fiyat "en ucuz" olarak görünebiliyor.
+  Bu yüzden karar.asiri_supheli koruması bu kaynakta da devrede.

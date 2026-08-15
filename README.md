@@ -4,8 +4,9 @@
 
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
-> Durum: **temel katman kuruldu** (analiz + koruma + şema, 82 test yeşil).
-> Sıradaki: tarama worker'ı → API → web → Telegram botu. Bkz. [`docs/MIMARI.md`](docs/MIMARI.md).
+> Durum: **tarama motoru çalışıyor** — link ver, fiyatı okusun, geçmişi tutsun,
+> hedefe inince uyarı üretsin. 151 test yeşil.
+> Sıradaki: API → web dashboard → Telegram botu. Bkz. [`docs/MIMARI.md`](docs/MIMARI.md).
 
 ---
 
@@ -54,12 +55,32 @@ pytest                      # 82 test
 keepmoney/
   analiz.py     ⭐ fiyat zekâsı — "bu iyi fiyat mı" (saf fonksiyonlar, DB'siz)
   karar.py      🛡  koruma — okumaya güvenilir mi, alarm gitmeli mi
+  worker.py     🔁 tarama motoru — çek, çıkar, doğrula, yaz, uyar
+  ayikla.py        HTML → fiyat (güven zinciri) + puan/yorum + başlık
+  cekici.py        requests → cloudscraper → Playwright
+  siteler.py       site kuralları (siteler/*.yaml — 10 Türk sitesi tanımlı)
   fiyat.py         TL parse ve biçimleme
   throttle.py      site bazlı kuyruk + üstel geri çekilme
+  zaman.py      🇹🇷 saat dilimi politikası (DB'de UTC, her yerde TR saati)
   models.py     🗄  şema — küresel ürün / kişisel izleme ayrımı
   db.py            bağlantı (SQLite → Postgres)
-tests/           82 test, hepsi yeşil
+tests/           151 test, hepsi yeşil
 ```
+
+### Tarama akışı
+
+```
+sırası gelen ürünleri seç        ← çok izlenen önce, uyarlanabilir aralık
+  → her kaynağı çek + çıkar      ← güven zinciri: json-ld > seçici > meta > regex
+    → koruma katmanı             ← şüpheli fiyat 2. okumayla doğrulanır
+      → temiz okumaları yaz      ← küresel fiyat geçmişi
+        → en ucuz kaynağı seç
+          → izleyicilere uyarı   ← hedef · 30g dibi · sahte indirim · set bütçesi
+            → sonraki tarama zamanını ayarla
+```
+
+Tüm zincir gerçek ağa çıkmadan test ediliyor: worker'a sahte bir çekici
+veriliyor, 25 uçtan uca test tüm yolları geçiyor.
 
 Çekirdek katman bilerek **saf ve bağımsız** yazıldı: analiz ve karar fonksiyonları veritabanı, ağ veya framework bilmez. Böylece tarama worker'ı, API ve bot **aynı kodu** çağırır — üç yerde üç farklı "dip" tanımı oluşamaz.
 
@@ -85,7 +106,7 @@ print(f"trend: {b.trend_yonu}")              # dusuyor
 ## Yol haritası
 
 - [x] **Faz 0** — çekirdek: analiz, koruma, şema, testler
-- [ ] **Faz 1** — tarama worker'ı (fetch zinciri + throttle + koruma → DB)
+- [x] **Faz 1** — tarama motoru: çekme zinciri + çıkarım + koruma + uyarı üretimi
 - [ ] **Faz 2** — FastAPI: auth, watch CRUD, geçmiş, alert
 - [ ] **Faz 3** — web dashboard (grafik, set, bütçe çubuğu)
 - [ ] **Faz 4** — Telegram botu (deep-link bağlama, kart/buton UX, iki yönlü)

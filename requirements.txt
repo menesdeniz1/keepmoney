@@ -1,6 +1,15 @@
-# Çekirdek — analiz/karar katmanı bunların hiçbirine ihtiyaç duymaz (saf Python),
-# bağımlılıklar depolama ve servis katmanı içindir.
+# Çekirdek analiz/karar katmanı SAF PYTHON'dur — hiçbirine ihtiyaç duymaz.
+# Bağımlılıklar depolama, çekme ve servis katmanı içindir.
+
 SQLAlchemy>=2.0.30
+PyYAML>=6.0            # site kuralları (siteler/*.yaml)
+beautifulsoup4>=4.12   # HTML çıkarımı
+lxml>=5.0              # hızlı parser
+requests>=2.31         # çekme zinciri 1. katman
+
+# Opsiyonel — kurulu değillerse çekme zinciri sessizce kısalır:
+#   cloudscraper>=1.2.71   (Cloudflare atlatma denemesi)
+#   playwright>=1.45       (JS gerektiren siteler; playwright install chromium)
 
 # Geliştirme
 pytest>=8.0

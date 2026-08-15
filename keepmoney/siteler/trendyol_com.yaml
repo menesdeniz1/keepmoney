@@ -1,0 +1,6 @@
+domain: "trendyol.com"
+satici: "Trendyol"
+render: true
+# Next.js — fiyat çoğu zaman JSON-LD'de ya da __NEXT_DATA__ içinde.
+fiyat_secici: "span.prc-dsc, div.product-price-container .prc-dsc"
+notlar: "URL'deki /yorumlar eki ürün sayfasına yönlenir, fiyat aynı seçiciden gelir."

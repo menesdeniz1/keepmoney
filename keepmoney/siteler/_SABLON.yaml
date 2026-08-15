@@ -1,0 +1,20 @@
+# YENİ SİTE EKLEME ŞABLONU — kopyala, adını domain yap (ornek_com.yaml)
+#
+# ÖNCE JSON-LD DENE: sayfada Ctrl+U → "application/ld+json" ara.
+# İçinde "offers": {"price": "..."} varsa hiçbir seçici yazmana gerek yok,
+# varsayılan zincir zaten bulur. Bu dosyayı sadece varsayılan YETMEZSE aç.
+
+domain: "ornek.com"        # www. YAZMA
+satici: "Örnek Mağaza"
+render: false              # fiyat boş geliyorsa true yap (JS ile yükleniyor)
+toplayici: false           # karşılaştırma sitesi mi (akakçe gibi)
+
+# Varsayılan zincir fiyatı bulamıyorsa siteye özel CSS seçici:
+fiyat_secici: ".product-price"
+
+# Gövde regex'inin bakacağı alanı DARALT. Ana fiyat bloğu sayfada yoksa
+# (stok tükendi) regex sponsorlu ürünün fiyatını okuyabiliyor; bu alan
+# tanımlıysa ve sayfada bulunamıyorsa regex adımı tamamen atlanır.
+metin_alani: "#anaKolon"
+
+notlar: ""

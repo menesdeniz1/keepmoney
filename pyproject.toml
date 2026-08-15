@@ -5,12 +5,24 @@ target-version = "py312"
 [tool.ruff.lint]
 extend-select = ["I", "B", "SIM", "C4", "UP"]
 
-# DTZ (naive datetime) bilerek kapalı: saat dilimi politikası henüz
-# belirlenmedi ve bu katman zaman dilimi bilmiyor — analiz fonksiyonları
-# kendilerine verilen datetime'ı olduğu gibi kullanır. Karar Faz 1'de
-# (tarama worker'ı zaman damgasını YAZDIĞI yerde) verilecek.
-# Bkz. docs/MIMARI.md → "Açık konular / K10".
-ignore = ["DTZ001", "DTZ005", "DTZ011"]
+ignore = [
+  # DTZ — naive datetime. Politika zaman.py'de TEK YERDE tanımlı: DB'ye naive
+  # UTC yazılır, analiz Europe/Istanbul'a çevirir. Kuralı açık bırakmak, o
+  # modülün kendisini sürekli susturmayı gerektirirdi.
+  "DTZ001", "DTZ005", "DTZ011",
+
+  # BLE001/S110/S112/SIM105 — geniş `except`. Bunlar BİLİNÇLİ savunma:
+  # ayikla.py ve cekici.py üçüncü tarafların keyfî HTML'ini ve ağını işliyor.
+  # Bir mağazanın bozuk markup'ı ya da beklenmedik bir ağ hatası TÜM tarama
+  # turunu düşürmemeli — o kaynak atlanır, diğerleri devam eder. Dar `except`
+  # listesi burada yanlış güvenlik hissi verir: bs4/lxml/requests yığını
+  # dokümante edilmemiş istisnalar fırlatabiliyor.
+  "BLE001", "S110", "S112", "SIM105",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testlerde assert kullanımı zaten amaç
+"tests/*" = ["S101"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,5 @@
+domain: "cimri.com"
+satici: "Cimri"
+render: true
+toplayici: true
+fiyat_secici: "[class*='ProductPrice'], [class*='price']"

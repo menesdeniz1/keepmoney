@@ -14,12 +14,18 @@ GÜNLÜK MİNİMUM İLKESİ: tüm hesaplar ham okumalar üzerinden değil, GÜNL
 MİNİMUMLAR üzerinden yapılır. Sık taranan bir ürün günde 48 okuma, seyrek
 taranan 2 okuma üretir; ham listede ilki medyanı domine eder. Gün başına tek
 değer bu çarpıklığı ortadan kaldırır.
+
+"GÜN" = TÜRKİYE GÜNÜ. Okuma zaman damgaları UTC saklanır ama gruplama
+Europe/Istanbul takvimine göre yapılır (bkz. zaman.py). Aksi halde gece
+01:00'de görülen düşüş bir önceki günün minimumuna yazılırdı.
 """
 from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+
+from .zaman import tr_bugun, tr_gun
 
 # Bağlam üretmek için gereken minimum gün sayısı. Altında kalan veriyle
 # "dip bölgesi" demek kullanıcıyı yanıltır — 2 günlük veride her fiyat diptir.
@@ -67,12 +73,13 @@ class Baglam:
 
 
 def gunluk_minimumlar(okumalar: list[Okuma]) -> dict[date, float]:
-    """Her gün için o günün EN DÜŞÜK okuması. Tüm analizin girdisi budur."""
+    """Her gün için o günün EN DÜŞÜK okuması. Tüm analizin girdisi budur.
+    Gün sınırı Türkiye takvimine göredir."""
     out: dict[date, float] = {}
     for o in okumalar:
         if o.fiyat is None or o.fiyat <= 0:
             continue
-        g = o.ts.date()
+        g = tr_gun(o.ts)
         mevcut = out.get(g)
         if mevcut is None or o.fiyat < mevcut:
             out[g] = o.fiyat
@@ -90,7 +97,7 @@ def trend(gunluk: dict[date, float], bugun: date | None = None) -> tuple[str, fl
     Dönen güç 0-1 arasıdır; %3'lük sapma eşik kabul edilir (altı "sabit"),
     %10'luk sapma tam güç sayılır.
     """
-    bugun = bugun or date.today()
+    bugun = bugun or tr_bugun()
     seri = [v for _, v in sorted(gunluk.items())]
     if len(seri) < 2:
         return "sabit", 0.0
@@ -124,7 +131,7 @@ def sahte_indirim_mi(guncel: float, gunluk: dict[date, float],
     dalgalanmasını da tuzak sayıyordu; iki şartın kesişimi çok daha az
     yanlış pozitif üretiyor.
     """
-    bugun = bugun or date.today()
+    bugun = bugun or tr_bugun()
     doksan = _pencere(gunluk, 90, bugun)
     if len(doksan) < MIN_GUN or guncel <= 0:
         return False
@@ -144,7 +151,7 @@ def fiyat_baglami(okumalar: list[Okuma], guncel: float,
     if not okumalar or not guncel or guncel <= 0:
         return None
 
-    bugun = bugun or date.today()
+    bugun = bugun or tr_bugun()
     gunluk = gunluk_minimumlar(okumalar)
     doksan = _pencere(gunluk, 90, bugun)
     if len(doksan) < MIN_GUN:
@@ -192,7 +199,7 @@ def dip_kirildi_mi(okumalar: list[Okuma], guncel: float, gun: int = 30,
 
     Dönüş: (kırıldı_mı, önceki_dip, kaç_günlük_veri)
     """
-    bugun = bugun or date.today()
+    bugun = bugun or tr_bugun()
     gunluk = gunluk_minimumlar(okumalar)
     gunluk.pop(bugun, None)
 

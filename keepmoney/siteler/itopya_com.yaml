@@ -1,0 +1,4 @@
+domain: "itopya.com"
+satici: "İtopya"
+render: false
+fiyat_secici: ".product-price, .price"

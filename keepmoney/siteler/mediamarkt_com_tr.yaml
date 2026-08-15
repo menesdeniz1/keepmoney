@@ -1,0 +1,6 @@
+domain: "mediamarkt.com.tr"
+satici: "MediaMarkt"
+render: false
+# Fiyat JSON-LD'de, BuyAction.object.offers içine gömülü — varsayılan zincir
+# iç içe düğümleri gezdiği için seçiciye gerek yok.
+notlar: "JSON-LD yeterli; seçici eklenmedi."
