@@ -45,7 +45,7 @@ http_sure = Histogram(
 kaynak_okuma = Counter(
     "keepmoney_kaynak_okuma_toplam",
     "Kaynak okuma denemeleri",
-    ["domain", "sonuc"],          # sonuc: ok | engelli | olu | hata | reddedildi
+    ["domain", "sonuc"],   # ok | engelli | olu | hata | reddedildi | robots
 )
 
 okuma_suresi = Histogram(

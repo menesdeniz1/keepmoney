@@ -106,3 +106,18 @@ def motor():
     yield m
     Base.metadata.drop_all(m)
     m.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _robots_ag_yok(monkeypatch):
+    """Testlerde robots.txt İNDİRİLMEZ.
+
+    Kapının KENDİSİ devrede kalır (worker onu çağırmaya devam eder); yalnızca
+    ağ adımı sahtelenir ve "okunamadı" davranışına düşer — üretimdeki
+    varsayılan da bu: beyan yoksa yasak yoktur.
+
+    Gerçek ayrıştırma mantığı `test_robots.py`de, ağa çıkmadan sınanıyor.
+    """
+    from keepmoney.robots import RobotsKapisi
+
+    monkeypatch.setattr(RobotsKapisi, "_oku", lambda self, taban: None)

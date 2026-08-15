@@ -23,6 +23,7 @@ from . import analiz, ayikla, karar, olcumler, siteler
 from .cekici import Cekici
 from .fiyat import kisa_tl, tl
 from .models import Alert, DomainHealth, PriceReading, Product, Source, Watch
+from .robots import RobotsKapisi
 from .throttle import HostThrottle
 from .zaman import sessiz_saat_mi, tr_bugun, utc_simdi
 
@@ -68,10 +69,12 @@ class TaramaSonucu:
 
 class Tarayici:
     def __init__(self, db: Session, cekici: Cekici,
-                 throttle: HostThrottle | None = None):
+                 throttle: HostThrottle | None = None,
+                 robots: RobotsKapisi | None = None):
         self.db = db
         self.cekici = cekici
         self.throttle = throttle or HostThrottle()
+        self.robots = robots or RobotsKapisi()
 
     # ── seçim ────────────────────────────────────────────────────
 
@@ -130,6 +133,18 @@ class Tarayici:
         if self.throttle.ertelenmeli_mi(kaynak.host):
             log.info("%s geri çekilmede, bu tur atlandı", kaynak.host)
             return None
+
+        # Site sahibinin iradesi. Teknik bir zorunluluk değil ama yok saymak
+        # IP'nin kalıcı engellenmesine ve savunulabilir bir konumun kaybına
+        # mal olur (bkz. robots.py). ENGELLİ sayılır, hata değil: durum
+        # kaydedilir ki kullanıcı "neden okunmuyor" sorusunun cevabını görsün.
+        if not self.robots.izin_var_mi(kaynak.url):
+            log.info("robots.txt izin vermiyor: %s", kaynak.url)
+            kaynak.durum = "ENGELLI"
+            kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "robots")
+            return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host,
+                                       engelli=True)
 
         # Aynı hosta asgari aralık. Bu çağrı olmadan tarayıcı bir turda aynı
         # siteye 50 isteği arka arkaya atar ve IP'yi yaktırır — throttle'ın

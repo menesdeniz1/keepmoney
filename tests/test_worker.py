@@ -582,3 +582,26 @@ def test_geri_cekilmedeki_host_bekletilmez(db):
     t.urun_tara(p)
     assert time.monotonic() - basla < 1.0
     assert t.cekici.cagrilar == []
+
+
+def test_robots_yasakliysa_taranmaz(db):
+    """Site sahibinin iradesi. Yok saymak IP'nin kalıcı engellenmesine ve
+    savunulabilir bir konumun kaybına mal olur."""
+    _, p, _s, _, t = kur(db)
+
+    class YasakKapi:
+        def izin_var_mi(self, url):
+            return False
+
+    t.robots = YasakKapi()
+    t.urun_tara(p)
+
+    assert t.cekici.cagrilar == []            # sayfaya HİÇ gidilmedi
+    assert db.query(Source).one().durum == "ENGELLI"
+
+
+def test_robots_izin_verince_taranir(db):
+    _, p, _s, _, t = kur(db)
+    t.urun_tara(p)
+    assert len(t.cekici.cagrilar) == 1
+    assert db.query(Product).one().guncel_fiyat == 50000
