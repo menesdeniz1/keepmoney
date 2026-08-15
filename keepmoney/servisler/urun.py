@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from .. import analiz
+from .. import affiliate, analiz
 from ..models import PriceReading, Product
 
 
@@ -49,6 +49,17 @@ def baglam(db: Session, urun: Product) -> dict | None:
     }
 
 
+def _kaynak(k) -> dict:
+    """Kaynağı API biçimine çevirir; çıkış linkini burada üretir."""
+    cikis, ortaklik_var = affiliate.cikis_linki(k.url)
+    return {
+        "id": k.id, "url": k.url, "host": k.host, "satici": k.satici,
+        "son_fiyat": k.son_fiyat, "durum": k.durum,
+        "son_kontrol": k.son_kontrol,
+        "cikis_url": cikis, "ortaklik": ortaklik_var,
+    }
+
+
 def detay(db: Session, urun: Product) -> dict:
     """UrunDetay şemasına uyan sözlük — grafik + kaynaklar + yorum."""
     return {
@@ -60,7 +71,7 @@ def detay(db: Session, urun: Product) -> dict:
         "puan": urun.puan,
         "yorum_sayisi": urun.yorum_sayisi,
         "son_kontrol": urun.son_kontrol,
-        "kaynaklar": list(urun.sources),
+        "kaynaklar": [_kaynak(k) for k in urun.sources],
         "gecmis": gunluk_seri(db, urun.id),
         "baglam": baglam(db, urun),
     }

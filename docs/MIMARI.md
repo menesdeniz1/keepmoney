@@ -256,3 +256,58 @@ Birinciyi seçtik çünkü alanın tipi `list[str]` kalıyor — API sözleşmes
 **Not:** Birçok ekip CORS'u uygulamada hiç yönetmez, ters vekilde (nginx/Caddy/Traefik) çözer. Bu da geçerli; tek sunuculu FastAPI kurulumunda uygulamada tutmak daha basit.
 
 **`*` neden üretimde yasak:** `allow_origins=["*"]` ile `allow_credentials=True` birlikte **kullanılamaz** — CORS spesifikasyonu yasaklar, tarayıcı isteği reddeder. Starlette yapılandırmayı sessizce kabul eder; hata ancak üretimde "neden çalışmıyor" olarak görülür. Açılışta yakalamak çok daha ucuz.
+
+---
+
+## K22 — Oturum httpOnly çerezde, localStorage'da değil
+
+**Karar:** Giriş, token'ı `httpOnly` + `SameSite=lax` çerez olarak kurar. API **iki** kaynağı da kabul eder: çerez (tarayıcı) ve `Authorization: Bearer` (programatik istemci, CLI, testler).
+
+**Neden:** SPA'larda JWT'yi `localStorage`'da tutmak yaygındır ama zayıftır — sayfaya sızan herhangi bir üçüncü parti script token'ı okuyup dışarı gönderebilir. `httpOnly` çerezi JavaScript ne okuyabilir ne yazabilir. `SameSite=lax`, CSRF'in büyük kısmını kapatır (GET dışı istekler çapraz siteden çerez taşımaz). `secure` yalnızca üretimde açık, çünkü yerelde HTTP kullanılıyor ve secure çerez tarayıcıya hiç ulaşmaz.
+
+**İkisini birden desteklemek** yaygın profesyonel kalıptır: web'e en güvenli yolu verir, entegrasyonlara standart yolu bırakır.
+
+**Yapılmadı:** Token iptali (kara liste). `/cikis` çerezi siler ama token süresi dolana kadar teknik olarak geçerli kalır. Gerçek iptal, her istekte bir kara liste sorgusu demektir; kullanıcı sayısı anlamlı olunca eklenecek.
+
+---
+
+## K23 — Uyarı iletimi: outbox kalıbı
+
+**Karar:** Worker `Alert` satırını yazar (`telegram_gonderildi=False`); ayrı bir gönderici döngüsü iletir ve bayrağı çevirir.
+
+**Neden:** Worker'ın içinden HTTP çağırmak iki şeyi birden riske atar — Telegram yavaşsa tarama turu uzar, hata anında uyarı buharlaşır. Outbox kalıbı bunun standart cevabıdır: üretim ile iletim ayrı sorumluluklardır, arada dayanıklı bir kayıt vardır.
+
+Gönderim başarısızsa bayrak çevrilmez → sonraki turda yeniden denenir. Telegram'ı bağlamamış kullanıcının uyarısı web'de duruyor; bayrağı çevirilir ki her turda boşuna denenmesin.
+
+---
+
+## K24 — Kuyruk (Redis/Celery/arq) YOK
+
+**Karar değişikliği:** Önceki planda arq vardı; uygularken yanlış araç olduğu görüldü.
+
+**Neden:** Kuyruk altyapısı, *"kullanıcı bir iş tetikler, N worker paylaşır"* problemini çözer. Bizim iş bu değil: periyodik olarak **sırası gelmiş** ürünleri taramak. Sıranın kendisi zaten veritabanında — `Product.son_kontrol + kontrol_araligi_dk`. Yani **DB kuyruğun ta kendisi.** Üstüne Redis koymak aynı bilgiyi ikinci bir yerde tutmak, yeni bir arıza noktası eklemek ve bir bileşen daha işletmek demekti.
+
+**Geçiş yolu açık:** İkinci worker gerektiğinde `taranacak_urunler`'e Postgres'in `SELECT ... FOR UPDATE SKIP LOCKED`'ı eklenir — kuyruk kütüphanesi olmadan yatay ölçekleme. O gün gelmeden altyapı kurmak, kullanılmayan karmaşıklıktır.
+
+---
+
+## K25 — Ortaklık (affiliate): kanonik URL'ye dokunulmaz
+
+**Karar:** Ortaklık etiketi **tıklama anında** eklenir; `Source.url` temiz kalır.
+
+**Neden mimari:** `Source.url` kanonik anahtardır (K16) — iki kullanıcının aynı ürüne düşmesi ona bağlı. Etiketi kalıcı yazsak: aynı ürün farklı etiketlerle farklı satırlara bölünür, scraper mağazaya ortaklık parametresiyle gider (gereksiz, bazı programlarda kural ihlali), ve etiket değişince tüm geçmiş bağı kopar.
+
+**Üç kural testle korunuyor:**
+1. **Tarafsızlık** — ortaklık, "en ucuz" seçimini etkilemez. `karar.en_iyi_kaynak` yalnızca fiyata bakar ve `affiliate` modülünü hiç tanımaz.
+2. **Şeffaflık** — link arayüzde "ortaklık" rozetiyle işaretlenir, `rel="sponsored"` taşır ve altında açıklama vardır. Fiyat tavsiyesi veren bir üründe gizli komisyon, ürünün tüm iddiasını çürütür.
+3. **Başkasının kodu ezilmez** — URL'de zaten bir ortaklık parametresi varsa dokunulmaz; bu, programdan atılma sebebidir.
+
+---
+
+## K26 — PWA: uygulama kabuğu önbelleklenir, API YANITLARI ASLA
+
+**Karar:** `vite-plugin-pwa` ile precache; `/api`, `/metrics`, `/saglik` önbellek dışı.
+
+**Neden elle service worker yazılmadı:** Bayat uygulama kabuğu, elle yazılan SW'lerin en yaygın hatasıdır — kullanıcı günlerce eski sürümü görür ve "temizle" demeden düzelmez. Plugin precache manifestini derlemeden üretir ve otomatik günceller.
+
+**Neden API önbelleğe alınmaz:** Bu ürünün tüm iddiası fiyatın *güncel* olması. Önbellekten dünkü fiyat servis edilirse kullanıcı "dip" sanıp alır. Çevrimdışı çalışması gereken tek şey kabuktur.

@@ -4,10 +4,9 @@
 
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
-> Durum: **API + tarama motoru çalışıyor.** Kayıt ol, link yapıştır, fiyat
-> geçmişi birikssin, "bu iyi fiyat mı" yorumunu al, hedefe inince uyarı gelsin.
-> 192 test yeşil. Sıradaki: web dashboard → Telegram botu.
-> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md)
+> Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
+> Docker ile üç süreç olarak ayağa kalkıyor. 247 backend + 6 arayüz testi.
+> Kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (26 karar kaydı)
 
 ---
 
@@ -41,14 +40,27 @@ Ayrıntılı gerekçe: [`docs/MIMARI.md`](docs/MIMARI.md)
 
 ## Kurulum
 
+### Docker ile (önerilen)
+
+```bash
+cp .env.example .env    # KEEPMONEY_JWT_GIZLI_ANAHTAR'ı doldur
+docker compose up -d    # veritabanı + göçler + api + tarayıcı + bot
+```
+
+### Elle
+
 ```bash
 git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-alembic upgrade head        # şemayı kur
-pytest                      # 192 test
-uvicorn keepmoney.api.app:app --reload
+alembic upgrade head                          # şemayı kur
+pytest                                        # 247 test
+uvicorn keepmoney.api.app:app --reload        # API      :8000
+python -m keepmoney.zamanlayici               # tarayıcı
+python -m keepmoney.bot                       # bot (token varsa)
+
+cd arayuz && npm install && npm run dev       # arayüz   :5173
 ```
 
 API dokümanı: http://localhost:8000/docs
@@ -82,8 +94,13 @@ keepmoney/
   api/             FastAPI: rotalar + bağımlılıklar
   semalar.py       Pydantic v2 API sözleşmesi
   ayarlar.py       tiplenmiş yapılandırma · guvenlik.py  JWT + bcrypt
+  zamanlayici.py   tarama döngüsü (7/24 worker süreci)
+  bot/             Telegram (aiogram 3) — kartlar saf, handler ince
+  affiliate.py     ortaklık linkleri — kanonik URL'ye dokunmaz
+  gunluk.py        structlog · olcumler.py  Prometheus
+arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
-tests/             192 test, hepsi yeşil
+tests/             247 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework
@@ -131,9 +148,10 @@ print(f"trend: {b.trend_yonu}")              # dusuyor
 - [x] **Faz 0** — çekirdek: analiz, koruma, şema, testler
 - [x] **Faz 1** — tarama motoru: çekme zinciri + çıkarım + koruma + uyarı üretimi
 - [x] **Faz 2** — API: JWT kimlik, izleme/set/uyarı uçları, Alembic, kota
-- [ ] **Faz 3** — web dashboard (grafik, set, bütçe çubuğu)
-- [ ] **Faz 4** — Telegram botu (deep-link bağlama, kart/buton UX, iki yönlü)
-- [ ] **Faz 5** — kota, affiliate, gözlemlenebilirlik paneli
+- [x] **Faz 3** — web arayüzü: Keepa tarzı grafik, yorum kartı, setler, bildirimler
+- [x] **Faz 4** — Telegram botu: deep-link bağlama, kart/buton, outbox gönderimi
+- [x] **Faz 5** — zamanlayıcı, structlog, Prometheus ölçümleri, Docker Compose
+- [x] **Faz 6** — ortaklık linkleri (şeffaf), PWA
 
 ## Lisans
 

@@ -30,6 +30,10 @@ export interface Kaynak {
   son_fiyat: number | null
   durum: 'OK' | 'ENGELLI' | 'OLU' | 'HATA' | 'BEKLEMEDE'
   son_kontrol: string | null
+  /** Mağazaya gidiş linki — ortaklık etiketi varsa burada. */
+  cikis_url: string
+  /** true ise kullanıcıya AÇIKÇA "ortaklık bağlantısı" olarak gösterilir. */
+  ortaklik: boolean
 }
 
 export interface FiyatNoktasi {

@@ -148,18 +148,36 @@ export default function IzlemeDetay() {
           {urun.kaynaklar.map((k) => (
             <li key={k.id} className="flex items-center justify-between gap-3">
               <a
-                href={k.url}
+                href={k.cikis_url || k.url}
                 target="_blank"
-                rel="noopener noreferrer nofollow"
+                rel="noopener noreferrer nofollow sponsored"
                 className="inline-flex min-w-0 items-center gap-1 truncate hover:underline"
               >
                 <span className="truncate">{k.satici ?? k.host}</span>
                 <ExternalLink size={13} className="shrink-0" />
+                {k.ortaklik && (
+                  <span
+                    title="Bu bağlantıdan alışveriş yaparsan küçük bir komisyon alırız. Fiyatın değişmez ve hangi mağazanın en ucuz seçildiğini etkilemez."
+                    className="shrink-0 rounded bg-slate-100 px-1.5 text-[10px]
+                               font-medium text-slate-600 dark:bg-slate-800
+                               dark:text-slate-400"
+                  >
+                    ortaklık
+                  </span>
+                )}
               </a>
               <span className="shrink-0 font-mono">{tl(k.son_fiyat)}</span>
             </li>
           ))}
         </ul>
+        {urun.kaynaklar.some((k) => k.ortaklik) && (
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            "ortaklık" işaretli bağlantılardan alışveriş yaparsan küçük bir
+            komisyon alırız. <strong>Ödediğin fiyat değişmez</strong> ve bu,
+            hangi mağazanın en ucuz seçildiğini etkilemez — sıralama yalnızca
+            fiyata göredir.
+          </p>
+        )}
       </section>
 
       <button

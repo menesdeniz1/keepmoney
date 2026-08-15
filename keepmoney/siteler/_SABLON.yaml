@@ -17,4 +17,11 @@ fiyat_secici: ".product-price"
 # tanımlıysa ve sayfada bulunamıyorsa regex adımı tamamen atlanır.
 metin_alani: "#anaKolon"
 
+# Ortaklık (affiliate) — İSTEĞE BAĞLI. Etiket yalnızca kullanıcı mağazaya
+# giderken eklenir; saklanan URL'ye ASLA yazılmaz (bkz. keepmoney/affiliate.py).
+# Programa kaydolmadan doldurma; boş bırakılırsa link olduğu gibi kullanılır.
+# ortaklik:
+#   parametre: "tag"
+#   deger: "keepmoney-21"
+
 notlar: ""

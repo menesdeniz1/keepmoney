@@ -59,6 +59,12 @@ class KaynakYaniti(BaseModel):
     son_fiyat: float | None = None
     durum: str
     son_kontrol: datetime | None = None
+    # Mağazaya gidiş linki. Ortaklık etiketi SAKLANAN url'ye değil buraya
+    # eklenir (bkz. affiliate.py). `ortaklik` bayrağı arayüzde açıkça
+    # gösterilir — gizli komisyon, fiyat tavsiyesi veren bir üründe güveni
+    # tümden bitirir.
+    cikis_url: str = ""
+    ortaklik: bool = False
 
 
 class FiyatNoktasi(BaseModel):

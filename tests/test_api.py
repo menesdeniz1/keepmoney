@@ -475,3 +475,14 @@ def test_sistem_ozeti_bayat_urunu_sayar(istemci, db):
 
 def test_sistem_uclari_kimlik_ister(istemci):
     assert istemci.get("/api/sistem/domainler").status_code == 401
+
+
+def test_kaynak_cikis_linki_dondurur(istemci, db):
+    """Ortaklık kuralı olmayan mağazada çıkış linki = kanonik URL."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/urun/x"}).json()["id"]
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b).json()
+    kaynak = y["urun"]["kaynaklar"][0]
+    assert kaynak["cikis_url"] == kaynak["url"]
+    assert kaynak["ortaklik"] is False
