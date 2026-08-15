@@ -227,4 +227,8 @@ class Alert(Base):
     baslik = Column(String, nullable=False)
     mesaj = Column(String, nullable=False)
     okundu = Column(Boolean, default=False)
+    # Telegram'a iletildi mi? Uyarı ÜRETİMİ ile İLETİMİ ayrı sorumluluklar:
+    # worker uyarıyı yazar, gönderici ayrı bir döngüde iletir. Böylece
+    # Telegram kesintisi taramayı durdurmaz ve uyarı kaybolmaz.
+    telegram_gonderildi = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=utc_simdi, index=True)
