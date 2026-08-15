@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "SIM", "C4", "UP"]
+
+# DTZ (naive datetime) bilerek kapalı: saat dilimi politikası henüz
+# belirlenmedi ve bu katman zaman dilimi bilmiyor — analiz fonksiyonları
+# kendilerine verilen datetime'ı olduğu gibi kullanır. Karar Faz 1'de
+# (tarama worker'ı zaman damgasını YAZDIĞI yerde) verilecek.
+# Bkz. docs/MIMARI.md → "Açık konular / K10".
+ignore = ["DTZ001", "DTZ005", "DTZ011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

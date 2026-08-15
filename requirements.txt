@@ -1,0 +1,7 @@
+# Çekirdek — analiz/karar katmanı bunların hiçbirine ihtiyaç duymaz (saf Python),
+# bağımlılıklar depolama ve servis katmanı içindir.
+SQLAlchemy>=2.0.30
+
+# Geliştirme
+pytest>=8.0
+ruff>=0.6
