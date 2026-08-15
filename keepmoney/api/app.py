@@ -22,10 +22,13 @@ log = logging.getLogger("keepmoney.api")
 @asynccontextmanager
 async def yasam_dongusu(app: FastAPI):
     a = ayarlar()
-    if not a.uretim_mi:
-        # Geliştirmede tabloları otomatik kur. Üretimde şema DEĞİŞİKLİĞİ
-        # Alembic'in işidir — `create_all` mevcut tabloları güncellemez ve
-        # sessizce eski şemayla çalışmaya devam eder.
+    # SADECE geliştirmede tabloları otomatik kur.
+    #  • Üretimde şema Alembic'in işi (K15) — `create_all` var olan tabloyu
+    #    güncellemez, sessizce eski şemayla devam eder.
+    #  • Testte de kurma: testler kendi bellek içi oturumlarını enjekte eder;
+    #    burada dosya veritabanına dokunmak Alembic adımıyla çakışıyordu
+    #    ("table domain_health already exists" — CI bunu yakaladı).
+    if a.ortam == "gelistirme":
         init_db()
     log.info("KeepMoney API başladı (ortam=%s)", a.ortam)
     yield

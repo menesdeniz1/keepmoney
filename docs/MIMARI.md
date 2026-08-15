@@ -193,3 +193,28 @@ ALTYAPI    models · db · ayikla · cekici · siteler · throttle
 **Karar:** İzleme eklenirken ağa ÇIKILMAZ; ad URL'den türetilir ve `ad_gecici=True` işaretlenir. İlk başarılı taramada gerçek başlıkla değiştirilir, bayrak düşer.
 
 **Neden:** İstek içinde sayfa çekmek kullanıcıyı 10-20 saniye bekletir ve mağaza yavaşsa istek zaman aşımına uğrar. Bayrak, kullanıcının sonradan düzelttiği adın taramalarca ezilmesini de önler.
+
+---
+
+## K18 — Yapılandırma tek kaynaktan; CI bunu denetler
+
+**Karar:** Her ayar `ayarlar.py`'de tiplenmiş olarak tanımlıdır. Kodun başka hiçbir yerinde `os.environ` okunmaz — `db.py` dahil.
+
+**Nasıl öğrenildi:** `ayarlar.py` eklendiğinde `db.py` eski hâliyle kaldı ve `os.environ["DATABASE_URL"]`i kendisi okumaya devam etti. İki doğruluk kaynağı oluştu: testler bir dosyaya, Alembic başka dosyaya yazdı. Yerelde hiçbir belirti yoktu (her iki dosya da vardı); CI temiz makinede `table domain_health already exists` ile patladı.
+
+**Alınan önlemler:**
+- `db.py` artık `ayarlar().veritabani_url` okuyor; regresyon testi ikisinin eşitliğini doğruluyor.
+- `init_db()` yalnızca `ortam == "gelistirme"` iken çalışıyor. Testler kendi oturumlarını enjekte ediyor, dosya veritabanına hiç dokunmuyorlar.
+- CI'da `alembic check` var: model ile migrasyon ayrışırsa build kırılır.
+
+**Ders:** Yerelde geçen ama CI'da patlayan hata, neredeyse her zaman *kirli durumun gizlediği* bir hatadır. Temiz makinede çalışmayan şey aslında hiç çalışmıyordur.
+
+---
+
+## K19 — JWT anahtarı en az 32 bayt (RFC 7518 §3.2)
+
+**Karar:** Üretimde kısa anahtar uygulamayı AÇILIŞTA durdurur; geliştirmede uyarı verir.
+
+**Nasıl fark edildi:** PyJWT test çalıştırmasında `InsecureKeyLengthWarning` üretti — CI'ya koyduğum anahtar 16 baytlıktı. Uyarı testte çıktı ama aynı hata üretimde de yapılabilirdi ve orada sessiz kalırdı.
+
+**Neden ölümcül:** HS256'da kırılan imza anahtarı, istediğin kullanıcı adına geçerli token üretmek demektir — yani tam hesap devralma. Doğrulamanın yeri açılış anıdır.

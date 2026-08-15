@@ -4,7 +4,8 @@ on: [push, pull_request]
 
 env:
   KEEPMONEY_ORTAM: test
-  KEEPMONEY_JWT_GIZLI_ANAHTAR: ci-test-anahtari-degistirilmeyecek
+  # Yalnızca CI için; >= 32 bayt (RFC 7518 §3.2 — ayarlar.py doğruluyor)
+  KEEPMONEY_JWT_GIZLI_ANAHTAR: ci-ortami-icin-sabit-test-anahtari-32-bayttan-uzun
 
 jobs:
   test:

@@ -3,7 +3,6 @@
 Veritabanı URL'i ve modeller uygulamanın kendi ayarlarından okunur — iki yerde
 iki farklı bağlantı dizesi tutulmasın (DRY).
 """
-import pathlib
 from logging.config import fileConfig
 
 from alembic import context
@@ -11,18 +10,14 @@ from sqlalchemy import engine_from_config, pool
 
 from keepmoney import models  # noqa: F401 — tablolar metadata'ya kaydolsun
 from keepmoney.ayarlar import ayarlar
-from keepmoney.db import Base
+from keepmoney.db import Base, sqlite_dizinini_hazirla
 
 config = context.config
 _url = ayarlar().veritabani_url
 config.set_main_option("sqlalchemy.url", _url)
 
-# SQLite dosya yolu için dizin yoksa oluştur — migrasyon boş bir makinede de
-# tek komutla çalışabilmeli.
-if _url.startswith("sqlite:///"):
-    _yol = pathlib.Path(_url.removeprefix("sqlite:///"))
-    if _yol.parent and str(_yol.parent) not in (".", ""):
-        _yol.parent.mkdir(parents=True, exist_ok=True)
+# Migrasyon boş bir makinede de tek komutla çalışabilmeli (dizin yoksa kur).
+sqlite_dizinini_hazirla(_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
