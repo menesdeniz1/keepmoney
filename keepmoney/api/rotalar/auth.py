@@ -1,12 +1,12 @@
 """Kimlik rotaları."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from ... import semalar
 from ...ayarlar import ayarlar
 from ...servisler import kullanici as svc
-from ..deps import DB, Kullanici
+from ..deps import DB, Kullanici, oturum_cerezi_sil, oturum_cerezi_yaz
 
 router = APIRouter(prefix="/api/auth", tags=["kimlik"])
 
@@ -31,14 +31,28 @@ def kayit(istek: semalar.KayitIstegi, db: DB):
 
 
 @router.post("/giris", response_model=semalar.TokenYaniti)
-def giris(istek: semalar.GirisIstegi, db: DB):
+def giris(istek: semalar.GirisIstegi, yanit: Response, db: DB):
+    """Token'ı HEM httpOnly çerez olarak kurar HEM gövdede döner.
+
+    Tarayıcı istemcisi gövdeyi yok sayar (token'a hiç dokunmaz); programatik
+    istemciler gövdedeki token'ı Bearer olarak kullanır.
+    """
     try:
         token = svc.giris(db, istek.eposta, istek.parola)
     except svc.KimlikHatasi as e:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, str(e),
             headers={"WWW-Authenticate": "Bearer"}) from e
+    oturum_cerezi_yaz(yanit, token)
     return {"erisim_tokeni": token}
+
+
+@router.post("/cikis", status_code=status.HTTP_204_NO_CONTENT)
+def cikis(yanit: Response):
+    """Çerezi siler. Token'ın kendisi süresi dolana kadar geçerli kalır —
+    gerçek iptal için kara liste gerekir; kullanıcı sayısı anlamlı olunca
+    eklenecek (şimdi kullanılmayan altyapı olurdu)."""
+    oturum_cerezi_sil(yanit)
 
 
 @router.get("/ben", response_model=semalar.KullaniciYaniti)

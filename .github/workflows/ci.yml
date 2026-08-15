@@ -31,3 +31,23 @@ jobs:
         run: |
           alembic upgrade head
           alembic check
+
+  arayuz:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: arayuz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: arayuz/package-lock.json
+      - run: npm ci
+      - name: Tip kontrolü
+        run: npx tsc -b
+      - name: Testler
+        run: npx vitest run
+      - name: Derleme
+        run: npm run build

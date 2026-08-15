@@ -383,3 +383,45 @@ def test_baskasinin_uyarisi_gorunmez(istemci, db):
     db.commit()
 
     assert istemci.get("/api/uyarilar", headers=c).json() == []
+
+
+# ─────────────────────── çerez tabanlı oturum ───────────────────────
+
+def test_giris_httponly_cerez_kurar(istemci):
+    """Tarayıcı istemcisi token'a hiç dokunmaz — XSS ile çalınamaz."""
+    istemci.post("/api/auth/kayit",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    y = istemci.post("/api/auth/giris",
+                     json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    cerez = y.headers["set-cookie"]
+    assert "km_oturum=" in cerez
+    assert "HttpOnly" in cerez
+    assert "SameSite=lax" in cerez.replace("samesite", "SameSite")
+
+
+def test_cerezle_kimlik_dogrulanir(istemci):
+    """Authorization başlığı OLMADAN, sadece çerezle."""
+    istemci.post("/api/auth/kayit",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    istemci.post("/api/auth/giris",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    y = istemci.get("/api/auth/ben")          # TestClient çerezi taşır
+    assert y.status_code == 200
+    assert y.json()["eposta"] == "a@ornek.com"
+
+
+def test_cikis_cerezi_siler(istemci):
+    istemci.post("/api/auth/kayit",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    istemci.post("/api/auth/giris",
+                 json={"eposta": "a@ornek.com", "parola": "parola1234"})
+    assert istemci.post("/api/auth/cikis").status_code == 204
+    istemci.cookies.clear()
+    assert istemci.get("/api/auth/ben").status_code == 401
+
+
+def test_bearer_hala_calisir(istemci):
+    """Programatik istemciler için standart yol korunuyor."""
+    b = kayit_ol(istemci)
+    istemci.cookies.clear()
+    assert istemci.get("/api/auth/ben", headers=b).status_code == 200

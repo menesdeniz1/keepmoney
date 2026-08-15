@@ -38,6 +38,11 @@ class Ayarlar(BaseSettings):
     jwt_omur_dk: int = 60 * 24 * 7          # 7 gün
     jwt_algoritma: str = "HS256"
 
+    # Oturum çerezi — tarayıcı istemcisi token'a HİÇ dokunmaz (bkz. K22).
+    # httpOnly olduğu için XSS ile okunamaz; SameSite=lax CSRF'in büyük
+    # kısmını kapatır (GET dışı istekler çapraz siteden çerez taşımaz).
+    oturum_cerezi: str = "km_oturum"
+
     # ── Telegram ──────────────────────────────────────────────────
     telegram_bot_token: str | None = None
     telegram_baglama_omru_dk: int = 10      # deep-link token ömrü

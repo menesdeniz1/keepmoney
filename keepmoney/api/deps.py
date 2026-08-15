@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from ..ayarlar import ayarlar
 from ..db import get_db
 from ..guvenlik import jwt_kullanici_id
 from ..models import User
@@ -21,16 +22,28 @@ DB = Annotated[Session, Depends(get_db)]
 def mevcut_kullanici(
     db: DB,
     kimlik: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
+    km_oturum: Annotated[str | None, Cookie()] = None,
 ) -> User:
+    """Oturumu İKİ kaynaktan kabul eder:
+
+      1. httpOnly çerez — tarayıcı istemcisi (varsayılan yol). Token
+         JavaScript'e hiç görünmez, XSS ile çalınamaz.
+      2. `Authorization: Bearer` — programatik istemciler, CLI, testler.
+
+    İkisini de desteklemek yaygın profesyonel kalıptır: web'e en güvenli
+    yolu verir, entegrasyonlara standart yolu bırakır.
+    """
     hata = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Geçersiz veya eksik oturum",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if kimlik is None or not kimlik.credentials:
+
+    token = (kimlik.credentials if kimlik and kimlik.credentials else km_oturum)
+    if not token:
         raise hata
 
-    kullanici_id = jwt_kullanici_id(kimlik.credentials)
+    kullanici_id = jwt_kullanici_id(token)
     if kullanici_id is None:
         raise hata
 
@@ -41,3 +54,22 @@ def mevcut_kullanici(
 
 
 Kullanici = Annotated[User, Depends(mevcut_kullanici)]
+
+
+def oturum_cerezi_yaz(yanit, token: str) -> None:
+    """Girişte çerezi kurar. `secure` yalnızca üretimde: yerelde HTTP
+    kullanıldığı için secure çerez tarayıcıya hiç ulaşmaz."""
+    a = ayarlar()
+    yanit.set_cookie(
+        key=a.oturum_cerezi,
+        value=token,
+        max_age=a.jwt_omur_dk * 60,
+        httponly=True,
+        samesite="lax",
+        secure=a.uretim_mi,
+        path="/",
+    )
+
+
+def oturum_cerezi_sil(yanit) -> None:
+    yanit.delete_cookie(ayarlar().oturum_cerezi, path="/")
