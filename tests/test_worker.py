@@ -605,3 +605,57 @@ def test_robots_izin_verince_taranir(db):
     t.urun_tara(p)
     assert len(t.cekici.cagrilar) == 1
     assert db.query(Product).one().guncel_fiyat == 50000
+
+
+# ── Stokta yok: arıza değil, olgu ────────────────────────────────
+# Gerçek denemede 13 linkin 2'si stoktan düşmüştü. Fiyatın okunamaması iki
+# apayrı şey olabilir: ayıklayıcı bozulmuş olabilir ya da ürünün o an fiyatı
+# yoktur. Birincisi düzeltilecek arıza, ikincisi kullanıcıya söylenecek olgu.
+
+STOK_YOK_SAYFASI = (
+    '<html><head><title>Ürün</title>'
+    '<script type="application/ld+json">'
+    '{"@type":"Product","offers":'
+    '{"availability":"https://schema.org/OutOfStock"}}'
+    '</script></head><body>ürün</body></html>')
+
+
+def _stok_yok_kur(db):
+    u = User(email="s@x.com", password_hash="x")
+    db.add(u)
+    prd = Product(ad="Tükenen Ürün", izleyen_sayisi=1)
+    db.add(prd)
+    db.commit()
+    s = Source(product_id=prd.id, url="https://magaza.com/tukendi",
+               host="magaza.com")
+    db.add(s)
+    db.add(Watch(user_id=u.id, product_id=prd.id))
+    db.commit()
+    cekici = SahteCekici({"https://magaza.com/tukendi": STOK_YOK_SAYFASI})
+    return s, Tarayici(db, cekici, HostThrottle(min_gap=0))
+
+
+def test_stok_yok_ayri_durum_olarak_kaydedilir(db):
+    kaynak, t = _stok_yok_kur(db)
+    t.kaynak_oku(kaynak)
+    assert kaynak.durum == "STOKTA_YOK"
+    assert kaynak.son_kontrol is not None
+
+
+def test_stok_yok_hata_sayacini_sifirlar(db):
+    """Haftalarca stokta olmayan bir ürün yüzünden 'fiyatını okuyamıyorum'
+    uyarısı gitmemeli."""
+    kaynak, t = _stok_yok_kur(db)
+    kaynak.hata_serisi = 2
+    t.kaynak_oku(kaynak)
+    assert kaynak.hata_serisi == 0
+    assert Tarayici._kaynak_bozuk_mu(kaynak) is False
+
+
+def test_stok_yok_fiyat_gecmisine_yazmaz(db):
+    """Fiyat YOK; uydurma bir değer geçmişi bozardı."""
+    kaynak, t = _stok_yok_kur(db)
+    okuma = t.kaynak_oku(kaynak)
+    assert okuma.fiyat is None
+    assert okuma.ekstra["stok_yok"] is True
+    assert db.query(PriceReading).count() == 0

@@ -168,6 +168,10 @@ def _dene(cekici: HttpCekici, robots: RobotsKapisi, throttle: HostThrottle,
         s.sorun = "bot koruması sayfası"
     elif c.olu:
         s.sorun = "ürün yok / sayfa ölü"
+    elif c.stok_yok:
+        # Bu bir ARIZA DEĞİL. Ayırmazsak "seçici güncellenmeli" diyerek
+        # asla tutmayacak bir seçici yazmaya gönderiyoruz.
+        s.sorun = "stokta yok (sayfa sağlam, ürünün fiyatı yok)"
     elif c.fiyat is None:
         s.sorun = ("fiyat okunamadı — "
                    + ("`render: true` dene" if not kural.get("render")
@@ -311,6 +315,11 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
 
     c = cikar(html, kural)
     print("\n── Sonuç ──────────────────────────────────────────────────")
+    if c.stok_yok:
+        print("   STOKTA YOK — sayfa sağlam, ürünün o an fiyatı yok.")
+        print("   Seçici yazma: tutacak bir fiyat YOK. Sistem bunu ayrı bir")
+        print("   durum olarak kaydediyor, arıza saymıyor.")
+        return 1
     if c.fiyat is None:
         print("   Fiyat OKUNAMADI.")
         print("   Yukarıdaki listede doğru fiyatı görüyorsan, onun `üst:`")

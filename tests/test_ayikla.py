@@ -6,6 +6,7 @@ from keepmoney.ayikla import (
     fiyat_ayikla,
     olu_mu,
     puan_ayikla,
+    stok_yok_mu,
 )
 
 
@@ -277,3 +278,62 @@ def test_gorunur_h1_hala_kullanilir():
 def test_gecersiz_baslik_secicisi_zinciri_kesmez():
     html = '<html><head><title>Ürün Adı Buradadır</title></head><body></body></html>'
     assert baslik_ayikla(html, {"baslik_secici": "((("}) == "Ürün Adı Buradadır"
+
+
+# ---------- stokta yok: arıza değil, olgu ----------
+# Gerçek denemede 13 linkin 2'si stoktan düşmüştü. Sistem ikisini de "fiyat
+# okunamadı" diye raporluyor, tanı aracı da "seçici güncellenmeli" diyerek
+# asla tutmayacak bir seçici yazmaya gönderiyordu.
+
+def test_jsonld_availability_stok_yok():
+    html = sayfa(ld('{"@type":"Product","offers":'
+                    '{"availability":"https://schema.org/OutOfStock"}}'))
+    assert stok_yok_mu(html) is True
+
+
+def test_mikroveri_availability_stok_yok():
+    html = sayfa('<link itemprop="availability" href="https://schema.org/SoldOut">')
+    assert stok_yok_mu(html) is True
+
+
+def test_serbest_metin_yalnizca_kapsam_icinde_sayilir():
+    """1,5 MB'lık sayfada 'stokta yok' sponsorlu kutuda geçebilir. Tüm belgede
+    aramak, KIRIK bir ayıklayıcıyı 'ürün tükenmiş' diye maskelerdi."""
+    html = sayfa('<div id="oneriler">Bu ürün stokta yok</div>'
+                 '<div id="anaKolon">Sepete ekle</div>')
+    assert stok_yok_mu(html, {"metin_alani": "#anaKolon"}) is False
+    assert stok_yok_mu(html, {"metin_alani": "#oneriler"}) is True
+
+
+def test_kapsam_tanimsizsa_serbest_metin_aranmaz():
+    """Kapsamı olmayan sitede metin araması yapmak, maskeleme riskini
+    kontrolsüz bırakırdı."""
+    html = sayfa("<p>Şu anda mevcut değil</p>")
+    assert stok_yok_mu(html) is False
+
+
+def test_stok_var_olan_sayfa_stok_yok_sayilmaz():
+    html = sayfa(ld('{"@type":"Product","offers":'
+                    '{"availability":"https://schema.org/InStock",'
+                    '"price":"1500.00","priceCurrency":"TRY"}}'))
+    assert stok_yok_mu(html) is False
+
+
+def test_fiyat_bulunursa_stok_yok_ISARETLENMEZ():
+    """Sıralama kasıtlı: bulunan fiyat her zaman kazanır. Yanlış bir 'stokta
+    yok' tespiti, satılan ürünün fiyatını kaydetmemize engel olurdu."""
+    html = sayfa(ld('{"@type":"Product","offers":'
+                    '{"availability":"https://schema.org/OutOfStock",'
+                    '"price":"1500.00","priceCurrency":"TRY"}}'))
+    c = cikar(html)
+    assert c.fiyat == 1500.0
+    assert c.stok_yok is False
+
+
+def test_cikar_stok_yok_isaretler():
+    html = sayfa(ld('{"@type":"Product","offers":'
+                    '{"availability":"https://schema.org/OutOfStock"}}'))
+    c = cikar(html)
+    assert c.stok_yok is True
+    assert c.fiyat is None
+    assert c.olu is False and c.engelli is False

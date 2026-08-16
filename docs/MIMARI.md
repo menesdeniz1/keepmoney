@@ -622,3 +622,21 @@ Fiyat doğrulamasına harcanan onca emeğin yanında adın gözden kaçması tes
 Yanlış pozitif ayrıca teste bağlandı: normal sayfalarda `h1` hâlâ doğru kaynak.
 
 **Genel ilke:** bir alanın yanlış değeri gözle fark edilemiyorsa, doğruluğu koda gömülmeli — "bakınca anlarız" bir doğrulama stratejisi değildir.
+
+---
+
+## K51 — "Stokta yok" bir arıza değil, üçüncü bir durumdur
+
+**Bulgu:** Gerçek denemede 13 linkin 2'si stoktan düşmüştü. Sistem ikisini de "fiyat okunamadı" diye işliyordu; tanı aracı ise "seçici güncellenmeli" diyerek asla tutmayacak bir seçici yazmaya gönderiyordu. (Bu tuzağa neredeyse düşüldü: Amazon sayfasındaki tek fiyatlar sponsorlu kutulardaydı ve oradan seçici yazmak, başka bir ürünün fiyatını bu ürüne yazmak olurdu.)
+
+Fiyatın okunamaması iki apayrı olguyu örtüyordu: **ayıklayıcı bozulmuş olabilir** ya da **ürünün o an fiyatı yoktur**. Birincisi düzeltilecek bir arıza, ikincisi kullanıcıya söylenecek bir bilgi ("ürün tükendi"). Aynı kovaya konunca ikisi de doğru ele alınamıyordu.
+
+**Yanlış alarm YOKTU** — `hata_serisi` bu yolda artmadığı için `KAYNAK_BOZUK` bildirimi tetiklenmiyordu. Gerçek zarar daha sessiz: kaynak süresiz "BEKLEMEDE"de kalıyor, kullanıcı sebebini hiç öğrenmiyordu.
+
+**MASKELEME RİSKİ TASARIMIN MERKEZİNDE.** Bu özellik yanlış kurulursa kırık bir ayıklayıcıyı "ürün tükenmiş" diye gizler — düzeltilmesi gereken arızayı görünmez yapmak, hiç eklememekten kötüdür. Üç kural bunu engelliyor:
+
+1. **Bulunan fiyat her zaman kazanır.** Stok işareti yalnızca fiyat bulunamadığında sorulur; yanlış bir tespit satılan ürünün fiyatını kaydetmemize engel olamaz.
+2. **Yapılandırılmış beyan güçlü sinyaldir** (`schema.org/OutOfStock`, `itemprop=availability`) — sitenin kendi ifadesidir, tahmin değil.
+3. **Serbest metin YALNIZCA `metin_alani` kapsamında aranır**, kapsam tanımlı değilse hiç aranmaz. 1,5 MB'lık bir sayfada "stokta yok" ifadesi sponsorlu kutuda ya da yorumlarda geçebilir; tüm belgede aramak tam da maskeleme demekti. Bu, regex fiyat okumasında zaten kullanılan korumanın aynısı.
+
+**Worker'da başarılı okuma sayılır:** `hata_serisi` sıfırlanır ve host ödüllendirilir — site bizi engellemedi, ürün tükendi. Haftalarca stokta olmayan bir ürün yüzünden "fiyatını okuyamıyorum" uyarısı gitmemeli.

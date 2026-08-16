@@ -190,6 +190,21 @@ class Tarayici:
             log.warning("Ölü kaynak: %s", kaynak.url)
             return karar.KaynakOkumasi(url=kaynak.url, host=kaynak.host, olu=True)
 
+        if c.stok_yok:
+            # BAŞARILI bir okumadır: sayfa sağlam, ürünün o an fiyatı yok.
+            # Hata sayacı SIFIRLANIR — tükenmiş ürün bozuk kaynak değildir;
+            # haftalarca stokta olmayan bir ürün yüzünden "fiyatını okuyamıyorum"
+            # uyarısı gitmemeli. Host da ödüllendirilir: site bizi engellemedi.
+            self.throttle.odullendir(kaynak.host)
+            kaynak.durum = "STOKTA_YOK"
+            kaynak.hata_serisi = 0
+            kaynak.son_kontrol = utc_simdi()
+            self._sonucu_kaydet(kaynak.host, "stok_yok")
+            log.info("Stokta yok: %s", kaynak.url)
+            return karar.KaynakOkumasi(
+                url=kaynak.url, host=kaynak.host,
+                ekstra={"stok_yok": True, "baslik": c.baslik})
+
         self.throttle.odullendir(kaynak.host)
 
         okuma = karar.KaynakOkumasi(

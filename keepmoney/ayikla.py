@@ -57,6 +57,22 @@ OLU_IZLERI = [
     "page not found", "satışta değil", "yayından kaldırıl",
 ]
 
+# Stok tükenmiş ürün işaretleri.
+#
+# NEDEN AYRI BİR DURUM: fiyatın okunamaması iki apayrı şey olabilir —
+# ayıklayıcı bozulmuş olabilir ya da ürünün o an fiyatı yoktur. İkisi farklı
+# tepki gerektirir: birincisi düzeltilecek bir arıza, ikincisi kullanıcıya
+# söylenecek bir olgu ("ürün tükendi"). Gerçek bir denemede 13 linkin 2'si
+# stoktan düşmüştü ve sistem ikisini de "fiyat okunamadı" diye raporluyordu;
+# tanı aracı da "seçici güncellenmeli" diyerek yanlış yöne gönderiyordu.
+STOK_YOK_IZLERI = [
+    "şu anda mevcut değil", "stokta yok", "stokta bulunmuyor", "tükendi",
+    "geçici olarak temin edilemiyor", "currently unavailable", "out of stock",
+]
+
+# Yapılandırılmış stok beyanı (schema.org). Serbest metinden GÜÇLÜ sinyal.
+STOK_YOK_SCHEMA = ("outofstock", "soldout", "discontinued")
+
 GENEL_SECICILER = [
     ".product-price", "#product-price", ".price-value", "span.price",
     ".current-price", "[data-price-amount]", "span[itemprop=price]",
@@ -85,6 +101,9 @@ class Cikarim:
     yorum_sayisi: int | None = None
     engelli: bool = False
     olu: bool = False
+    # Fiyat yok AMA sayfa sağlam: ürün tükenmiş. Ayıklayıcı arızasından
+    # ayrılması şart — biri düzeltilecek hata, diğeri söylenecek olgu.
+    stok_yok: bool = False
 
 
 def _corba(html: str) -> BeautifulSoup:
@@ -331,6 +350,49 @@ def olu_mu(html: str, http_kodu: int | None = None) -> bool:
     return any(iz in baslik for iz in OLU_IZLERI)
 
 
+def stok_yok_mu(html: str, site_cfg: dict | None = None) -> bool:
+    """Ürün tükenmiş mi?
+
+    YALNIZCA fiyat bulunamadığında sorulur — bulunan fiyat her zaman kazanır.
+    Bu sıralama kasıtlı: yanlış bir "stokta yok" tespiti, satılan bir ürünün
+    fiyatını kaydetmemize engel olurdu.
+
+    SERBEST METİN ARAMASI KAPSAMLA SINIRLI. 1,5 MB'lık bir Amazon sayfasında
+    "stokta yok" ifadesi sponsorlu bir kutuda ya da yorumlarda geçebilir;
+    tüm belgede aramak, kırık bir ayıklayıcıyı "ürün tükenmiş" diye
+    maskelerdi — düzeltilmesi gereken arızayı gizlemek en kötü sonuçtur.
+    Bu yüzden yapılandırılmış beyan (schema.org) güçlü sinyal sayılır,
+    serbest metin ise yalnızca `metin_alani` içinde aranır.
+    """
+    if not html:
+        return False
+    site_cfg = site_cfg or {}
+    corba = _corba(html)
+
+    # 1) JSON-LD availability — sitenin kendi beyanı.
+    for blok in _ld_bloklari(corba):
+        for obj in _ld_dugumler(blok):
+            durum = str(obj.get("availability") or "").lower()
+            if durum and any(iz in durum for iz in STOK_YOK_SCHEMA):
+                return True
+
+    # 2) Mikroveri beyanı: <link itemprop="availability" href=".../OutOfStock">
+    for el in corba.select("[itemprop=availability]"):
+        deger = f"{el.get('href') or ''} {el.get('content') or ''}".lower()
+        if any(iz in deger for iz in STOK_YOK_SCHEMA):
+            return True
+
+    # 3) Serbest metin — SADECE ürün kolonunda.
+    kapsam_secici = site_cfg.get("metin_alani")
+    if not kapsam_secici:
+        return False
+    kapsam = corba.select_one(kapsam_secici)
+    if kapsam is None:
+        return False
+    metin = kapsam.get_text(" ", strip=True).lower()
+    return any(iz in metin for iz in STOK_YOK_IZLERI)
+
+
 def cikar(html: str, site_cfg: dict | None = None,
           http_kodu: int | None = None) -> Cikarim:
     """Tek geçişte her şeyi çıkarır. Tarama worker'ının çağırdığı fonksiyon."""
@@ -343,4 +405,5 @@ def cikar(html: str, site_cfg: dict | None = None,
     puan, yorum = puan_ayikla(html)
     return Cikarim(fiyat=fiyat, guven=guven,
                    baslik=baslik_ayikla(html, site_cfg),
-                   puan=puan, yorum_sayisi=yorum)
+                   puan=puan, yorum_sayisi=yorum,
+                   stok_yok=fiyat is None and stok_yok_mu(html, site_cfg))
