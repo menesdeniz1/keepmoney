@@ -319,3 +319,44 @@ def test_incele_aga_cikmaz(tmp_path, monkeypatch):
     dosya = tmp_path / "amazon.com.tr-1.html"
     dosya.write_text(AMAZON_KABUK, encoding="utf-8")
     kd.incele(dosya)
+
+
+# ── Sponsorlu kutu uyarısı ──────────────────────────────────────
+# Gerçek bir Amazon sayfasında ana fiyat JS ile geliyordu ve HTML'deki TEK
+# fiyatlar `sp_detail_<ASIN>` reklam kutularındaydı. O listeye bakıp seçici
+# yazmak, 15.049 TL'lik bir reklamı bu ürünün fiyatı sanmak demekti — ve hata
+# SESSİZ olurdu: fiyat okunur, grafik çizilir, "dibe vurdu" uyarısı gider.
+
+AMAZON_SADECE_SPONSORLU = """<html><head><title>HyperX Cloud III S</title></head>
+<body><div id="sp_detail">
+  <div id="sp_detail_B09ZLRD7Z9"><span class="a-price-whole">15.049,00 TL</span></div>
+  <div id="sp_detail_B08TTZVNNH"><span class="a-price-whole">1.099,00 TL</span></div>
+</div></body></html>"""
+
+
+def test_incele_sponsorlu_kutuyu_isaretler(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-3.html"
+    dosya.write_text(AMAZON_SADECE_SPONSORLU, encoding="utf-8")
+    assert kd.incele(dosya) == 1
+    cikti = capsys.readouterr().out
+    assert cikti.count("BAŞKA ÜRÜN") == 2
+    assert "TÜM fiyatlar sponsorlu" in cikti
+
+
+def test_incele_gercek_fiyati_yabanci_saymaz(tmp_path, capsys):
+    """Yanlış pozitif olmamalı: ana fiyat kutusu uyarı almamalı."""
+    dosya = tmp_path / "amazon.com.tr-4.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)
+    assert "BAŞKA ÜRÜN" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("kimlik", "atalar", "beklenen"), [
+    ("a-price-whole", ["sp_detail_B09Z", "sp_detail"], True),
+    ("price", ["sponsored-products"], True),
+    ("fiyat", ["benzer-urunler"], True),
+    ("a-offscreen", ["corePrice_desktop"], False),
+    ("price-current", ["urun-detay"], False),
+])
+def test_yabanci_kutu_tespiti(kimlik, atalar, beklenen):
+    assert kd._baska_urun_mu(kimlik, atalar) is beklenen

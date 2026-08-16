@@ -57,6 +57,26 @@ from keepmoney.throttle import HostThrottle
 # seçici yazılmalı — bu yüzden raporda ayrıca uyarı olarak gösteriliyor.
 ZAYIF_GUVEN = {"regex"}
 
+# Sponsorlu / öneri kutusu izleri. Bu kapsayıcıların içindeki fiyat SAYFANIN
+# ÜRÜNÜNE AİT DEĞİLDİR — başka bir ürünün reklamıdır.
+#
+# Neden bu uyarı var: gerçek bir Amazon sayfasında ana fiyat JS ile geliyordu
+# ve HTML'deki tek fiyatlar `sp_detail_<ASIN>` kutularındaydı. Bu listeye
+# bakıp seçici yazmak, 15.049 TL'lik bir reklamı 5.000 TL'lik kulaklığın
+# fiyatı sanmak demekti. Hata SESSİZDİR: fiyat okunur, grafik çizilir,
+# kullanıcı "dibe vurdu" uyarısı alır — hepsi yanlış üründen.
+YABANCI_KUTU_IZLERI = (
+    "sp_detail", "sponsored", "sp_atf", "sp_btf",   # Amazon sponsorlu
+    "similarities", "recommend", "carousel", "oneri", "benzer",
+    "also-viewed", "also-bought", "cross-sell", "upsell",
+)
+
+
+def _baska_urun_mu(kimlik: str, atalar: list[str]) -> bool:
+    """Bu fiyat sayfanın ürününe değil, bir reklam/öneri kutusuna mı ait?"""
+    hepsi = " ".join([kimlik, *atalar]).lower()
+    return any(iz in hepsi for iz in YABANCI_KUTU_IZLERI)
+
 
 @dataclass
 class Sonuc:
@@ -242,20 +262,28 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
     print("\n── Fiyat taşıyan elemanlar (ilk 8) ────────────────────────")
     adaylar = corba.select("[class*=price], [id*=price], [id*=Price], "
                            "[class*=fiyat], [data-price-amount]")
-    yazilan = 0
+    yazilan = supheli = 0
     for el in adaylar:
         metin = el.get_text(" ", strip=True)[:40]
         if not parse_tl(metin):
             continue
         kimlik = el.get("id") or ".".join(el.get("class") or []) or el.name
         ata = [a.get("id") for a in el.parents if a.get("id")][:2]
+        yabanci = _baska_urun_mu(kimlik, ata)
+        supheli += yabanci
         print(f"   {parse_tl(metin):>12,.2f}  ←  {kimlik[:34]:<34} "
-              f"üst: {' < '.join(ata) or '—'}")
+              f"üst: {' < '.join(ata) or '—'}"
+              + ("   ⚠ BAŞKA ÜRÜN" if yabanci else ""))
         yazilan += 1
         if yazilan >= 8:
             break
     if not yazilan:
         print("   (hiçbiri yok — fiyat büyük ihtimalle JS ile geliyor)")
+    elif supheli == yazilan:
+        print("\n   ⚠ Listedeki TÜM fiyatlar sponsorlu/öneri kutularından.")
+        print("     Bu ürünün KENDİ fiyatı sayfada yok: ya stokta değil ya da")
+        print("     JS ile geliyor. Bu kutulardan seçici YAZMA — sistem başka")
+        print("     bir ürünün fiyatını bu ürüne yazar ve kimse fark etmez.")
 
     c = cikar(html, kural)
     print("\n── Sonuç ──────────────────────────────────────────────────")
