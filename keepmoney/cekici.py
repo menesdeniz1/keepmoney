@@ -72,6 +72,22 @@ class Cekici(Protocol):
     def cek(self, url: str, kural: dict) -> Cekim: ...
 
 
+def playwright_var_mi() -> bool:
+    """Tarayıcı motoru bu süreçte kullanılabilir mi?
+
+    AÇILIŞTA bilinmesi gerekiyor. `render: true` olan bir kural, Playwright
+    yokken sessizce `requests`e düşer; o siteden hiç fiyat gelmez ama hiçbir
+    yerde "eksik bağımlılık" yazmaz — yalnızca o kaynak hep boş döner.
+    Toplayıcılar (akakçe, cimri) ve Trendyol bu kuralı kullanıyor, yani
+    maliyeti düşüren bütün strateji sessizce devre dışı kalabiliyordu.
+    """
+    try:
+        import playwright.sync_api  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _basliklar(url: str) -> dict:
     from urllib.parse import urlparse
     h = {

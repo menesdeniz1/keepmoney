@@ -177,3 +177,64 @@ def test_yanit_kapatilir():
     oturum = SahteOturum({"https://magaza.com/z": yanit})
     c._yonlendirmeli_cek(oturum.get, "https://magaza.com/z", "test")
     assert yanit.kapandi is True
+
+
+# ── Sessiz üretim açığı: tarayıcı motoru yokluğu ─────────────────
+
+def test_playwright_yoklugu_tespit_edilebiliyor(monkeypatch):
+    """`render: true` kurallar Playwright yokken SESSİZCE requests'e düşüyor
+    ve o kaynaktan hiç fiyat gelmiyordu. Açılışta bunu bilmek şart."""
+    import builtins
+
+    from keepmoney.cekici import playwright_var_mi
+
+    gercek = builtins.__import__
+
+    def yok(ad, *a, **kw):
+        if ad.startswith("playwright"):
+            raise ImportError("yok")
+        return gercek(ad, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", yok)
+    assert playwright_var_mi() is False
+
+
+def _kayitci():
+    """structlog benzeri, kwargs kabul eden basit kaydedici."""
+    kayitlar = []
+
+    class _K:
+        def warning(self, olay, **kw):
+            kayitlar.append((olay, kw))
+
+        def info(self, *a, **kw):
+            pass
+
+    return _K(), kayitlar
+
+
+def test_motor_yoksa_zamanlayici_uyarir(monkeypatch):
+    """Uyarı ETKİLENEN SİTELERİ saymalı — 'bir şeyler eksik' demek yetmez;
+    hangi kaynakların sessizce boş döneceği görünmeli."""
+    from keepmoney import zamanlayici
+
+    sahte, kayitlar = _kayitci()
+    monkeypatch.setattr(zamanlayici, "logger", sahte)
+    monkeypatch.setattr("keepmoney.cekici.playwright_var_mi", lambda: False)
+
+    zamanlayici.tarayici_motorunu_denetle()
+
+    assert [o for o, _ in kayitlar] == ["tarayici_motoru_yok"]
+    etkilenen = kayitlar[0][1]["etkilenen"]
+    assert "akakce.com" in etkilenen and "amazon.com.tr" in etkilenen
+
+
+def test_motor_varsa_uyarmaz(monkeypatch):
+    from keepmoney import zamanlayici
+
+    sahte, kayitlar = _kayitci()
+    monkeypatch.setattr(zamanlayici, "logger", sahte)
+    monkeypatch.setattr("keepmoney.cekici.playwright_var_mi", lambda: True)
+
+    zamanlayici.tarayici_motorunu_denetle()
+    assert kayitlar == []

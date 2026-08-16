@@ -154,11 +154,41 @@ def metrik_ucunu_ac() -> None:
         logger.warning("metrik_ucu_acilamadi", port=port, hata=str(e))
 
 
+def tarayici_motorunu_denetle() -> None:
+    """`render: true` isteyen kural var ama Playwright yoksa YÜKSEK SESLE söyle.
+
+    Bu sessiz arıza gerçek bir açıktı: akakçe, cimri ve trendyol kuralları
+    `render: true` istiyor, Docker imajında ise Playwright kurulu DEĞİLDİ.
+    Çekim zinciri sessizce `requests`e düşüyor, o üç kaynaktan hiç fiyat
+    gelmiyor ve hiçbir log "eksik bağımlılık" demiyordu. Üstelik en kritik
+    kaynaklar bunlar: "10 mağaza yerine 1 toplayıcı sayfası oku" stratejisinin
+    tamamı onların üstünde duruyor.
+
+    Süreci DURDURMUYORUZ — diğer siteler çalışmaya devam etmeli. Ama bu
+    durumun görünmez kalması kabul edilemez.
+    """
+    from . import siteler
+    from .cekici import playwright_var_mi
+
+    if playwright_var_mi():
+        return
+    gerekenler = sorted(
+        d for d in siteler.tanimli_siteler() if siteler.kural(d).get("render"))
+    if not gerekenler:
+        return
+    logger.warning(
+        "tarayici_motoru_yok",
+        etkilenen=gerekenler,
+        cozum="pip install playwright && playwright install chromium",
+        sonuc="bu sitelerden fiyat okunamayacak")
+
+
 async def main() -> None:
     from .gunluk import kur
 
     kur()
     metrik_ucunu_ac()
+    tarayici_motorunu_denetle()
     z = Zamanlayici()
 
     # Nazik kapanma: konteyner SIGTERM gönderir; yarım kalan tur bitsin,

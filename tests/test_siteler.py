@@ -99,3 +99,32 @@ def test_amazon_secicileri_gecerli_css():
     corba = BeautifulSoup("<html></html>", "lxml")
     for parca in kural("https://www.amazon.com.tr/dp/X")["fiyat_secici"].split(","):
         corba.select(parca.strip())          # geçersizse burada patlar
+
+
+# ── Öncül projeden (tracker) geri getirilen bilgi ────────────────
+# tracker Amazon'u üretimde aylarca sorunsuz okudu. İki bilgi port sırasında
+# kaybolmuştu ve ikisi de gerçek vakalardan öğrenilmişti.
+
+AMAZON_TWISTER = """<html><head><title>SteelSeries Nova 7</title></head>
+<body><div id="apex_price">
+  <span class="a-price">7.499,00\xa0TL</span>
+</div></body></html>"""
+
+
+def test_amazon_twister_sablonundan_fiyat_okunur():
+    """Renk/varyant seçicili sayfalarda ana fiyat `#apex_price` içinde;
+    diğer seçicilerin hiçbiri tutmuyor."""
+    kural_ = kural("https://www.amazon.com.tr/dp/X")
+    assert fiyat_ayikla(AMAZON_TWISTER, kural_) == (7499.0, "secici")
+
+
+def test_amazon_gercek_tarayici_ister():
+    """`requests` ile ilk birkaç istek geçiyor, sonra captcha geliyor; ayrıca
+    buybox fiyatı JS ile yükleniyor. tracker her isteği tarayıcıyla yapıyordu."""
+    assert kural("https://www.amazon.com.tr/dp/X")["render"] is True
+
+
+def test_toplayicilar_gercek_tarayici_ister():
+    """Maliyet modeli bunların üstünde duruyor: 10 mağaza yerine 1 sayfa."""
+    for d in ("akakce.com", "cimri.com"):
+        assert kural(f"https://www.{d}/x")["render"] is True

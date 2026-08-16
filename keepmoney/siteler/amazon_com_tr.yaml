@@ -1,6 +1,15 @@
 domain: "amazon.com.tr"
 satici: "Amazon"
-render: false
+# GERÇEK TARAYICI ZORUNLU. `requests` ile ilk birkaç istek geçiyor, sonra
+# Amazon captcha'ya düşürüyor: 13 linklik bir denemede 6 sayfa 4 KB'lık
+# captcha kabuğu döndü, aynı link bir önceki koşuda 1,5 MB'lık tam sayfa
+# gelmişti. Ayrıca captcha'ya düşmeyen sayfalarda bile buybox fiyatı JS ile
+# geliyor ve HTML'de yalnızca sponsorlu ürünlerin fiyatı bulunuyor.
+#
+# Öncül proje (tracker) Amazon'u aylarca sorunsuz okudu ve HER İSTEĞİ gerçek
+# tarayıcıyla yapıyordu. Buradaki `render: false` o kanıtlanmış davranışın
+# port sırasında kaybedilmesiydi.
+render: true
 # Ana fiyat bloğuna sınırlı: sayfadaki "diğer satıcılar" ve önerilen ürün
 # fiyatlarını yakalamasın diye geniş "span.a-price" bilerek kullanılmıyor.
 #
@@ -9,7 +18,12 @@ render: false
 # Gerçek bir sayfada tam da bu görüldü — listede `corePrice_feature_div` vardı,
 # sayfadaki id ise `corePrice_desktop`'tı ve hiçbir seçici tutmadı.
 # Sıra önemli: en dar kapsayıcı önce, `apex_desktop` en sonda (o geniş).
-fiyat_secici: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #corePrice_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen"
+#
+# Son iki seçici (`#apex_price`) öncül projeden (tracker) geri getirildi:
+# renk/varyant seçicili "twister" şablonunda ana fiyat o blokta duruyor ve
+# diğer seçicilerin hiçbiri tutmuyor. Üretimde aylarca çalışmış bilgi, port
+# sırasında düşmüştü.
+fiyat_secici: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #corePrice_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen, #apex_price span.a-price, #apex_price .aok-offscreen"
 # Regex son çaresi SADECE ana ürün kolonuna baksın (sponsorlu karusel hariç)
 metin_alani: "#centerCol"
 notlar: "Bot koruması agresif; sık engel görülürse toplayıcı kaynağa yönlendir."

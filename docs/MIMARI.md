@@ -576,3 +576,21 @@ Kısa önbellek ayrı bir karardır: beş dakikalık bir sunucu arızası, 24 sa
 **Bu "robots.txt'yi umursama" DEĞİLDİR** ve sınırı teste bağlandı: 200 ile gelen `Disallow` aynen uygulanıyor. Sitenin gerçek iradesi ayrıca çekim anında da görülür — 403/429 dönen kaynak `engel_mi` ile yakalanır, throttle cezası yer, ısrar edilmez. Beyan edilmemiş bir yasağı varsaymak ise ürünün yarısını sebepsiz kapatmaktı.
 
 **Testler HTTP seviyesinden sahteleniyor artık.** Eskiden `_oku` yamalanıyordu; "indirme başarısız olursa ne olur" sorusunun cevabı bu yüzden hiç sınanmamıştı. Sahtelemeyi ne kadar yukarıda yaparsan, altında kalan davranışı o kadar sınamamış olursun. `conftest.py`deki autouse susturma da bu dosya için devre dışı — yoksa politika yine sınanmamış kalırdı.
+
+---
+
+## K48 — Öncül projede kanıtlanmış bilgi port sırasında kaybolmuştu
+
+**Bağlam:** `tracker` Amazon'u üretimde aylarca sorunsuz okudu. KeepMoney ilk gerçek denemede okuyamadı. Fark kodda değil, üç ayrıntıdaydı — ve üçü de "yeniden yazarken daha temiz yapalım" kararlarının bedeliydi.
+
+**1. Amazon gerçek tarayıcı ister.** `tracker` HER isteği Playwright ile yapıyordu; KeepMoney'nin kuralında `render: false` yazıyordu. Ölçüm: `requests` ile ilk birkaç istek geçiyor, sonra Amazon captcha'ya düşürüyor (13 linklik denemede 6 sayfa 4 KB'lık captcha kabuğu; aynı link bir önceki koşuda 1,5 MB tam sayfa gelmişti). Captcha'ya düşmeyen sayfalarda bile buybox fiyatı JS ile geliyor.
+
+**2. İki seçici eksikti.** `#apex_price span.a-price` ve `#apex_price .aok-offscreen` — renk/varyant seçicili "twister" şablonu için, gerçek bir vakadan öğrenilmiş. Bu tür bilgi tahminle bulunamaz; yalnızca üretimde kırılıp düzeltilerek elde edilir. Port ederken "gereksiz görünen" satırları atmak, o bedeli yeniden ödemek demektir.
+
+**3. Toplayıcı kurgusu `tracker`'da ürünün merkezindeydi.** `products.yaml`: Akakçe linkini `urls` listesinin BAŞINA koy — tüm satıcıların en ucuzu tek sayfadadır, mağaza linki yedek kaynak olur. KeepMoney'nin şeması bunu destekliyor ama kullanım kalıbı hiçbir yerde anlatılmıyordu.
+
+**Ayrıca ortaya çıkan sessiz üretim açığı:** `akakce`, `cimri`, `trendyol` (ve artık `amazon`) kuralları `render: true` istiyor, Docker imajında ise Playwright KURULU DEĞİLDİ. Zincir sessizce `requests`e düşüyor, o kaynaklardan hiç fiyat gelmiyor ve hiçbir log "eksik bağımlılık" demiyordu. En ağır sonucu: "10 mağaza yerine 1 toplayıcı sayfası oku" stratejisinin tamamı üretimde hiç çalışmayacaktı.
+
+İki katmanlı düzeltme — imaj chromium kuruyor (~400 MB, pazarlık konusu değil) VE tarayıcı süreci açılışta eksikliği etkilenen siteleri sayarak uyarıyor. İkincisi olmadan aynı hata başka bir dağıtımda sessizce tekrarlanırdı.
+
+**Ders:** Öncül projeden taşınan her "garip" ayar bir arıza kaydıdır. Gerekçesini anlamadan sadeleştirmek, o arızayı geri getirmektir.

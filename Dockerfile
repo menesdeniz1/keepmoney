@@ -28,6 +28,17 @@ RUN pip install --no-cache-dir --upgrade pip setuptools
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Tarayıcı motoru. İMAJI ~400 MB BÜYÜTÜR ve buna rağmen zorunludur: akakçe,
+# cimri, trendyol ve amazon kuralları `render: true` istiyor. Playwright
+# olmadan çekim zinciri sessizce `requests`e düşüyor ve o kaynaklardan HİÇ
+# fiyat gelmiyordu — hiçbir log da bunu söylemiyordu. Üstelik toplayıcılar
+# maliyet modelinin merkezinde: 10 mağaza taramak yerine 1 sayfa okumak.
+#
+# `--with-deps` sistem kütüphanelerini de kurar; onlarsız chromium slim
+# imajda açılmaz.
+RUN pip install --no-cache-dir playwright \
+    && playwright install --with-deps chromium
+
 COPY keepmoney/ ./keepmoney/
 COPY migrations/ ./migrations/
 COPY alembic.ini .
