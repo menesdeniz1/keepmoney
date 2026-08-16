@@ -231,3 +231,14 @@ def test_cikar_engelli_sayfada_fiyat_okumaz():
     c = cikar(sayfa('<span class="price">1,00 TL</span>', baslik="Captcha"))
     assert c.engelli is True
     assert c.fiyat is None
+
+
+def test_captcha_imzasi_yol_onekinden_bagimsiz():
+    """Amazon captcha formunun hedefi siteye/sürüme göre değişiyor:
+    `/errors/validateCaptcha`, `/gp/errors/validateCaptcha`, hatta göreli
+    `validateCaptcha`. İmza yol önekine bağlanırsa sessizce ıskalanır —
+    gerçek bir koşuda tam olarak bu oldu."""
+    for hedef in ("/errors/validateCaptcha", "/gp/errors/validateCaptcha",
+                  "validateCaptcha", "https://www.amazon.com.tr/errors/validateCaptcha"):
+        html = sayfa(f'<form action="{hedef}"></form>', baslik="Amazon.com.tr")
+        assert engel_mi(html) is True, hedef

@@ -45,7 +45,7 @@ ENGEL_IZLERI = [
 # Form hedefi ve sağlayıcı alan adları dile bağlı değildir; bu yüzden
 # metinden çok daha güvenilir imzalardır.
 ENGEL_YAPISAL = [
-    "/errors/validatecaptcha",     # Amazon
+    "validatecaptcha",             # Amazon — yol öneki siteye göre değişiyor
     "captcha-delivery.com",        # DataDome (Trendyol vb.)
     "/cdn-cgi/challenge-platform",  # Cloudflare
     "g-recaptcha",                 # Google reCAPTCHA gömülü

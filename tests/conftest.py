@@ -103,15 +103,23 @@ def motor():
 
 
 @pytest.fixture(autouse=True)
-def _robots_ag_yok(monkeypatch):
+def _robots_ag_yok(monkeypatch, request):
     """Testlerde robots.txt İNDİRİLMEZ.
 
     Kapının KENDİSİ devrede kalır (worker onu çağırmaya devam eder); yalnızca
-    ağ adımı sahtelenir ve "okunamadı" davranışına düşer — üretimdeki
+    ağ adımı sahtelenir ve "kural yok" davranışına düşer — üretimdeki
     varsayılan da bu: beyan yoksa yasak yoktur.
 
-    Gerçek ayrıştırma mantığı `test_robots.py`de, ağa çıkmadan sınanıyor.
+    `test_robots.py` HARİÇTİR: orası tam da bu ağ adımının davranışını
+    sınıyor. Dosyayı buradan susturmak, 401/403 politikasını sınanmamış
+    bırakırdı — geçmişte tam olarak bu oldu ve iki büyük pazaryeri sessizce
+    eleniyordu.
     """
+    if request.node.path.name == "test_robots.py":
+        return
+
     from keepmoney.robots import RobotsKapisi
 
-    monkeypatch.setattr(RobotsKapisi, "_oku", lambda self, taban: None)
+    monkeypatch.setattr(
+        RobotsKapisi, "_oku",
+        lambda self, taban: (None, self.onbellek_omru))

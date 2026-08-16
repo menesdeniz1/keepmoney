@@ -552,3 +552,27 @@ Bu kozmetik bir rapor hatası değil: engel sayılmadığı için ne throttle ce
 **Bulgu 3 — teşhis aracının kendisi üretimi yansıtmıyordu.** `kaynak_dene.py` ham linki deniyordu; oysa sistem linki önce kanonikleştirip ONU çekiyor. Yani üretimin hiç uğramayacağı bir adres ölçülüyordu — K45'te "olmaz" denen hatanın ta kendisi. Kanoniklestirme girdi işleme adımına taşındı ve tekilleştirme de kanonik hâl üzerinden yapılıyor.
 
 **Genel ders:** Kayıtlı HTML'e karşı koşan test paketi, ayıklayıcının doğruluğunu ölçer; ürünün gerçek dünyada çalıştığını ölçmez. İkisi arasındaki fark, dört gerçek link ile on dakikada görünür oldu.
+
+---
+
+## K47 — robots.txt: okunamayan dosya yasak DEĞİLDİR
+
+**Bulgu:** Hepsiburada ve n11 `robots.txt`'nin KENDİSİNE 403 dönüyor (WAF, bilinmeyen istemciyi eliyor). `urllib.robotparser.read()` 401/403 gördüğünde `disallow_all = True` yapıyor — 1996 taslağının davranışı. Sonuç: Türkiye'nin en büyük iki pazaryeri "robots.txt yasaklıyor" diye eleniyordu. Oysa o siteler hiçbir şey yasaklamamıştı.
+
+Bu, modülün kendi dokümanıyla da çelişiyordu: "beyan yoksa yasak yoktur" yazıyor, kod tam tersini yapıyordu. Belgelenen niyet ile davranış arasındaki bu tür sessiz farklar, en pahalı hata türüdür — kimse koda bakıp yanlış olduğunu anlamaz, çünkü dokümana bakar.
+
+**Karar 1 — indirmeyi kendimiz yapıyoruz, dürüst kimlikle.** `KeepMoneyBot/1.0 (+<site adresi>)`. Eskiden `Python-urllib/3.x` gidiyordu ve WAF'lar onu doğrudan eliyordu; yani kuralları hiç okuyamıyorduk. Tarayıcı taklidi ise burada ilkesel olarak yanlış olurdu: robots.txt okumanın bütün anlamı açık kimlikle davranmaktır. Site sahibi logunda bizi görüp ya kural yazabilmeli ya da iletişime geçebilmeli.
+
+**Karar 2 — durum kodu politikası RFC 9309'a göre.**
+
+| Kod | Anlam | Davranış |
+|---|---|---|
+| 200 | Kural beyan edilmiş | **Aynen uygulanır** |
+| 4xx | Kısıtlama beyan edilmemiş (§2.3.1.3) | İzin, normal önbellek |
+| 429 / 5xx | Geçici erişilemezlik | İzin, **kısa** önbellek (15 dk) |
+
+Kısa önbellek ayrı bir karardır: beş dakikalık bir sunucu arızası, 24 saatlik önbellekle bir günlük veri kaybına dönüşürdü.
+
+**Bu "robots.txt'yi umursama" DEĞİLDİR** ve sınırı teste bağlandı: 200 ile gelen `Disallow` aynen uygulanıyor. Sitenin gerçek iradesi ayrıca çekim anında da görülür — 403/429 dönen kaynak `engel_mi` ile yakalanır, throttle cezası yer, ısrar edilmez. Beyan edilmemiş bir yasağı varsaymak ise ürünün yarısını sebepsiz kapatmaktı.
+
+**Testler HTTP seviyesinden sahteleniyor artık.** Eskiden `_oku` yamalanıyordu; "indirme başarısız olursa ne olur" sorusunun cevabı bu yüzden hiç sınanmamıştı. Sahtelemeyi ne kadar yukarıda yaparsan, altında kalan davranışı o kadar sınamamış olursun. `conftest.py`deki autouse susturma da bu dosya için devre dışı — yoksa politika yine sınanmamış kalırdı.
