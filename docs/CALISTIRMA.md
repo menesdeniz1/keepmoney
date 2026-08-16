@@ -164,14 +164,40 @@ Fiyat nereden geldi: json-ld=6, secici=2
 | `engellendi` | Bot koruması | `render: true` dene; olmuyorsa siteyi çıkar |
 | `robots.txt yasaklıyor` | Site izin vermiyor | Siteyi çıkar — buna saygı gösteriyoruz |
 
-Kırık bir siteyi düzeltmek: `keepmoney/siteler/<domain>.yaml` dosyasını aç
-(yoksa `_SABLON.yaml`'dan kopyala).
+### Kırık bir siteyi düzeltmek
 
-1. `--html-kaydet` ile kaydedilen HTML'i aç, `application/ld+json` ara.
-   Varsa ve fiyat içindeyse zaten bulunması gerekirdi → `render: true` yap
-   (fiyat JS ile sonradan geliyor demektir).
-2. Yoksa fiyatın olduğu elemanın CSS seçicisini `fiyat_secici` alanına yaz.
-3. Betiği o site için tekrar çalıştır.
+Kaydedilen HTML'i **ağa çıkmadan** çözümle — çıkarım zincirinin hangi adımı
+neden tuttu/tutmadı, tek tek gösterir:
+
+```bash
+python betikler/kaynak_dene.py --incele hata_html/amazon.com.tr-94749959.html
+```
+
+```
+2) Site seçicisi    : #corePriceDisplay_desktop_feature_div span.a-price ...
+   - #corePriceDisplay_desktop_feature_div span.a-price .a-offscreen  → 0 eşleşme
+   + #corePrice_desktop span.a-price .a-offscreen  → 1 eşleşme: ['15.049,00 TL']
+
+── Fiyat taşıyan elemanlar (ilk 8) ──
+      15.049,00  ←  corePrice_desktop     üst: —
+       1.099,00  ←  a-price               üst: oneri_karuseli
+```
+
+Sonra `keepmoney/siteler/<domain>.yaml` dosyasını düzelt (yoksa
+`_SABLON.yaml`'dan kopyala):
+
+1. **`BOT KORUMASI SAYFASI`** diyorsa seçici yazmanın anlamı yok →
+   `render: true` dene; o da tutmazsa siteyi listeden çıkar.
+2. **Fiyat taşıyan elemanlar listesinde doğru tutarı görüyorsan**, onun
+   `üst:` sütunundaki id'yi kullanarak `fiyat_secici` yaz. Kapsayıcıyı **dar
+   tut** — geniş bir seçici öneri karuselindeki başka bir ürünün fiyatını
+   yakalar ve bu en sinsi hata türüdür: fiyat okunur ama yanlış üründen.
+3. **Liste boşsa** fiyat JS ile geliyor → `render: true`.
+4. `--incele` ile tekrar çalıştır (ağa çıkmaz, anında sonuç), doğru olunca
+   `--dosya` ile gerçek koşuyu yap.
+
+Bu döngü bilerek çevrimdışı: her denemede siteye istek atmak, tam da
+doğrulama yaparken IP'ni yasaklatmanın en hızlı yoludur.
 
 **Kabul eşiği:** genel oran **%90+** ve hiçbir site `KIRIK` değil. Bu
 sağlanmadan canlıya alma — çıkış kodu 0/1 olduğu için bunu CI'da eşik olarak

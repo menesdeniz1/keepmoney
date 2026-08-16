@@ -244,3 +244,78 @@ def test_rapor_site_basina_dokum_veriyor(sunucu, yerel_ag_serbest, monkeypatch,
     assert "Site başına:" in cikti
     assert "KISMİ" in cikti
     assert "Fiyat nereden geldi: json-ld=1" in cikti
+
+
+# ── --incele: kaydedilmiş HTML'i ağa çıkmadan çözümleme ─────────
+# Seçici yazarken gereken döngü budur: sayfayı bir kez kaydet, sonra ağa
+# çıkmadan defalarca çözümle. Aksi halde her denemede siteye istek atılır ve
+# tam da doğrulama yaparken IP yasaklanır.
+
+AMAZON_KABUK = """<html><head><title>HyperX Cloud III S</title></head><body>
+  <div id="corePriceDisplay_desktop_feature_div"></div>
+  <div id="corePrice_desktop">
+    <span class="a-price"><span class="a-offscreen">15.049,00\xa0TL</span></span>
+  </div></body></html>"""
+
+AMAZON_CAPTCHA = """<html><head><title>Amazon.com.tr</title></head><body>
+  <form action="/errors/validateCaptcha"></form></body></html>"""
+
+
+def test_incele_fiyati_bulunca_sifir_doner(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-1.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    assert kd.incele(dosya) == 0
+    cikti = capsys.readouterr().out
+    assert "15.049,00" in cikti
+    assert "secici" in cikti
+
+
+def test_incele_hangi_secicinin_tuttugunu_gosterir(tmp_path, capsys):
+    """Asıl değeri bu: 'tutmadı' demek yetmez, HANGİSİ tutmadı belli olmalı."""
+    dosya = tmp_path / "amazon.com.tr-1.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "corePriceDisplay_desktop_feature_div span.a-price .a-offscreen  → 0" in cikti
+    assert "+ #corePrice_desktop" in cikti
+
+
+def test_incele_captcha_sayfasini_ayirt_eder(tmp_path, capsys):
+    """Yanlış teşhis pahalıdır: engelli sayfada seçici aranmaz."""
+    dosya = tmp_path / "amazon.com.tr-2.html"
+    dosya.write_text(AMAZON_CAPTCHA, encoding="utf-8")
+    assert kd.incele(dosya) == 1
+    cikti = capsys.readouterr().out
+    assert "BOT KORUMASI" in cikti
+    assert "Güven zinciri" not in cikti      # boşuna seçici denemesin
+
+
+def test_incele_site_dosya_adindan_bulunur(tmp_path, capsys):
+    """Kaydedilen ad `<domain>-<hash>.html`; kural ondan çözülmeli."""
+    dosya = tmp_path / "amazon.com.tr-94749959.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)
+    assert "Site  : amazon.com.tr" in capsys.readouterr().out
+
+
+def test_incele_fiyat_tasiyan_elemanlari_listeler(tmp_path, capsys):
+    """Seçici tutmadığında bir sonraki adımı SÖYLEMELİ: fiyat nerede duruyor."""
+    dosya = tmp_path / "bilinmeyen.com-1.html"
+    dosya.write_text(
+        '<html><head><title>X</title></head><body>'
+        '<div id="urun-kutusu"><span class="price-now">2.499,00 TL</span></div>'
+        '</body></html>', encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "2,499.00" in cikti
+    assert "urun-kutusu" in cikti
+
+
+def test_incele_aga_cikmaz(tmp_path, monkeypatch):
+    """Çözümleme tamamen çevrimdışı olmalı."""
+    monkeypatch.setattr(
+        kd.HttpCekici, "cek",
+        lambda *a, **k: pytest.fail("--incele ağa ÇIKMAMALI"))
+    dosya = tmp_path / "amazon.com.tr-1.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)

@@ -40,6 +40,27 @@ jobs:
           pip install pip-audit
           pip-audit --progress-spinner off
 
+  # WINDOWS. Geliştirme burada da yapılıyor ve platform farkları SESSİZDİR:
+  # Windows'ta sistem saat dilimi veritabanı YOKTUR, bu yüzden `tzdata` paketi
+  # eksikken uygulama import zincirinin en altında (zaman.py) patlıyor ve HİÇ
+  # açılmıyordu. Ubuntu'da 437 test yeşilken Windows'ta tek bir komut bile
+  # çalışmıyordu — bunu ancak Windows'ta koşan bir iş yakalar.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Testler (Windows)
+        run: pytest -q
+      # Tanı aracı da açılabilmeli: betikler pakete dahil değil, import
+      # yolları farklı ve sessizce çürüyorlar.
+      - name: Tanı aracı açılıyor mu
+        run: python betikler/kaynak_dene.py --help
+
   # ÜRETİM VERİTABANI POSTGRES. "SQLite'ta geçiyor" ile "Postgres'te
   # çalışıyor" aynı şey değil ve aradaki farklar sessizdir: tarih/saat
   # tipleri, boolean dönüşümü, `CASE`/`GREATEST` gibi ifade farkları,

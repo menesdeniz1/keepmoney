@@ -44,9 +44,9 @@ from dataclasses import dataclass
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from keepmoney import siteler
-from keepmoney.ayikla import cikar
+from keepmoney.ayikla import _corba, _ld_bloklari, cikar, engel_mi, olu_mu
 from keepmoney.cekici import HttpCekici
-from keepmoney.fiyat import tl
+from keepmoney.fiyat import parse_tl, tl
 from keepmoney.robots import RobotsKapisi
 from keepmoney.servisler.izleme import url_normalize
 from keepmoney.throttle import HostThrottle
@@ -187,6 +187,88 @@ def _rapor(sonuclar: list[Sonuc]) -> None:
               "(şablon: _SABLON.yaml)")
 
 
+def incele(yol: pathlib.Path, domain: str | None = None) -> int:
+    """Kaydedilmiş HTML'i AĞA ÇIKMADAN çözümler: hangi adım neden tuttu/tutmadı.
+
+    `--html-kaydet` ile bir sayfa diske alındıktan sonra soru şu olur:
+    "seçici neden tutmadı?" Buna cevap vermek için elle regex çekmek yerine
+    çıkarım zincirinin her basamağını tek tek raporluyoruz. Ağa çıkmadığı için
+    istediğin kadar tekrar çalıştırabilirsin — seçici yazarken gereken tam
+    olarak bu döngüdür.
+    """
+    html = yol.read_text(encoding="utf-8", errors="replace")
+    # Dosya adı `<domain>-<hash>.html` biçiminde kaydediliyor; kuralı ondan bul.
+    domain = domain or yol.name.rsplit("-", 1)[0]
+    kural = siteler.kural(domain)
+
+    print(f"Dosya : {yol}  ({len(html) // 1024} KB)")
+    print(f"Site  : {domain}"
+          + ("  (kural dosyası YOK — varsayılan zincir)" if not kural else ""))
+
+    corba = _corba(html)
+    baslik = corba.title.get_text(strip=True) if corba.title else "—"
+    print(f"Başlık: {baslik}")
+
+    if engel_mi(html):
+        print("\nSONUÇ: BOT KORUMASI SAYFASI. Seçici yazmanın anlamı yok —")
+        print("       `render: true` dene, olmazsa siteyi listeden çıkar.")
+        return 1
+    if olu_mu(html):
+        print("\nSONUÇ: ölü/kaldırılmış ürün sayfası.")
+        return 1
+
+    print("\n── Güven zinciri ──────────────────────────────────────────")
+    print(f"1) JSON-LD bloğu    : {len(_ld_bloklari(corba))} adet")
+
+    secici = kural.get("fiyat_secici")
+    if secici:
+        print(f"2) Site seçicisi    : {secici}")
+        for parca in [p.strip() for p in secici.split(",")]:
+            try:
+                bulunan = corba.select(parca)
+            except Exception as e:                       # geçersiz CSS
+                print(f"   ! {parca}  → GEÇERSİZ SEÇİCİ: {e}")
+                continue
+            if not bulunan:
+                print(f"   - {parca}  → 0 eşleşme")
+                continue
+            ornek = [el.get_text(strip=True)[:28] for el in bulunan[:3]]
+            print(f"   + {parca}  → {len(bulunan)} eşleşme: {ornek}")
+    else:
+        print("2) Site seçicisi    : tanımsız")
+
+    # Kapsayıcılar var mı ama içleri boş mu? Amazon gibi siteler düzeni
+    # A/B test ediyor: id duruyor, fiyat başka bir kabuğa taşınıyor.
+    print("\n── Fiyat taşıyan elemanlar (ilk 8) ────────────────────────")
+    adaylar = corba.select("[class*=price], [id*=price], [id*=Price], "
+                           "[class*=fiyat], [data-price-amount]")
+    yazilan = 0
+    for el in adaylar:
+        metin = el.get_text(" ", strip=True)[:40]
+        if not parse_tl(metin):
+            continue
+        kimlik = el.get("id") or ".".join(el.get("class") or []) or el.name
+        ata = [a.get("id") for a in el.parents if a.get("id")][:2]
+        print(f"   {parse_tl(metin):>12,.2f}  ←  {kimlik[:34]:<34} "
+              f"üst: {' < '.join(ata) or '—'}")
+        yazilan += 1
+        if yazilan >= 8:
+            break
+    if not yazilan:
+        print("   (hiçbiri yok — fiyat büyük ihtimalle JS ile geliyor)")
+
+    c = cikar(html, kural)
+    print("\n── Sonuç ──────────────────────────────────────────────────")
+    if c.fiyat is None:
+        print("   Fiyat OKUNAMADI.")
+        print("   Yukarıdaki listede doğru fiyatı görüyorsan, onun `üst:`")
+        print("   sütunundaki id'yi kullanarak `fiyat_secici` yaz:")
+        print(f"   keepmoney/siteler/{domain.replace('.', '_')}.yaml")
+        return 1
+    print(f"   {tl(c.fiyat)}  [{c.guven}]   {c.baslik or ''}")
+    return 0
+
+
 def main() -> int:
     ayristirici = argparse.ArgumentParser(
         description="Gerçek ürün linklerine karşı çekme + fiyat çıkarımı dener.")
@@ -196,7 +278,17 @@ def main() -> int:
         "--html-kaydet", metavar="DIZIN",
         help="fiyat okunamayan sayfaların HTML'ini buraya yazar — seçici "
              "yazarken sayfayı elde tutmak gerekir")
+    ayristirici.add_argument(
+        "--incele", metavar="DOSYA",
+        help="kaydedilmiş bir HTML'i AĞA ÇIKMADAN çözümler: çıkarım "
+             "zincirinin hangi adımı neden tuttu/tutmadı")
+    ayristirici.add_argument(
+        "--site", help="--incele ile: kural dosyası hangi site (dosya adından "
+                       "bulunamazsa)")
     args = ayristirici.parse_args()
+
+    if args.incele:
+        return incele(pathlib.Path(args.incele), args.site)
 
     linkler = _linkleri_oku(args)
     if not linkler:

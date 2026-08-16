@@ -1,6 +1,18 @@
 # ── Çekirdek alan katmanı SAF PYTHON'dur (analiz, karar, fiyat, zaman) —
 #    hiçbir bağımlılığa ihtiyaç duymaz. Aşağıdakiler dış katmanlar içindir.
 
+# Saat dilimi veritabanı. İKİ SEBEPLE ZORUNLU, "olsa iyi olur" değil:
+#
+#  1) Windows'ta sistem tz veritabanı YOKTUR. `ZoneInfo("Europe/Istanbul")`
+#     doğrudan patlar ve uygulama HİÇ açılmaz — import zincirinin en altında,
+#     zaman.py'de. Linux/Docker'da çalışıyor olması yanıltıcıydı: paket
+#     eksikliği yalnızca Windows'ta görünüyor.
+#  2) Linux'ta bile host'un tzdata'sına güvenmek kırılgan: Türkiye 2016'da
+#     yaz saatini kaldırdı. Eski bir sistem paketiyle "Türkiye günü" bir saat
+#     kayar ve günlük minimum yanlış güne yazılır — sessiz ve teşhisi zor bir
+#     veri hatası (bkz. zaman.py, MIMARI.md K10).
+tzdata>=2024.1
+
 # Depolama
 SQLAlchemy>=2.0.30
 alembic>=1.13
