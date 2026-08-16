@@ -32,6 +32,25 @@ ENGEL_IZLERI = [
     "güvenlik doğrulaması",
 ]
 
+# YAPISAL engel imzaları — görünür metinde değil, HAM HTML'de aranır.
+#
+# Neden ayrı liste: Amazon'un captcha sayfasında görünen tek metin
+# "Amazon.com.tr" başlığı ve birkaç satır yönergedir; dili hesabın bölgesine
+# göre değişir ve ENGEL_IZLERI'ndeki hiçbir kelimeyi içermez. Sonuç, ilk
+# gerçek link denemesinde görüldü: sistem engellendiğini anlamayıp "fiyat
+# okunamadı" dedi. Bu YANLIŞ TEŞHİSTİR ve yanlış çözüme götürür — seçici
+# yazmaya çalışırsın, oysa yapılması gereken geri çekilmektir. Ayrıca engel
+# sayılmadığı için ne throttle cezası ne KAYNAK_BOZUK uyarısı devreye girer.
+#
+# Form hedefi ve sağlayıcı alan adları dile bağlı değildir; bu yüzden
+# metinden çok daha güvenilir imzalardır.
+ENGEL_YAPISAL = [
+    "/errors/validatecaptcha",     # Amazon
+    "captcha-delivery.com",        # DataDome (Trendyol vb.)
+    "/cdn-cgi/challenge-platform",  # Cloudflare
+    "g-recaptcha",                 # Google reCAPTCHA gömülü
+]
+
 # Kaldırılmış ürün sayfası işaretleri (HTTP 404/410'a ek olarak)
 OLU_IZLERI = [
     "sayfa bulunamadı", "aradığınız sayfa", "ürün bulunamadı",
@@ -252,6 +271,10 @@ def engel_mi(html: str) -> bool:
     """Bot koruması / captcha sayfası mı?"""
     if not html:
         return False
+    # Yapısal imza ÖNCE: ucuz (ayrıştırma yok) ve dile bağlı değil.
+    ham = html.lower()
+    if any(iz in ham for iz in ENGEL_YAPISAL):
+        return True
     corba = _corba(html)
     baslik = (corba.title.get_text(strip=True).lower() if corba.title else "")
     if any(iz in baslik for iz in ENGEL_IZLERI):

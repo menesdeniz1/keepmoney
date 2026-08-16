@@ -150,6 +150,52 @@ def test_normal_sayfa_engelli_degil():
     assert engel_mi(sayfa("<p>Sepete ekle</p>")) is False
 
 
+# ---------- yapısal engel imzaları ----------
+# Bu blok ilk GERÇEK link denemesinden geldi: Amazon'un captcha sayfası
+# görünür metninde hiçbir engel kelimesi taşımıyor (başlığı yalnızca
+# "Amazon.com.tr") ve sistem onu "fiyat okunamadı" diye raporladı. Yanlış
+# teşhis yanlış çözüme götürür — seçici yazmaya çalışırsın, oysa geri
+# çekilmen gerekir; ayrıca engel sayılmadığı için throttle cezası ve
+# KAYNAK_BOZUK uyarısı da devreye girmez.
+
+def test_amazon_captcha_sayfasi_engel_sayilir():
+    """Görünür metinde tek bir engel kelimesi yok — imza formun hedefinde."""
+    html = sayfa(
+        '<form method="get" action="/errors/validateCaptcha">'
+        '<input name="amzn" value="x"></form>', baslik="Amazon.com.tr")
+    assert engel_mi(html) is True
+
+
+def test_datadome_engel_sayilir():
+    html = sayfa('<script src="https://ct.captcha-delivery.com/c.js"></script>')
+    assert engel_mi(html) is True
+
+
+def test_cloudflare_challenge_engel_sayilir():
+    html = sayfa('<script src="/cdn-cgi/challenge-platform/h/b/orchestrate"></script>')
+    assert engel_mi(html) is True
+
+
+def test_urun_sayfasindaki_robot_kelimesi_engel_saymaz():
+    """YANLIŞ POZİTİF KORUMASI: 'robot süpürge' bir üründür, engel değil.
+
+    Ham HTML'de kelime aramanın bariz riski budur; imzalar bu yüzden dile
+    bağlı olmayan yol/alan adı kalıpları — serbest kelimeler değil.
+    """
+    html = sayfa('<h1>Robot Süpürge</h1><span class="a-offscreen">4.999 TL</span>')
+    assert engel_mi(html) is False
+
+
+def test_engel_sayfasindan_fiyat_okunmaya_calisilmaz():
+    """Uçtan uca: `cikar` engelli bayrağını kaldırmalı, fiyat UYDURMAMALI."""
+    html = sayfa(
+        '<form action="/errors/validateCaptcha"></form>'
+        '<span>Sadece 99,90 TL</span>', baslik="Amazon.com.tr")
+    c = cikar(html)
+    assert c.engelli is True
+    assert c.fiyat is None
+
+
 def test_olu_http_kodundan():
     assert olu_mu(sayfa("<p>x</p>"), 404) is True
     assert olu_mu(sayfa("<p>x</p>"), 200) is False

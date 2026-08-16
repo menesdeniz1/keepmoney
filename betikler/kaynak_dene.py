@@ -48,6 +48,7 @@ from keepmoney.ayikla import cikar
 from keepmoney.cekici import HttpCekici
 from keepmoney.fiyat import tl
 from keepmoney.robots import RobotsKapisi
+from keepmoney.servisler.izleme import url_normalize
 from keepmoney.throttle import HostThrottle
 
 # Güven zincirinin en zayıf halkası. Regex'ten gelen fiyat "okundu" sayılır
@@ -75,19 +76,28 @@ class Sonuc:
 
 
 def _linkleri_oku(args) -> list[str]:
+    """Linkleri okur ve ÜRETİMDEKİ kanonik hâline çevirir.
+
+    Kanoniklestirme burada yapılır, çekim anında değil: sistem linki önce
+    normalize edip öyle saklıyor ve öyle çekiyor. Tarayıcıdan kopyalanan ham
+    linki denemek, üretimin hiç uğramayacağı bir adresi ölçmek olurdu — ilk
+    gerçek koşuda tam da bu fark etti (takip parametreli Hepsiburada linki
+    robots.txt'ye takılıyordu, kanonik hâli takılmıyor).
+
+    Tekilleştirme de kanonik hâl üzerinden: aynı ürüne giden iki farklı
+    kampanya linki tek bir çekim etmeli.
+    """
     linkler = list(args.url)
     if args.dosya:
         metin = pathlib.Path(args.dosya).read_text(encoding="utf-8")
         linkler += [s.strip() for s in metin.splitlines()
                     if s.strip() and not s.lstrip().startswith("#")]
-    # Sıra korunarak tekilleştir — aynı linki iki kez çekmek hem yavaş hem
-    # gereksiz yük.
-    return list(dict.fromkeys(linkler))
+    return list(dict.fromkeys(url_normalize(u) for u in linkler))
 
 
 def _dene(cekici: HttpCekici, robots: RobotsKapisi, throttle: HostThrottle,
           url: str) -> tuple[Sonuc, str | None]:
-    """Tek URL'yi dener. HTML'i de döndürür — seçici yazarken sayfa gerekir."""
+    """Tek KANONİK URL'yi dener. HTML'i de döndürür — seçici yazarken lazım."""
     domain = siteler.host_cikar(url)
     s = Sonuc(url=url, domain=domain)
 

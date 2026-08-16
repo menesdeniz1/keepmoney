@@ -525,3 +525,30 @@ Bu boşluğu "canlıda görürüz" diye bırakmak, kararı ölçüme değil umud
 **Araç robots.txt'ye uyar ve host aralığı uygular.** Elle test ederken bunları atlamak cazip; ama IP'yi tam da doğrulama yaparken yasaklatmak, aracı işe yaramaz hale getirir.
 
 **Aracın kendisi test edildi** (`tests/test_kaynak_dene.py`, gerçek yerel HTTP sunucusuna karşı). İki sebep: (1) canlıya alma kararının dayanağı bu araç — yanlışsa yanlış bir güvenle canlıya çıkılır; (2) betikler test edilmediği için sessizce çürür, bir fonksiyon adı değişince ancak biri elle çalıştırdığında patlar.
+
+---
+
+## K46 — Gerçek linkler, sentetik testlerin göremediğini gösterdi
+
+**Bağlam:** 422 test yeşilken, ilk gerçek link denemesi (4 link, 10 dakika) iki hata ortaya çıkardı. İkisi de sentetik girdiyle yazılmış testlerin yapısal olarak yakalayamayacağı türdendi.
+
+**Bulgu 1 — kanonik URL bölünmesi (P1).** Amazon takip verisini sorgu dizesine değil YOLUN İÇİNE gömüyor:
+
+```
+/dp/B09CD32DNH/ref=pd_lpo_d_sccl_4/262-3702812-9941328?pd_rd_i=B0GZPNQ28H
+/dp/B09CD32DNH
+```
+
+Bu ikisi aynı üründür ama farklı `Source` satırlarına düşüyordu. Sonuç: küresel fiyat geçmişi ikiye bölünür, "90 günün dibi" yanlış hesaplanır — yani ürünün TEMEL VAADİ olan küresel hafıza sessizce bozulur (K16'nın doğrudan ihlali). Ayrıca `pd_rd_i`, linkin GELDİĞİ ürünün ASIN'ini taşıyor; kanonik URL'ye alakasız bir ürün kimliği sızıyordu.
+
+Mevcut testler bunu göremezdi: hepsi elle yazılmış temiz URL kullanıyordu. **Sentetik girdiyle yazılmış test, sentetik girdinin doğruluğunu ölçer.** Düzeltme `tests/test_url_kanonik.py` ile korunuyor — dosyadaki her URL tarayıcıdan kopyalanmış gerçek bir linktir.
+
+**Bulgu 2 — engel tespiti dile bağlıydı.** Amazon'un captcha sayfasının görünür metninde `ENGEL_IZLERI`'ndeki hiçbir kelime yok; başlığı yalnızca "Amazon.com.tr". Sistem engellendiğini anlamıyor, "fiyat okunamadı" diyordu.
+
+Bu kozmetik bir rapor hatası değil: engel sayılmadığı için ne throttle cezası ne `KAYNAK_BOZUK` uyarısı devreye giriyor — sistem duvara toslamaya devam ediyor. Üstelik yanlış teşhis yanlış çözüme götürür (seçici yazmaya çalışırsın, oysa geri çekilmelisin).
+
+**Çözüm:** `ENGEL_YAPISAL` — ham HTML'de aranan, dile bağlı OLMAYAN imzalar (`/errors/validatecaptcha`, `captcha-delivery.com`, `/cdn-cgi/challenge-platform`). Form hedefleri ve sağlayıcı alan adları çeviriye tabi değildir; serbest kelimelerden çok daha güvenilirdir. Yanlış pozitif riski ayrıca test edildi: "Robot Süpürge" satan bir sayfa engel sayılmaz.
+
+**Bulgu 3 — teşhis aracının kendisi üretimi yansıtmıyordu.** `kaynak_dene.py` ham linki deniyordu; oysa sistem linki önce kanonikleştirip ONU çekiyor. Yani üretimin hiç uğramayacağı bir adres ölçülüyordu — K45'te "olmaz" denen hatanın ta kendisi. Kanoniklestirme girdi işleme adımına taşındı ve tekilleştirme de kanonik hâl üzerinden yapılıyor.
+
+**Genel ders:** Kayıtlı HTML'e karşı koşan test paketi, ayıklayıcının doğruluğunu ölçer; ürünün gerçek dünyada çalıştığını ölçmez. İkisi arasındaki fark, dört gerçek link ile on dakikada görünür oldu.

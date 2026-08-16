@@ -158,10 +158,35 @@ def test_linkler_tekillestirilir_ve_yorumlar_atlanir(tmp_path):
     assert kd._linkleri_oku(args) == ["https://a.com/1", "https://a.com/2"]
 
 
+def test_linkler_uretimdeki_kanonik_haline_cevrilir(tmp_path):
+    """Tarayıcıdan kopyalanan ham link değil, sistemin ÇEKTİĞİ URL denenmeli.
+
+    Aynı ürüne giden iki kampanya linki tek çekime inmeli — yoksa araç aynı
+    sayfayı iki kez çeker ve raporda iki satır olarak sayar.
+    """
+    dosya = tmp_path / "linkler.txt"
+    dosya.write_text(
+        "https://www.amazon.com.tr/x/dp/B01/ref=pd_lpo/262-370?pd_rd_i=B99\n"
+        "https://www.amazon.com.tr/x/dp/B01\n", encoding="utf-8")
+
+    args = SimpleNamespace(url=[], dosya=str(dosya))
+    assert kd._linkleri_oku(args) == ["https://amazon.com.tr/x/dp/B01"]
+
+
 # ── Uçtan uca: main() ───────────────────────────────────────────
+def _ham_linkler(args) -> list[str]:
+    """Kanoniklestirmeyi atlar.
+
+    `url_normalize` şemayı `https`e zorluyor — üretimde DOĞRU davranış ama
+    testin yerel HTTP sunucusuna erişilemez hale getirir. Kanoniklestirmenin
+    kendisi yukarıda ayrıca test ediliyor; buradaki testler main()'in rapor
+    ve çıkış kodu davranışını ölçüyor.
+    """
+    return list(args.url)
 def test_main_hepsi_okunursa_sifir_doner(sunucu, yerel_ag_serbest, monkeypatch,
                                          capsys):
     monkeypatch.setattr(kd.HostThrottle, "bekle", lambda self, host: 0.0)
+    monkeypatch.setattr(kd, "_linkleri_oku", _ham_linkler)
     monkeypatch.setattr("sys.argv", ["kaynak_dene.py", f"{sunucu}/urun"])
     assert kd.main() == 0
     cikti = capsys.readouterr().out
@@ -173,6 +198,7 @@ def test_main_okunamayan_varsa_bir_doner(sunucu, yerel_ag_serbest, monkeypatch,
                                          capsys):
     """Çıkış kodu ANLAMLI olmalı: CI'da eşik olarak kullanılabilsin."""
     monkeypatch.setattr(kd.HostThrottle, "bekle", lambda self, host: 0.0)
+    monkeypatch.setattr(kd, "_linkleri_oku", _ham_linkler)
     monkeypatch.setattr(
         "sys.argv", ["kaynak_dene.py", f"{sunucu}/urun", f"{sunucu}/bos"])
     assert kd.main() == 1
@@ -185,6 +211,7 @@ def test_main_okunamayan_varsa_bir_doner(sunucu, yerel_ag_serbest, monkeypatch,
 def test_main_html_kaydeder(sunucu, yerel_ag_serbest, monkeypatch, tmp_path):
     dizin = tmp_path / "hatalar"
     monkeypatch.setattr(kd.HostThrottle, "bekle", lambda self, host: 0.0)
+    monkeypatch.setattr(kd, "_linkleri_oku", _ham_linkler)
     monkeypatch.setattr("sys.argv", [
         "kaynak_dene.py", f"{sunucu}/bos", "--html-kaydet", str(dizin)])
     assert kd.main() == 1
@@ -198,6 +225,7 @@ def test_main_basarili_sayfanin_htmlini_kaydetmez(sunucu, yerel_ag_serbest,
     """Yalnızca SORUNLU sayfa kaydedilir — çalışan siteler disk doldurmasın."""
     dizin = tmp_path / "hatalar"
     monkeypatch.setattr(kd.HostThrottle, "bekle", lambda self, host: 0.0)
+    monkeypatch.setattr(kd, "_linkleri_oku", _ham_linkler)
     monkeypatch.setattr("sys.argv", [
         "kaynak_dene.py", f"{sunucu}/urun", "--html-kaydet", str(dizin)])
     assert kd.main() == 0
@@ -208,6 +236,7 @@ def test_rapor_site_basina_dokum_veriyor(sunucu, yerel_ag_serbest, monkeypatch,
                                          capsys):
     """Genel oran tek başına yetmez: hangi site kırık, görünmeli."""
     monkeypatch.setattr(kd.HostThrottle, "bekle", lambda self, host: 0.0)
+    monkeypatch.setattr(kd, "_linkleri_oku", _ham_linkler)
     monkeypatch.setattr(
         "sys.argv", ["kaynak_dene.py", f"{sunucu}/urun", f"{sunucu}/bos"])
     kd.main()

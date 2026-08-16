@@ -25,7 +25,22 @@ COP_PARAMETRELER = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "ref", "referrer", "sellerId", "merchantId",
     "boutiqueId", "adjust_t", "adjust_tracker",
+    # Amazon öneri/karusel izleri. `pd_rd_i` ÖZELLİKLE tehlikeli: linkin
+    # GELDİĞİ ürünün ASIN'ini taşır, açılan ürünün değil — atılmazsa kanonik
+    # URL'ye alakasız bir ürün kimliği karışır.
+    "pd_rd_w", "pd_rd_wg", "pd_rd_r", "pd_rd_i", "pf_rd_p", "pf_rd_r",
+    "content-id", "th", "psc", "smid", "linkCode", "tag",
+    # Hepsiburada / Trendyol mağaza ve kampanya izleri
+    "magaza", "wt_pc", "adj_t", "adj_campaign", "adj_adgroup", "v",
 }
+
+# Amazon takip verisini yolun İÇİNE gömer:
+#   /dp/B09CD32DNH/ref=pd_lpo_d_sccl_4/262-3702812-9941328
+# `ref=` sonrası ürünü tanımlamaz. Kesilmezse aynı ürünün "önerilerden gelen"
+# linki ile doğrudan linki FARKLI kanonik URL üretir ve küresel fiyat geçmişi
+# ikiye bölünür — K16'nın tam ihlali. Gerçek linklerle yapılan ilk denemede
+# yakalandı; sentetik test URL'leri temiz olduğu için gözden kaçmıştı.
+_YOL_KESICILER = ("ref=", "ref_=")
 
 
 class IzlemeHatasi(Exception):
@@ -48,8 +63,17 @@ def url_normalize(ham: str) -> str:
         parca for parca in (p.query or "").split("&")
         if parca and parca.split("=")[0] not in COP_PARAMETRELER
     )
-    yol = p.path.rstrip("/") or "/"
+    yol = _yolu_kirp(p.path).rstrip("/") or "/"
     return urlunparse(("https", host, yol, "", sorgu, ""))
+
+
+def _yolu_kirp(yol: str) -> str:
+    """Takip verisi taşıyan yol parçasında ve sonrasında keser."""
+    parcalar = yol.split("/")
+    for i, parca in enumerate(parcalar):
+        if parca.startswith(_YOL_KESICILER):
+            return "/".join(parcalar[:i])
+    return yol
 
 
 def _urun_adi_uret(url: str) -> str:
