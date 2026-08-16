@@ -235,19 +235,54 @@ def puan_ayikla(html: str) -> tuple[float | None, int | None]:
     return None, None
 
 
-def baslik_ayikla(html: str) -> str | None:
-    """Ürün adı: og:title → h1 → <title>. Site adı eki kırpılır."""
+# Yalnızca ekran okuyucular için konan, GÖRÜNMEZ başlıkların sınıf izleri.
+# Bunlar asla ürün adı değildir. Gerçek bir Amazon sayfasında ürün adı
+# "Ürün özeti, temel ürün bilgilerini sunar" diye okunmuştu: sayfanın ilk
+# `<h1>`i bir erişilebilirlik başlığıydı ve doğru `<title>`ı gölgeliyordu.
+#
+# Bu SESSİZ bir hatadır — fiyat doğru olsa bile kullanıcı listesinde
+# tanımadığı bir ad görür ve neyi izlediğini anlamaz.
+GORUNMEZ_IZLERI = (
+    "a11y", "sr-only", "screen-reader", "screenreader",
+    "visually-hidden", "visuallyhidden", "offscreen", "aok-hidden",
+)
+
+
+def _gorunmez_mi(el) -> bool:
+    siniflar = " ".join(el.get("class") or []).lower()
+    return any(iz in siniflar for iz in GORUNMEZ_IZLERI)
+
+
+def baslik_ayikla(html: str, site_cfg: dict | None = None) -> str | None:
+    """Ürün adı: site seçicisi → og:title → görünür h1 → <title>.
+
+    Site seçicisi en başta: bazı sayfalarda ürün adı ne og:title'da ne de
+    ilk `<h1>`de duruyor (Amazon: `#productTitle`). Kural dosyası bunu
+    biliyorsa tahmine gerek yok.
+    """
     if not html:
         return None
     corba = _corba(html)
+
+    secici = (site_cfg or {}).get("baslik_secici")
+    if secici:
+        try:
+            el = corba.select_one(secici)
+            if el and el.get_text(strip=True):
+                return _baslik_temizle(el.get_text(" ", strip=True))
+        except Exception:
+            pass                      # geçersiz seçici zinciri kesmesin
 
     og = corba.select_one('meta[property="og:title"]')
     if og and og.get("content"):
         return _baslik_temizle(og["content"])
 
-    h1 = corba.find("h1")
-    if h1 and h1.get_text(strip=True):
-        return _baslik_temizle(h1.get_text(strip=True))
+    for h1 in corba.find_all("h1", limit=5):
+        if _gorunmez_mi(h1):
+            continue
+        metin = h1.get_text(" ", strip=True)
+        if metin:
+            return _baslik_temizle(metin)
 
     if corba.title and corba.title.get_text(strip=True):
         return _baslik_temizle(corba.title.get_text(strip=True))
@@ -258,7 +293,9 @@ def _baslik_temizle(t: str) -> str:
     """'Ürün Adı | Mağaza' → 'Ürün Adı'. Ayraç ürün adının İÇİNDE de geçebilir
     (örn. 'RTX 4070 - 12GB'), bu yüzden sadece ayraçtan ÖNCEKİ kısım anlamlı
     uzunluktaysa kırpılır."""
-    for ayrac in (" | ", "|", " – ", " — ", " - "):
+    # " : " Amazon'un biçimi — gerçek bir sayfada başlık şöyleydi:
+    # "HyperX Cloud III S … Kulaklığı : Amazon.com.tr: Bilgisayar"
+    for ayrac in (" | ", "|", " : ", " – ", " — ", " - "):
         if ayrac in t:
             bas = t.split(ayrac)[0].strip()
             if len(bas) >= 15:
@@ -298,11 +335,12 @@ def cikar(html: str, site_cfg: dict | None = None,
           http_kodu: int | None = None) -> Cikarim:
     """Tek geçişte her şeyi çıkarır. Tarama worker'ının çağırdığı fonksiyon."""
     if olu_mu(html, http_kodu):
-        return Cikarim(olu=True, baslik=baslik_ayikla(html))
+        return Cikarim(olu=True, baslik=baslik_ayikla(html, site_cfg))
     if engel_mi(html):
         return Cikarim(engelli=True)
 
     fiyat, guven = fiyat_ayikla(html, site_cfg)
     puan, yorum = puan_ayikla(html)
-    return Cikarim(fiyat=fiyat, guven=guven, baslik=baslik_ayikla(html),
+    return Cikarim(fiyat=fiyat, guven=guven,
+                   baslik=baslik_ayikla(html, site_cfg),
                    puan=puan, yorum_sayisi=yorum)

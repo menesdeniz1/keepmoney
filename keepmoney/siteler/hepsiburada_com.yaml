@@ -1,5 +1,9 @@
 domain: "hepsiburada.com"
 satici: "Hepsiburada"
-render: false
+# GERÇEK TARAYICI ZORUNLU. Ölçüm: düz `requests` ile ürün sayfası HTTP 403
+# dönüyor (WAF bilinmeyen istemciyi eliyor); robots.txt dosyasının kendisi
+# bile 403 veriyor. Öncül proje (tracker) her isteği tarayıcıyla yapıyordu ve
+# aşağıdaki seçici orada üretimde çalışmıştı.
+render: true
 fiyat_secici: "[data-test-id='price-current-price'], [data-test-id='default-price']"
 notlar: "Bot duvarı başlığı 'güvenlik' içerir — engel tespiti bunu yakalar."

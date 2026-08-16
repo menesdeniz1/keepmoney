@@ -594,3 +594,31 @@ Kısa önbellek ayrı bir karardır: beş dakikalık bir sunucu arızası, 24 sa
 İki katmanlı düzeltme — imaj chromium kuruyor (~400 MB, pazarlık konusu değil) VE tarayıcı süreci açılışta eksikliği etkilenen siteleri sayarak uyarıyor. İkincisi olmadan aynı hata başka bir dağıtımda sessizce tekrarlanırdı.
 
 **Ders:** Öncül projeden taşınan her "garip" ayar bir arıza kaydıdır. Gerekçesini anlamadan sadeleştirmek, o arızayı geri getirmektir.
+
+---
+
+## K49 — "Başarılı yanıt" ile "işe yarar yanıt" aynı şey değildir
+
+**Bulgu:** İki Shopify mağazası tanı aracında 0,7 saniyede "bot koruması" sonucu verdi. O süre tek bir `requests` çağrısıdır — yani cloudscraper ve Playwright hiç denenmemişti.
+
+Sebep `Cekim.basarili`nin tanımıydı: "gövde var ve kod 403/429 değil". Bot koruma sayfaları HTTP 200 ve dolu bir gövdeyle geliyor, dolayısıyla `basarili` onları GEÇERLİ sayıyor ve zincir ilk basamakta duruyordu. Yani `requests → cloudscraper → Playwright` merdiveninin varlık sebebi tam da bu sayfaları aşmaktı ve merdiven hiç kullanılmıyordu.
+
+**Karar:** Zincir artık `_kullanilabilir()` ile ilerliyor — başarılı OLMAK yetmez, engel sayfası OLMAMAK da gerekir. Maliyeti kontrol altında tutan iki sınır teste bağlandı: temiz sayfada yükselme yapılmaz (Playwright ~8 sn/~250 MB), ölü sayfada (404) da yapılmaz — 404 gövdesi bot duvarı değildir.
+
+Hiçbir katman geçemezse gövdesi OLAN yanıt döndürülür. Boş bir `Cekim` döndürmek "engellendik" ile "ağ koptu" farkını silerdi; ilki geri çekilme, ikincisi yeniden deneme gerektiriyor.
+
+**Maliyet:** engel tespiti sayfayı ayrıştırıyor. `engel_mi` önce ucuz yapısal imzalara bakıyor, ayrıştırma yalnızca onlar tutmazsa oluyor — temiz sayfada ~100 ms. Bot duvarını ürün sayfası sanıp fiyat geçmişine yazmanın bedeliyle kıyaslanamaz.
+
+---
+
+## K50 — Ürün adı da sessizce yanlış okunabilir
+
+**Bulgu:** Gerçek bir Amazon sayfasında ürün adı "Ürün özeti, temel ürün bilgilerini sunar…" diye okundu. Sayfanın ilk `<h1>`i ekran okuyucular için konmuş görünmez bir başlıktı ve doğru `<title>`ı gölgeliyordu.
+
+Fiyat doğrulamasına harcanan onca emeğin yanında adın gözden kaçması tesadüf değil: fiyat sayısaldır, saçmalığı belli olur; ad ise metindir ve "biraz garip" görünmekle "tamamen yanlış" olmak arasındaki fark gözle ayırt edilmez. Ama sonucu ağır — kullanıcı listesinde tanımadığı bir ad görür ve neyi izlediğini anlamaz.
+
+**Üç katmanlı düzeltme:** (1) görünmez başlıklar atlanır (`a11y`, `sr-only`, `offscreen`, `visually-hidden`), (2) kural dosyaları `baslik_secici` tanımlayabilir — Amazon için `#productTitle`, çünkü doğru ad ne og:title'da ne de bir `h1`de, (3) `" : "` ayracı site adı kırpmasına eklendi (Amazon'un başlık biçimi).
+
+Yanlış pozitif ayrıca teste bağlandı: normal sayfalarda `h1` hâlâ doğru kaynak.
+
+**Genel ilke:** bir alanın yanlış değeri gözle fark edilemiyorsa, doğruluğu koda gömülmeli — "bakınca anlarız" bir doğrulama stratejisi değildir.

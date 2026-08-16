@@ -30,6 +30,7 @@ from .aglar import (
     guvenli_mi,
 )
 from .ayarlar import ayarlar
+from .ayikla import engel_mi
 
 VARSAYILAN_ZAMAN_ASIMI = 25
 
@@ -88,6 +89,29 @@ def playwright_var_mi() -> bool:
     return True
 
 
+def _kullanilabilir(cekim: Cekim) -> bool:
+    """Bu yanıtla devam edilebilir mi — yoksa bir sonraki katmana mı geçilmeli?
+
+    `basarili` yalnızca "gövde var ve kod 403/429 değil" demektir. BOT KORUMA
+    SAYFALARI HTTP 200 ve dolu bir gövdeyle geliyor; yani `basarili` onları
+    geçerli sayıyor ve zincir ilk basamakta duruyordu. Yükselme merdiveninin
+    (cloudscraper → Playwright) VARLIK SEBEBİ tam da bu sayfaları aşmaktı —
+    ve hiç devreye girmiyordu.
+
+    Gerçek ölçümde görüldü: iki Shopify mağazası 0,7 saniyede "bot koruması"
+    sonucu verdi. O süre tek bir `requests` çağrısıdır; Playwright denenmiş
+    olsaydı saniyeler sürerdi. Yani hiç denenmemişti.
+
+    MALİYET: engel tespiti sayfayı ayrıştırıyor. `engel_mi` önce ucuz yapısal
+    imzalara bakıyor, ayrıştırma yalnızca onlar tutmazsa oluyor. Temiz bir
+    sayfada bu ~100 ms ek yüktür — bot duvarını ürün sayfası sanıp fiyat
+    geçmişine yazmanın bedeliyle kıyaslanamaz.
+    """
+    if not cekim.basarili:
+        return False
+    return not engel_mi(cekim.html or "")
+
+
 def _basliklar(url: str) -> dict:
     from urllib.parse import urlparse
     h = {
@@ -133,28 +157,46 @@ class HttpCekici:
         self._sayfa = None
 
     def cek(self, url: str, kural: dict | None = None) -> Cekim:
+        """Zinciri sırayla dener, İŞE YARAR ilk yanıtı döndürür.
+
+        "İşe yarar" ile "başarılı" farkı kritik (bkz. `_kullanilabilir`):
+        bot koruma sayfaları HTTP 200 ve dolu gövdeyle geliyor.
+        """
+        denemeler: list[Cekim] = []
+
         kural = kural or {}
 
         if kural.get("render"):
             c = self._playwright(url, kural)
-            if c.basarili:
+            if _kullanilabilir(c):
                 return c
+            denemeler.append(c)
             # Playwright başarısızsa yine de static dene — bazen JS gerekmiyordur
-        c = self._requests(url)
-        if c.basarili:
-            return c
 
-        if c.engellendi or not c.html:
-            cs = self._cloudscraper_cek(url)
-            if cs.basarili:
-                return cs
+        c = self._requests(url)
+        if _kullanilabilir(c):
+            return c
+        denemeler.append(c)
+
+        cs = self._cloudscraper_cek(url)
+        if _kullanilabilir(cs):
+            return cs
+        denemeler.append(cs)
 
         if not kural.get("render"):
             pw = self._playwright(url, kural)
-            if pw.basarili:
+            if _kullanilabilir(pw):
                 return pw
+            denemeler.append(pw)
 
-        return c
+        # Hiçbiri temiz değil. Gövdesi OLAN ilk yanıtı döndür: yukarıdaki
+        # katman engel/ölü sayfa ayrımını ancak HTML'e bakarak yapabilir.
+        # Boş bir `Cekim` döndürmek, "engellendik" ile "ağ koptu" arasındaki
+        # farkı silerdi — ikisi çok farklı tepkiler gerektiriyor.
+        for d in denemeler:
+            if d.html:
+                return d
+        return denemeler[0] if denemeler else Cekim(hata="hiçbir katman denenmedi")
 
     # ── katmanlar ────────────────────────────────────────────────
 

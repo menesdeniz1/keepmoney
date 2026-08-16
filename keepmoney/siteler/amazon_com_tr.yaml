@@ -27,3 +27,8 @@ fiyat_secici: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, 
 # Regex son çaresi SADECE ana ürün kolonuna baksın (sponsorlu karusel hariç)
 metin_alani: "#centerCol"
 notlar: "Bot koruması agresif; sık engel görülürse toplayıcı kaynağa yönlendir."
+# Ürün adı `#productTitle`de. Sayfanın İLK <h1>i bir erişilebilirlik
+# başlığı ("Ürün özeti, temel ürün bilgilerini sunar") ve gerçek bir koşuda
+# ürün adı diye okundu — fiyat doğruyken kullanıcı listede tanımadığı bir ad
+# görüyordu. Sessiz ama güveni doğrudan yıkan hata.
+baslik_secici: "#productTitle"

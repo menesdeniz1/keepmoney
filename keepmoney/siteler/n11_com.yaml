@@ -1,6 +1,9 @@
 domain: "n11.com"
 satici: "n11"
-render: false
+# GERÇEK TARAYICI ZORUNLU. Ölçüm: `requests` sayfayı ALIYOR (başlık düzgün
+# okunuyor) ama HTML'de fiyat yok — JS ile yükleniyor. Seçici doğru, eksik
+# olan tarayıcıydı.
+render: true
 fiyat_secici: ".newPrice ins, .price-now"
 # GERÇEK VAKA: ürün linki genel kategori sayfasına düşünce regex oradan
 # alakasız bir fiyat okuyordu. Kapsamı ürün detayına sabitle.

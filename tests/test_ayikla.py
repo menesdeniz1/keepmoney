@@ -242,3 +242,38 @@ def test_captcha_imzasi_yol_onekinden_bagimsiz():
                   "validateCaptcha", "https://www.amazon.com.tr/errors/validateCaptcha"):
         html = sayfa(f'<form action="{hedef}"></form>', baslik="Amazon.com.tr")
         assert engel_mi(html) is True, hedef
+
+
+# ---------- ürün adı: sessiz yanlış okuma ----------
+# Gerçek bir Amazon sayfasında ürün adı "Ürün özeti, temel ürün bilgilerini
+# sunar…" diye okundu — sayfanın ilk <h1>i bir erişilebilirlik başlığıydı ve
+# doğru <title>ı gölgeliyordu. Fiyat doğru olsa bile kullanıcı listesinde
+# tanımadığı bir ad görüyor ve neyi izlediğini anlamıyordu.
+
+GORUNMEZ_H1_SAYFASI = (
+    '<html><head><title>HyperX Cloud III S : Amazon.com.tr</title></head>'
+    '<body><h1 class="a-size-base a11y-header">Ürün özeti, temel ürün '
+    'bilgilerini sunar</h1>'
+    '<span id="productTitle">HyperX Cloud III S Wireless</span></body></html>')
+
+
+def test_gorunmez_h1_urun_adi_sayilmaz():
+    """Ekran okuyucu başlıkları asla ürün adı değildir."""
+    assert baslik_ayikla(GORUNMEZ_H1_SAYFASI) == "HyperX Cloud III S"
+
+
+def test_site_baslik_secicisi_oncelikli():
+    ad = baslik_ayikla(GORUNMEZ_H1_SAYFASI, {"baslik_secici": "#productTitle"})
+    assert ad == "HyperX Cloud III S Wireless"
+
+
+def test_gorunur_h1_hala_kullanilir():
+    """Yanlış pozitif olmasın: normal sayfalarda h1 doğru kaynak."""
+    html = ('<html><head><title>X | Mağaza</title></head>'
+            '<body><h1 class="product-name">Ekran Kartı RTX 5080</h1></body></html>')
+    assert baslik_ayikla(html) == "Ekran Kartı RTX 5080"
+
+
+def test_gecersiz_baslik_secicisi_zinciri_kesmez():
+    html = '<html><head><title>Ürün Adı Buradadır</title></head><body></body></html>'
+    assert baslik_ayikla(html, {"baslik_secici": "((("}) == "Ürün Adı Buradadır"

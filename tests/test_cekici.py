@@ -238,3 +238,87 @@ def test_motor_varsa_uyarmaz(monkeypatch):
 
     zamanlayici.tarayici_motorunu_denetle()
     assert kayitlar == []
+
+
+# ── Bot duvarında yükselme (gerçek ölçümden) ─────────────────────
+# İki Shopify mağazası 0,7 saniyede "bot koruması" sonucu verdi. O süre tek
+# bir `requests` çağrısıdır — yani cloudscraper ve Playwright HİÇ denenmemiş.
+# Sebebi: bot duvarı HTTP 200 ve dolu gövdeyle geliyor, `Cekim.basarili` onu
+# geçerli sayıyor ve zincir ilk basamakta duruyordu. Yükselme merdiveninin
+# varlık sebebi tam da bu sayfaları aşmaktı.
+
+DUVAR = ('<html><head><title>Mağaza</title></head><body>'
+         '<script src="https://ct.captcha-delivery.com/c.js"></script>'
+         '</body></html>')
+URUN = ('<html><head><title>Ürün</title></head>'
+        '<body><span class="product-price">1.234,00 TL</span></body></html>')
+
+
+def _zincirli(monkeypatch, requests_html, pw_html=None, cs_html=None):
+    """Her katmanın ne döndüğü sabitlenmiş bir çekici + çağrı kaydı."""
+    from keepmoney.cekici import Cekim
+
+    c = HttpCekici()
+    cagrilar: list[str] = []
+
+    def kat(ad, html):
+        def _f(*a, **kw):
+            cagrilar.append(ad)
+            return Cekim(html=html, http_kodu=200 if html else None,
+                         hata=None if html else "yok", yontem=ad)
+        return _f
+
+    monkeypatch.setattr(c, "_requests", kat("requests", requests_html))
+    monkeypatch.setattr(c, "_cloudscraper_cek", kat("cloudscraper", cs_html))
+    monkeypatch.setattr(c, "_playwright", kat("playwright", pw_html))
+    return c, cagrilar
+
+
+def test_bot_duvari_gorulunce_yukselinir(monkeypatch):
+    """200 dönen bir bot duvarı 'başarı' sayılmamalı."""
+    c, cagrilar = _zincirli(monkeypatch, requests_html=DUVAR, pw_html=URUN)
+    sonuc = c.cek("https://magaza.com/urun")
+    assert sonuc.yontem == "playwright"
+    assert "1.234,00" in sonuc.html
+    assert cagrilar == ["requests", "cloudscraper", "playwright"]
+
+
+def test_temiz_sayfada_yukselme_yapilmaz(monkeypatch):
+    """Maliyet kontrolü: Playwright ~8 sn ve ~250 MB. Gereksiz çağrılmamalı."""
+    c, cagrilar = _zincirli(monkeypatch, requests_html=URUN)
+    sonuc = c.cek("https://magaza.com/urun")
+    assert sonuc.yontem == "requests"
+    assert cagrilar == ["requests"]
+
+
+def test_render_kuralinda_playwright_duvara_toslarsa_devam_eder(monkeypatch):
+    c, cagrilar = _zincirli(monkeypatch, requests_html=URUN, pw_html=DUVAR)
+    sonuc = c.cek("https://magaza.com/urun", {"render": True})
+    assert sonuc.yontem == "requests"
+    assert cagrilar[0] == "playwright"
+
+
+def test_hicbir_katman_gecemezse_govdeli_yanit_doner(monkeypatch):
+    """Boş `Cekim` döndürmek, 'engellendik' ile 'ağ koptu' farkını silerdi;
+    ikisi çok farklı tepkiler gerektiriyor (biri geri çekilme, biri yeniden
+    deneme)."""
+    c, _ = _zincirli(monkeypatch, requests_html=DUVAR, pw_html=DUVAR,
+                     cs_html=DUVAR)
+    sonuc = c.cek("https://magaza.com/urun")
+    assert sonuc.html == DUVAR             # üst katman 'engelli' diyebilsin
+
+
+def test_olu_sayfada_bosuna_yukselinmez(monkeypatch):
+    """404 gövdesi bot duvarı DEĞİLDİR: pahalı katmanlar denenmemeli."""
+    from keepmoney.cekici import Cekim
+
+    c = HttpCekici()
+    cagrilar: list[str] = []
+    monkeypatch.setattr(c, "_requests", lambda u: (
+        cagrilar.append("requests"),
+        Cekim(html="<html><title>Sayfa bulunamadı</title></html>",
+              http_kodu=404, yontem="requests"))[1])
+    monkeypatch.setattr(c, "_cloudscraper_cek", lambda u: pytest.fail(
+        "ölü sayfada yükselme YAPILMAMALI"))
+    c.cek("https://magaza.com/yok")
+    assert cagrilar == ["requests"]

@@ -78,6 +78,23 @@ def _baska_urun_mu(kimlik: str, atalar: list[str]) -> bool:
     return any(iz in hepsi for iz in YABANCI_KUTU_IZLERI)
 
 
+def _baslik_kaynaklari(corba) -> None:
+    """`baslik_ayikla`nın baktığı üç kaynağı sırasıyla göster.
+
+    Sıra önemli: og:title → h1 → <title>. İlk dolu olan kazanır, yani
+    yanlış bir `h1` doğru `<title>`ı gölgeleyebilir.
+    """
+    print("\n── Ürün adı adayları (sırayla; ilk dolu olan kazanır) ──────")
+    og = corba.select_one('meta[property="og:title"]')
+    h1 = corba.find("h1")
+    for etiket, deger in (
+            ("og:title", og.get("content") if og else None),
+            ("h1", h1.get_text(" ", strip=True) if h1 else None),
+            ("<title>", corba.title.get_text(strip=True) if corba.title else None)):
+        isaret = "→" if deger else " "
+        print(f"   {isaret} {etiket:<10} {(deger or '(yok)')[:60]}")
+
+
 @dataclass
 class Sonuc:
     url: str
@@ -228,6 +245,13 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
     corba = _corba(html)
     baslik = corba.title.get_text(strip=True) if corba.title else "—"
     print(f"Başlık: {baslik}")
+
+    # Ürün adı da yanlış okunabiliyor ve bu SESSİZ bir hatadır: fiyat doğru
+    # olsa bile kullanıcı listede tanımadığı bir ad görür. Gerçek bir Amazon
+    # sayfasında ad "Ürün özeti, temel ürün bilgilerini sunar…" diye
+    # okunmuştu — sayfanın erişilebilirlik metni. Hangi kaynaktan geldiğini
+    # görmeden düzeltilemez.
+    _baslik_kaynaklari(corba)
 
     if engel_mi(html):
         print("\nSONUÇ: BOT KORUMASI SAYFASI. Seçici yazmanın anlamı yok —")
