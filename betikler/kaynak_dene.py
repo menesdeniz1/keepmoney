@@ -79,6 +79,28 @@ YABANCI_KUTU_IZLERI = (
 )
 
 
+def _dosya_adi(domain: str, url: str) -> str:
+    """Kaydedilecek HTML için GÜVENLİ dosya adı.
+
+    Dış girdiden (host) doğrudan dosya adı üretmek platforma bağlı olarak
+    sessizce bozuluyor. Windows CI'da yakalandı: `127.0.0.1:61749-...html`
+    adındaki iki nokta NTFS'te "alternate data stream" ayracıdır, dolayısıyla
+    içerik `127.0.0.1` adlı dosyanın gizli bir akışına yazılıyor — hata YOK,
+    "kaydedildi" yazıyor, ama dosya ortada yok.
+
+    Beyaz liste kullanılıyor (yasaklıları saymak yerine izinlileri saymak):
+    platformların yasak karakter listeleri farklı ve zamanla değişiyor.
+
+    ASCII'ye sabitlendi. `str.isalnum()` Unicode harfleri de geçirir ("ğ"
+    alfanümeriktir) ama dosya adı taşınabilirliği okunabilirlikten önemli:
+    alan adı burada yalnızca insana ipucu, ayırt ediciliği hash sağlıyor.
+    """
+    guvenli = "".join(
+        c if (c.isascii() and c.isalnum()) or c in ".-_" else "_"
+        for c in domain)
+    return f"{guvenli[:60]}-{abs(hash(url)) % 10**8}.html"
+
+
 def _baska_urun_mu(kimlik: str, atalar: list[str]) -> bool:
     """Bu fiyat sayfanın ürününe değil, bir reklam/öneri kutusuna mı ait?"""
     hepsi = " ".join([kimlik, *atalar]).lower()
@@ -396,7 +418,7 @@ def main() -> int:
             sonuclar.append(s)
             _satir_yaz(s)
             if kayit_dizini and not s.basarili and html:
-                ad = f"{s.domain}-{abs(hash(url)) % 10**8}.html"
+                ad = _dosya_adi(s.domain, url)
                 (kayit_dizini / ad).write_text(html, encoding="utf-8")
                 print(f"     HTML kaydedildi: {kayit_dizini / ad}")
     finally:

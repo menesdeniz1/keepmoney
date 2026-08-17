@@ -398,3 +398,34 @@ def test_incele_toplayici_olmayanda_pazar_bolumu_cikmaz(tmp_path, capsys):
     dosya.write_text(AMAZON_KABUK, encoding="utf-8")
     kd.incele(dosya)
     assert "Pazar derinliği" not in capsys.readouterr().out
+
+
+# ── Dosya adı güvenliği (Windows CI'da yakalandı) ────────────────
+
+@pytest.mark.parametrize(("domain", "yasak"), [
+    ("127.0.0.1:61749", ":"),          # port — NTFS'te alternate data stream
+    ("mağaza.com", "ğ"),               # ASCII dışı
+    ("a/b\\c.com", "/"),               # yol ayracı
+    ('a"b<c>d|e.com', '"'),            # Windows'ta yasak karakterler
+])
+def test_dosya_adi_tehlikeli_karakter_tasimaz(domain, yasak):
+    """Dış girdiden doğrudan dosya adı üretmek platforma bağlı olarak
+    SESSİZCE bozuluyor: Windows'ta `host:port.html` içerik `host` dosyasının
+    gizli bir akışına yazılıyor — hata yok, 'kaydedildi' yazıyor, dosya yok."""
+    ad = kd._dosya_adi(domain, "https://x/y")
+    assert yasak not in ad
+    assert ad.endswith(".html")
+
+
+def test_dosya_adi_ayirt_edici_kalir():
+    """Temizleme aşırıya kaçıp iki farklı sitenin adını AYNI yapmamalı."""
+    a = kd._dosya_adi("magaza.com", "https://magaza.com/1")
+    b = kd._dosya_adi("magaza.com", "https://magaza.com/2")
+    assert a != b                      # farklı URL → farklı dosya
+    assert "magaza.com" in a
+
+
+def test_dosya_adi_uzunlugu_sinirli():
+    """Çok uzun host, dosya sistemi sınırını aşmamalı."""
+    ad = kd._dosya_adi("a" * 300, "https://x/y")
+    assert len(ad) < 100
