@@ -5,7 +5,7 @@
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. **530 backend + 18 arayüz testi**;
+> Docker ile üç süreç olarak ayağa kalkıyor. **533 backend + 18 arayüz testi**;
 > paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
 > ise **gerçek tarayıcıyla uçtan uca** koşuyor (23 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
 mkdir -p data && alembic upgrade head         # şemayı kur
-pytest                                        # 530 test
+pytest                                        # 533 test
 
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
@@ -137,7 +137,7 @@ keepmoney/
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
 betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
-tests/             530 test, hepsi yeşil
+tests/             533 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

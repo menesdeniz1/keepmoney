@@ -360,3 +360,41 @@ def test_incele_gercek_fiyati_yabanci_saymaz(tmp_path, capsys):
 ])
 def test_yabanci_kutu_tespiti(kimlik, atalar, beklenen):
     assert kd._baska_urun_mu(kimlik, atalar) is beklenen
+
+
+# ── Toplayıcıda pazar derinliği doğrulaması ─────────────────────
+# Bu seçiciler çalışmazsa koruma katmanının "tek satıcı aykırı ucuz" ölçütü
+# SESSİZCE devre dışı kalır ve geçmişi olmayan ürün savunmasız olur. Tanı
+# aracı bunu göstermezse kimse fark etmez.
+
+AKAKCE = """<html><head><title>RTX 5070 Ti fiyatları</title></head><body>
+<span class="pt_v8">38.999,00 TL</span>
+<ul id="PL">
+  <li><img alt="UcuzSepet"><span class="pt_v8">38.999,00 TL</span></li>
+  <li><img alt="Vatan"><span class="pt_v8">41.500,00 TL</span></li>
+</ul></body></html>"""
+
+
+def test_incele_pazar_derinligini_gosterir(tmp_path, capsys):
+    dosya = tmp_path / "akakce.com-1.html"
+    dosya.write_text(AKAKCE, encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "Pazar derinliği" in cikti
+    assert "UcuzSepet" in cikti
+    assert "41.500,00" in cikti
+
+
+def test_incele_kirik_satici_secicisini_uyarir(tmp_path, capsys):
+    """Sessiz devre dışı kalma en kötüsü — açıkça söylenmeli."""
+    dosya = tmp_path / "akakce.com-2.html"
+    dosya.write_text(AKAKCE.replace('id="PL"', 'id="degisti"'), encoding="utf-8")
+    kd.incele(dosya)
+    assert "koruma ölçütü devre dışı" in capsys.readouterr().out
+
+
+def test_incele_toplayici_olmayanda_pazar_bolumu_cikmaz(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-9.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)
+    assert "Pazar derinliği" not in capsys.readouterr().out

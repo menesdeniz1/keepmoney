@@ -86,7 +86,7 @@ Dört ayrı katman var; hepsi CI'da koşuyor ([`ci.yml`](../.github/workflows/ci
 
 ```bash
 # Backend — ağ gerektirmez, ~1 dk
-pytest -q                                # 530 test
+pytest -q                                # 533 test
 
 # Arayüz
 cd arayuz && npx tsc -b && npx vitest run && npm run lint

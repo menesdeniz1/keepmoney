@@ -44,7 +44,14 @@ from dataclasses import dataclass
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from keepmoney import siteler
-from keepmoney.ayikla import _corba, _ld_bloklari, cikar, engel_mi, olu_mu
+from keepmoney.ayikla import (
+    _corba,
+    _ld_bloklari,
+    cikar,
+    engel_mi,
+    olu_mu,
+    pazar_ayikla,
+)
 from keepmoney.cekici import HttpCekici
 from keepmoney.fiyat import parse_tl, tl
 from keepmoney.robots import RobotsKapisi
@@ -312,6 +319,18 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
         print("     Bu ürünün KENDİ fiyatı sayfada yok: ya stokta değil ya da")
         print("     JS ile geliyor. Bu kutulardan seçici YAZMA — sistem başka")
         print("     bir ürünün fiyatını bu ürüne yazar ve kimse fark etmez.")
+
+    # Toplayıcıda pazar derinliği de doğrulanmalı: bu seçiciler çalışmazsa
+    # koruma katmanının "tek satıcı aykırı ucuz" ölçütü sessizce devre dışı
+    # kalır ve geçmişi olmayan ürün savunmasız olur (bkz. MIMARI K52).
+    if kural.get("toplayici"):
+        ad, sayi, ikinci = pazar_ayikla(html, kural)
+        print("\n── Pazar derinliği (toplayıcı) ────────────────────────────")
+        print(f"   en ucuz satıcı : {ad or '(okunamadı)'}")
+        print(f"   satıcı sayısı  : {sayi if sayi is not None else '(okunamadı)'}")
+        print(f"   2. en ucuz     : {tl(ikinci) if ikinci else '(okunamadı)'}")
+        if sayi is None:
+            print("   ! `saticilar_secici` tutmuyor — koruma ölçütü devre dışı.")
 
     c = cikar(html, kural)
     print("\n── Sonuç ──────────────────────────────────────────────────")
