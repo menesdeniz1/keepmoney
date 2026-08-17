@@ -33,6 +33,7 @@ link ile çalıştırmak nezaketsizliktir; site başına 5-10 link yeterlidir.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import pathlib
 import sys
 import time
@@ -42,6 +43,30 @@ from dataclasses import dataclass
 # Betik repo kökünden bağımsız çalışsın: `python betikler/kaynak_dene.py`
 # çağrısında kök sys.path'te olmuyor.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+
+def _cikti_utf8() -> None:
+    """Çıktıyı UTF-8'e sabitle.
+
+    Bu aracın ÇIKTISININ TAMAMI Türkçe. Windows'ta Python, terminale
+    yazmıyorsa (boru hattı, `> rapor.txt`) yerel kod sayfasını kullanıyor —
+    genelde cp1252 — ve "ı, ş, ğ, —" gibi karakterler kodlanamıyor:
+
+        UnicodeEncodeError: 'charmap' codec can't encode characters...
+
+    Program o noktada ÇÖKÜYOR; hatta `--help` bile. Windows CI'da yakalandı.
+    Etkileşimli PowerShell'de UTF-8 kullanıldığı için elle denemede
+    görünmüyor — çıktıyı dosyaya yönlendiren ilk kullanıcıda patlıyor.
+
+    `errors="replace"`: kodlanamayan bir karakter yüzünden RAPORU KAYBETMEK
+    kabul edilemez; bozuk bir karakter göstermek her zaman daha iyidir.
+    """
+    for akis in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            akis.reconfigure(encoding="utf-8", errors="replace")
+
+
+_cikti_utf8()
 
 from keepmoney import siteler
 from keepmoney.ayikla import (

@@ -429,3 +429,25 @@ def test_dosya_adi_uzunlugu_sinirli():
     """Çok uzun host, dosya sistemi sınırını aşmamalı."""
     ad = kd._dosya_adi("a" * 300, "https://x/y")
     assert len(ad) < 100
+
+
+# ── Çıktı kodlaması (Windows CI'da yakalandı) ────────────────────
+
+def test_arac_cp1252_ortaminda_da_calisir():
+    """Aracın çıktısının TAMAMI Türkçe. Windows'ta Python, terminale
+    yazmıyorsa (boru hattı, `> rapor.txt`) yerel kod sayfasını kullanıyor ve
+    "ı, ş, —" karakterleri kodlanamıyor — program `--help`te bile çöküyor.
+
+    Ayrı süreçte koşuyor: kodlama süreç açılışında belirleniyor, aynı süreç
+    içinden taklit edilemez.
+    """
+    import os
+    import subprocess
+
+    ortam = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    sonuc = subprocess.run(
+        [sys.executable, str(BETIK), "--help"],
+        capture_output=True, env=ortam, timeout=60, check=False)
+
+    assert sonuc.returncode == 0, sonuc.stderr.decode("utf-8", "replace")
+    assert b"kaynak_dene.py" in sonuc.stdout
