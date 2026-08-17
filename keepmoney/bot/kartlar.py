@@ -116,6 +116,28 @@ def durum_metni(izlemeler: list) -> str:
             f"Liste toplamı: {tl(liste_toplami)}")
 
 
+def _pazar_satiri(urun) -> str:
+    """Toplayıcıdan gelen pazar derinliği — web ile AYNI bilgi.
+
+    İki yüz aynı veriye bakmalı: kullanıcı Telegram'dan "dip bölgesi" mesajı
+    alıp web'de "tek satıcı belirgin ucuz" uyarısını görüyorsa, bilgiyi eksik
+    veren yüz güveni bozar.
+    """
+    pazarli = [k for k in urun.sources if k.satici_sayisi]
+    if not pazarli:
+        return ""
+    k = max(pazarli, key=lambda s: s.satici_sayisi or 0)
+
+    parca = f"🏪 {k.satici_sayisi} satıcı"
+    if k.ikinci_fiyat:
+        parca += f"  ·  2.si {tl(k.ikinci_fiyat)}"
+        if k.son_fiyat and k.ikinci_fiyat > k.son_fiyat * 1.5:
+            parca += "\n⚠️ Tek satıcı belirgin ucuz — mağazayı teyit et."
+    elif k.satici_sayisi == 1:
+        parca += "  ·  kıyaslanacak ikinci fiyat yok"
+    return parca
+
+
 def urun_karti(izleme, baglam: Baglam | None, yorum_metni: str) -> str:
     """Tek ürünün kartı — uyarı mesajlarının altına da bu içerik gider."""
     u = izleme.product
@@ -130,6 +152,10 @@ def urun_karti(izleme, baglam: Baglam | None, yorum_metni: str) -> str:
             + (" — HEDEFTE ✅" if fark <= 0 else f" ({kisa_tl(fark)} kaldı)"))
     if u.puan is not None:
         satirlar.append(f"⭐ {u.puan:.1f} ({u.yorum_sayisi or 0} yorum)")
+
+    pazar = _pazar_satiri(u)
+    if pazar:
+        satirlar.append(pazar)
 
     satirlar.append("")
     satirlar.append(yorum_metni)

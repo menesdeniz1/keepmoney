@@ -125,6 +125,59 @@ def kaynak_bul_veya_olustur(db: Session, url: str) -> Source:
     return kaynak
 
 
+def kaynak_ekle(db: Session, kullanici: User, izleme_id: int,
+                url: str) -> Source:
+    """İzlenen ürüne İKİNCİ bir kaynak bağlar (çoklu kaynak kurgusu).
+
+    Tipik kullanım: kullanıcı bir mağaza linki eklemiş, sonra aynı ürünün
+    toplayıcı (akakçe) sayfasını da ekliyor. Sistem her turda hepsini okur ve
+    EN UCUZU bildirir; ayrıca bir kaynak bot duvarına takılsa bile ürün
+    okunmaya devam eder.
+
+    ONAY KULLANICININ: bu fonksiyon yalnızca kullanıcının açıkça seçtiği bir
+    URL ile çağrılır. Otomatik eşleştirme yapılmıyor — yanlış ürünün fiyatını
+    doğru ürünün geçmişine yazmak, sessiz ve geri dönüşü olmayan bir veri
+    hatasıdır (bkz. toplayici.py).
+    """
+    w = (db.query(Watch)
+         .filter(Watch.id == izleme_id, Watch.user_id == kullanici.id)
+         .one_or_none())
+    if w is None:
+        raise IzlemeHatasi("İzleme bulunamadı")
+
+    kanonik = url_normalize(url)
+    sorun = aglar.url_sorunu(kanonik)
+    if sorun is not None:
+        raise IzlemeHatasi(f"Bu adres izlenemez: {sorun}")
+
+    mevcut = db.query(Source).filter(Source.url == kanonik).one_or_none()
+    if mevcut is not None:
+        if mevcut.product_id == w.product_id:
+            return mevcut                 # zaten bu ürünün kaynağı
+        # ADRES BAŞKA BİR ÜRÜNE BAĞLI. Taşımak iki ürünü birleştirmek demek;
+        # fiyat geçmişleri karışır ve bu GERİ ALINAMAZ. Kullanıcıya ayrı ürün
+        # olarak eklemesini söylemek, sessizce birleştirmekten iyidir.
+        raise IzlemeHatasi(
+            "Bu adres başka bir ürüne bağlı. Ayrı ürün olarak ekleyebilirsin.")
+
+    # `kaynak_bul_veya_olustur` KULLANILMIYOR: o fonksiyon adres yeniyse
+    # yanına bir Product da yaratır. Burada ürün zaten var; geçici bir ürün
+    # yaratıp sonra silmek, Product→Source cascade'i yüzünden yeni kaynağı da
+    # silerdi. Kaynağı doğrudan mevcut ürüne bağlamak hem daha basit hem doğru.
+    kural = siteler.kural(kanonik)
+    kaynak = Source(
+        product_id=w.product_id, url=kanonik,
+        host=siteler.host_cikar(kanonik),
+        satici=kural.get("satici"), toplayici=bool(kural.get("toplayici")),
+    )
+    db.add(kaynak)
+    # Yeni kaynak bu turda okunsun — kullanıcı eklediği mağazanın fiyatını
+    # bir sonraki uzun aralığı beklemeden görmeli.
+    w.product.sonraki_kontrol = None
+    db.flush()
+    return kaynak
+
+
 def izlemeler(db: Session, kullanici: User) -> list[Watch]:
     """Kullanıcının izlemeleri — ürünleriyle BİRLİKTE yüklenir.
 

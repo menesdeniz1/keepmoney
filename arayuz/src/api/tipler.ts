@@ -34,12 +34,31 @@ export interface Kaynak {
   host: string
   satici: string | null
   son_fiyat: number | null
-  durum: 'OK' | 'ENGELLI' | 'OLU' | 'HATA' | 'BEKLEMEDE'
+  durum: 'OK' | 'ENGELLI' | 'OLU' | 'HATA' | 'BEKLEMEDE' | 'STOKTA_YOK'
   son_kontrol: string | null
   /** Mağazaya gidiş linki — ortaklık etiketi varsa burada. */
   cikis_url: string
   /** true ise kullanıcıya AÇIKÇA "ortaklık bağlantısı" olarak gösterilir. */
   ortaklik: boolean
+  /** Toplayıcıda aynı ürünü satan mağaza sayısı (toplayıcı değilse null). */
+  satici_sayisi: number | null
+  /**
+   * Toplayıcıda ikinci en ucuz fiyat. En ucuzdan belirgin yüksekse, o "en
+   * ucuz" muhtemelen hatalı girilmiş TEK bir listedir — kullanıcı bunu
+   * görmeli, çünkü geçmişi olmayan üründe elimizdeki tek uyarı işareti bu.
+   */
+  ikinci_fiyat: number | null
+}
+
+/**
+ * Toplayıcı aramasından çıkan aday. Sunucuda HİÇBİR ŞEYE yazılmaz —
+ * kullanıcı seçene kadar sistem bağ kurmaz. Otomatik eşleştirme yok:
+ * benzer adlı iki ürünün fiyatını karıştırmak, grafiğe işleyen ve geri
+ * alınamayan bir veri hatası olurdu.
+ */
+export interface KaynakOnerisi {
+  ad: string
+  url: string
 }
 
 export interface FiyatNoktasi {

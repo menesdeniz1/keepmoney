@@ -90,6 +90,29 @@ class KaynakYaniti(BaseModel):
     cikis_url: str = ""
     ortaklik: bool = False
 
+    # Pazar derinliği — yalnızca toplayıcı kaynaklarda dolu. Kullanıcıya
+    # gösterilmesi kararın BAĞLAMIDIR: "en ucuz 4.000, ikincisi 52.000"
+    # tablosu, o fiyata neden temkinli yaklaşıldığını tek bakışta anlatır.
+    satici_sayisi: int | None = None
+    ikinci_fiyat: float | None = None
+
+
+class KaynakOnerisi(BaseModel):
+    """Toplayıcı aramasından çıkan aday. HİÇBİR ŞEYE YAZILMAZ.
+
+    Kullanıcı bir adayı seçene kadar sistem hiçbir bağ kurmaz. Otomatik
+    eşleştirme bilinçli olarak yok: benzer adlı iki ürünün fiyatını
+    karıştırmak, grafiğe işleyen ve geri alınamayan bir veri hatasıdır.
+    """
+    ad: str
+    url: str
+
+
+class KaynakEkleIstegi(BaseModel):
+    """Kullanıcının onayladığı kaynak. `url` doğrulanır, SSRF kapısından
+    servis katmanında ayrıca geçer."""
+    url: HttpUrl
+
 
 class FiyatNoktasi(BaseModel):
     """Grafik verisi — gün başına tek nokta (bkz. MIMARI K4)."""

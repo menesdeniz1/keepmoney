@@ -86,7 +86,7 @@ Dört ayrı katman var; hepsi CI'da koşuyor ([`ci.yml`](../.github/workflows/ci
 
 ```bash
 # Backend — ağ gerektirmez, ~1 dk
-pytest -q
+pytest -q                                # 530 test
 
 # Arayüz
 cd arayuz && npx tsc -b && npx vitest run && npm run lint
@@ -206,6 +206,28 @@ da kullanabilirsin.
 Bu ölçüm **tek seferlik değildir**. Siteler HTML'ini haber vermeden
 değiştirir; ayda bir tekrarla (aşağıdaki Prometheus ölçümü bunu otomatik
 yakalar ama betik nerede kırıldığını doğrudan söyler).
+
+---
+
+## 3.5 Toplayıcıyı (akakçe) kullan — bot duvarını aşmanın yolu
+
+Ölçümde Hepsiburada ve n11 **gerçek tarayıcıyla bile 403** dönüyor. O
+mağazaların fiyatına ulaşmanın sağlam yolu toplayıcı sayfasıdır ve akakçe
+bizi engellemiyor.
+
+Arayüzde ürün detayında **"Başka mağazalarda ara"** düğmesi var: akakçe'de
+aynı ürünü arar, adayları listeler, **sen doğrusunu seçersin**. Otomatik
+eşleştirme bilerek yok — "RTX 5070 Ti Prime" ile "Prime OC" ayrı ürünlerdir
+ve yanlış eşleştirme, yanlış ürünün fiyatını doğru ürünün geçmişine yazar.
+O hata sessizdir ve geri alınamaz.
+
+Toplayıcı kaynak eklendiğinde iki şey birden kazanılır:
+
+- Sistem her turda tüm kaynakları okuyup **en ucuzunu** bildirir.
+- **Pazar derinliği** gelir: "🏪 14 satıcı · 2.si 41.500". Bu, fiyat geçmişi
+  henüz oluşmamış üründe elindeki **tek** uyarı işaretidir — en ucuz fiyat
+  ikinciden orantısız ucuzsa, o muhtemelen hatalı girilmiş tek bir listedir.
+  Koruma katmanı da aynı sinyali kullanıyor (bkz. MIMARI K52).
 
 ---
 

@@ -5,6 +5,7 @@ from keepmoney.ayikla import (
     engel_mi,
     fiyat_ayikla,
     olu_mu,
+    pazar_ayikla,
     puan_ayikla,
     stok_yok_mu,
 )
@@ -337,3 +338,62 @@ def test_cikar_stok_yok_isaretler():
     assert c.stok_yok is True
     assert c.fiyat is None
     assert c.olu is False and c.engelli is False
+
+
+# ---------- pazar derinliği (toplayıcı sayfaları) ----------
+
+AKAKCE_SAYFASI = """<html><head><title>RTX 5070 Ti fiyatları</title></head><body>
+  <span class="pt_v8">38.999,00 TL</span>
+  <ul id="PL">
+    <li><img alt="UcuzSepet"><span class="pt_v8">38.999,00 TL</span></li>
+    <li><img alt="Vatan"><span class="pt_v8">41.500,00 TL</span></li>
+    <li><img alt="İtopya"><span class="pt_v8">42.750,00 TL</span></li>
+  </ul></body></html>"""
+
+TOPLAYICI = {"toplayici": True, "fiyat_secici": "span.pt_v8",
+             "satici_secici": "#PL > li:first-child img[alt]",
+             "saticilar_secici": "#PL > li",
+             "saticilar_fiyat_secici": "span.pt_v8"}
+
+
+def test_pazar_derinligi_okunur():
+    ad, sayi, ikinci = pazar_ayikla(AKAKCE_SAYFASI, TOPLAYICI)
+    assert ad == "UcuzSepet"          # metin yok, alt niteliğinden
+    assert sayi == 3
+    assert ikinci == 41500.0
+
+
+def test_toplayici_olmayan_sitede_pazar_okunmaz():
+    """'Pazar' kavramı yalnızca toplayıcıda var; mağaza sayfasında yok."""
+    assert pazar_ayikla(AKAKCE_SAYFASI, {"saticilar_secici": "#PL > li"}) \
+        == (None, None, None)
+
+
+def test_tek_saticida_ikinci_fiyat_yok():
+    html = AKAKCE_SAYFASI.replace(
+        '<li><img alt="Vatan"><span class="pt_v8">41.500,00 TL</span></li>', "")
+    html = html.replace(
+        '<li><img alt="İtopya"><span class="pt_v8">42.750,00 TL</span></li>', "")
+    _ad, sayi, ikinci = pazar_ayikla(html, TOPLAYICI)
+    assert sayi == 1
+    assert ikinci is None
+
+
+def test_secici_tanimsizsa_sessizce_atlanir():
+    """Kural dosyası eksikse çıkarım ÇÖKMEMELİ — pazar verisi opsiyoneldir."""
+    assert pazar_ayikla(AKAKCE_SAYFASI, {"toplayici": True}) == (None, None, None)
+
+
+def test_bozuk_secici_cikarimi_dusurmez():
+    kural = dict(TOPLAYICI, saticilar_secici="((( bozuk")
+    ad, sayi, _ikinci = pazar_ayikla(AKAKCE_SAYFASI, kural)
+    assert ad == "UcuzSepet"          # diğer alanlar çalışmaya devam etmeli
+    assert sayi is None
+
+
+def test_cikar_pazar_verisini_tasir():
+    c = cikar(AKAKCE_SAYFASI, TOPLAYICI)
+    assert c.fiyat == 38999.0
+    assert c.satici_adi == "UcuzSepet"
+    assert c.satici_sayisi == 3
+    assert c.ikinci_fiyat == 41500.0

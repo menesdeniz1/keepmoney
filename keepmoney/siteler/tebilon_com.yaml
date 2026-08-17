@@ -1,0 +1,11 @@
+domain: "tebilon.com"
+satici: "Tebilon"
+# Cloudflare arkasında: öncül projede "Just a moment..." sayfası sıkça
+# görülüyordu. Çekim zinciri artık bot duvarını görünce kendiliğinden
+# yükseliyor (requests → cloudscraper → tarayıcı), ama bu sitede gerçek
+# tarayıcıyla başlamak boşa tur harcamayı önlüyor.
+render: true
+fiyat_secici: ".product-price"
+notlar: |
+  Sık engel görülürse ürünü toplayıcı kaynağa (akakçe) bağlamak daha
+  sağlıklı — öncül projedeki not da bunu söylüyordu.

@@ -5,7 +5,7 @@
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. **422 backend + 18 arayüz testi**;
+> Docker ile üç süreç olarak ayağa kalkıyor. **530 backend + 18 arayüz testi**;
 > paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
 > ise **gerçek tarayıcıyla uçtan uca** koşuyor (23 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
@@ -13,7 +13,7 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 > doğrulanmayı bekliyor ([`betikler/kaynak_dene.py`](betikler/kaynak_dene.py)
 > bunu tek komuta indiriyor).
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (45 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (53 karar kaydı)
 
 ---
 
@@ -25,7 +25,8 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 | 📊 **Fiyat hafızası** | 90 günün dibi, medyanı, tüm zamanların dibi — "bu fiyat gerçekten iyi mi?" |
 | 🎭 **Sahte indirim dedektörü** | Önce şişirilip sonra "indirilen" fiyatı yakalar |
 | 📦 **Set / bütçe takibi** | "PC toplamam 84.000'in altına insin" — parçalar tek tek hedefte olmasa bile **toplam** yakalanır |
-| 🛒 **Çoklu kaynak** | Aynı ürünü N mağazadan izler, **en ucuzunu** bildirir |
+| 🛒 **Çoklu kaynak** | Aynı ürünü N mağazadan izler, **en ucuzunu** bildirir. Toplayıcıda arayıp adayları önerir — seçimi sen yaparsın |
+| 🏪 **Pazar derinliği** | "14 satıcı · 2.si 41.500" — tek satıcının aykırı ucuz fiyatını yakalar; fiyat geçmişi olmayan üründe tek uyarı işareti |
 | 📱 **İki yüz, tek beyin** | Web dashboard + Telegram botu — ikisi de aynı veriye bakar, birinden değiştirdiğin diğerinde görünür |
 
 **Asıl ayırt edici özellik set/bütçe takibi.** Fiyat alarmı herkeste var; "sepetimin toplamı hedefimin altına indi" alarmı hiçbirinde yok.
@@ -59,7 +60,7 @@ pip install -r requirements.txt
 
 cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
 mkdir -p data && alembic upgrade head         # şemayı kur
-pytest                                        # 422 test
+pytest                                        # 530 test
 
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
@@ -122,7 +123,7 @@ keepmoney/
   db.py            bağlantı (SQLite → Postgres)
   ayikla.py        HTML → fiyat (güven zinciri) + puan + başlık
   cekici.py        requests → cloudscraper → Playwright
-  siteler.py       site kuralları (siteler/*.yaml — 10 Türk sitesi)
+  siteler.py       site kuralları (siteler/*.yaml — 12 Türk sitesi)
   throttle.py      site kuyruğu + üstel geri çekilme
   ── SUNUM ──────────────────────────────────────────────
   api/             FastAPI: rotalar + bağımlılıklar
@@ -130,12 +131,13 @@ keepmoney/
   ayarlar.py       tiplenmiş yapılandırma · guvenlik.py  JWT + bcrypt
   zamanlayici.py   tarama döngüsü (7/24 worker süreci)
   bot/             Telegram (aiogram 3) — kartlar saf, handler ince
+  toplayici.py     akakçe araması — aday önerir, KULLANICI seçer
   affiliate.py     ortaklık linkleri — kanonik URL'ye dokunmaz
   gunluk.py        structlog · olcumler.py  Prometheus
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
 betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
-tests/             422 test, hepsi yeşil
+tests/             530 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

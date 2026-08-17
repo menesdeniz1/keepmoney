@@ -104,6 +104,10 @@ class Cikarim:
     # Fiyat yok AMA sayfa sağlam: ürün tükenmiş. Ayıklayıcı arızasından
     # ayrılması şart — biri düzeltilecek hata, diğeri söylenecek olgu.
     stok_yok: bool = False
+    # Toplayıcı sayfalarında pazar derinliği (bkz. pazar_ayikla).
+    satici_adi: str | None = None
+    satici_sayisi: int | None = None
+    ikinci_fiyat: float | None = None
 
 
 def _corba(html: str) -> BeautifulSoup:
@@ -350,6 +354,72 @@ def olu_mu(html: str, http_kodu: int | None = None) -> bool:
     return any(iz in baslik for iz in OLU_IZLERI)
 
 
+def pazar_ayikla(html: str,
+                 site_cfg: dict | None = None) -> tuple[str | None, int | None,
+                                                        float | None]:
+    """Toplayıcı sayfasında pazar derinliği: (satıcı adı, satıcı sayısı, 2. fiyat).
+
+    NEDEN GEREKLİ — geçmişi olmayan ürünün tek savunması budur. Koruma
+    katmanının bütün ölçütleri (`asiri_supheli`, ani düşüş/yükseliş) SON İYİ
+    FİYATA bakıyor; yeni eklenen bir üründe öyle bir fiyat yok. O ilk okumada
+    absürt bir değer gelirse hiçbir şey yakalamaz ve o değer geçmişin
+    başlangıcı olur — sonraki tüm "dip" hesapları ondan kirlenir.
+
+    Toplayıcı sayfası bu boşluğu dolduruyor: aynı ürünü satan ONLARCA satıcı
+    tek sayfada listeli. "En ucuz 4.000 TL ama ikinci en ucuz 52.000 TL"
+    tablosu, geçmiş olmadan da o 4.000'in gerçek olmadığını söyler.
+
+    Gerçek vaka (öncül proje): bir karşılaştırma sitesinin KENDİ json-ld'sinde
+    tek bir pazaryeri satıcısı ürünü gerçek değerinin katlarıyla listelemişti
+    ve site bunu "en ucuz" diye gösteriyordu.
+
+    Kural dosyası bu seçicileri tanımlamazsa sessizce atlanır — toplayıcı
+    olmayan sitelerde "pazar" diye bir kavram yok.
+    """
+    site_cfg = site_cfg or {}
+    if not html or not site_cfg.get("toplayici"):
+        return None, None, None
+
+    corba = _corba(html)
+    ad = None
+    if site_cfg.get("satici_secici"):
+        el = _guvenli_sec(corba, site_cfg["satici_secici"])
+        if el is not None:
+            # Satıcı adı çoğu zaman logo görselinde: metin yoksa nitelikler.
+            ad = (el.get_text(" ", strip=True)
+                  or el.get("alt") or el.get("title") or "").strip()[:60] or None
+
+    satici_sayisi = ikinci = None
+    if site_cfg.get("saticilar_secici"):
+        try:
+            satirlar = corba.select(site_cfg["saticilar_secici"])
+        except Exception:
+            satirlar = []
+        if satirlar:
+            satici_sayisi = len(satirlar)
+            if len(satirlar) >= 2:
+                fiyat_secici = site_cfg.get("saticilar_fiyat_secici")
+                ikinci = _satir_fiyati(satirlar[1], fiyat_secici)
+    return ad, satici_sayisi, ikinci
+
+
+def _guvenli_sec(corba, secici: str):
+    try:
+        return corba.select_one(secici)
+    except Exception:
+        return None
+
+
+def _satir_fiyati(satir, fiyat_secici: str | None) -> float | None:
+    """Satıcı listesindeki bir satırdan fiyat. Seçici yoksa satır metninden."""
+    if fiyat_secici:
+        el = _guvenli_sec(satir, fiyat_secici)
+        if el is not None:
+            return parse_tl(el.get_text(" ", strip=True))
+    eslesme = TL_KALIBI.search(satir.get_text(" ", strip=True))
+    return parse_tl(eslesme.group(1)) if eslesme else None
+
+
 def stok_yok_mu(html: str, site_cfg: dict | None = None) -> bool:
     """Ürün tükenmiş mi?
 
@@ -403,7 +473,10 @@ def cikar(html: str, site_cfg: dict | None = None,
 
     fiyat, guven = fiyat_ayikla(html, site_cfg)
     puan, yorum = puan_ayikla(html)
+    satici, satici_sayisi, ikinci = pazar_ayikla(html, site_cfg)
     return Cikarim(fiyat=fiyat, guven=guven,
                    baslik=baslik_ayikla(html, site_cfg),
                    puan=puan, yorum_sayisi=yorum,
-                   stok_yok=fiyat is None and stok_yok_mu(html, site_cfg))
+                   stok_yok=fiyat is None and stok_yok_mu(html, site_cfg),
+                   satici_adi=satici, satici_sayisi=satici_sayisi,
+                   ikinci_fiyat=ikinci)

@@ -1323,3 +1323,109 @@ def test_spa_yakalayicisi_api_uclarini_golgelemiyor(istemci):
     y = istemci.get("/api/olmayan-uc")
     assert y.status_code == 404
     assert "application/json" in y.headers.get("content-type", "")
+
+
+# ── Çoklu kaynak: öneri + kullanıcı onaylı ekleme ────────────────
+# Bu blokta test edilen asıl şey, sistemin YAPMADIĞI şey: arama sonucu
+# hiçbir bağ kurmaz. Otomatik eşleştirme, benzer adlı iki ürünün fiyatını
+# karıştırıp grafiğe işleyen ve geri alınamayan bir hata üretirdi.
+
+def _izleme_kur(istemci, url="https://magaza.com/urun-a") -> tuple[dict, int]:
+    basliklar = kayit_ol(istemci)
+    y = istemci.post("/api/izlemeler", json={"url": url}, headers=basliklar)
+    return basliklar, y.json()["id"]
+
+
+def test_kaynak_onerileri_hicbir_sey_baglamaz(istemci, db, monkeypatch):
+    """Arama SONUCU bir öneridir; veritabanına dokunmaz."""
+    from keepmoney import toplayici
+    monkeypatch.setattr(
+        toplayici, "ara",
+        lambda cekici, sorgu, limit=3: [
+            toplayici.Oneri(ad="Asus RTX 5070 Ti", url="https://akakce.com/x-fiyati,1.html")])
+
+    basliklar, izleme_id = _izleme_kur(istemci)
+    once = db.query(Source).count()
+
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=basliklar)
+    assert y.status_code == 200
+    assert y.json() == [{"ad": "Asus RTX 5070 Ti",
+                         "url": "https://akakce.com/x-fiyati,1.html"}]
+    assert db.query(Source).count() == once      # HİÇBİR ŞEY eklenmedi
+
+
+def test_kaynak_onerileri_baskasinin_izlemesine_kapali(istemci, monkeypatch):
+    from keepmoney import toplayici
+    monkeypatch.setattr(toplayici, "ara", lambda *a, **k: [])
+
+    _, izleme_id = _izleme_kur(istemci)
+    baskasi = kayit_ol(istemci, "b@ornek.com")
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=baskasi)
+    assert y.status_code == 404
+
+
+def test_kullanici_onayiyla_kaynak_eklenir(istemci, db):
+    basliklar, izleme_id = _izleme_kur(istemci)
+    y = istemci.post(f"/api/izlemeler/{izleme_id}/kaynaklar",
+                     json={"url": "https://www.akakce.com/x-fiyati,1.html"},
+                     headers=basliklar)
+    assert y.status_code == 201
+
+    detay = istemci.get(f"/api/izlemeler/{izleme_id}", headers=basliklar).json()
+    hostlar = {k["host"] for k in detay["urun"]["kaynaklar"]}
+    assert hostlar == {"magaza.com", "akakce.com"}
+
+
+def test_eklenen_toplayici_kaynak_isaretlenir(istemci, db):
+    basliklar, izleme_id = _izleme_kur(istemci)
+    istemci.post(f"/api/izlemeler/{izleme_id}/kaynaklar",
+                 json={"url": "https://www.akakce.com/x-fiyati,1.html"},
+                 headers=basliklar)
+    kaynak = db.query(Source).filter(Source.host == "akakce.com").one()
+    assert bool(kaynak.toplayici) is True
+
+
+def test_ayni_kaynak_iki_kez_eklenince_cogalmaz(istemci, db):
+    basliklar, izleme_id = _izleme_kur(istemci)
+    url = "https://www.akakce.com/x-fiyati,1.html"
+    for _ in range(2):
+        istemci.post(f"/api/izlemeler/{izleme_id}/kaynaklar",
+                     json={"url": url}, headers=basliklar)
+    assert db.query(Source).filter(Source.host == "akakce.com").count() == 1
+
+
+def test_baskasinin_izlemesine_kaynak_eklenemez(istemci):
+    _, izleme_id = _izleme_kur(istemci)
+    baskasi = kayit_ol(istemci, "c@ornek.com")
+    y = istemci.post(f"/api/izlemeler/{izleme_id}/kaynaklar",
+                     json={"url": "https://www.akakce.com/x-fiyati,1.html"},
+                     headers=baskasi)
+    assert y.status_code == 400
+
+
+def test_baskasinin_izledigi_urune_ait_adres_reddedilir(istemci):
+    """İki ürünü birleştirmek fiyat geçmişlerini karıştırır ve geri alınamaz.
+    Başkasının izlediği bir ürünün adresi sessizce taşınmamalı."""
+    basliklar_a = kayit_ol(istemci, "d@ornek.com")
+    paylasilan = "https://magaza.com/paylasilan"
+    istemci.post("/api/izlemeler", json={"url": paylasilan}, headers=basliklar_a)
+
+    basliklar_b = kayit_ol(istemci, "e@ornek.com")
+    y = istemci.post("/api/izlemeler", json={"url": "https://magaza.com/baska"},
+                     headers=basliklar_b)
+    izleme_b = y.json()["id"]
+
+    y = istemci.post(f"/api/izlemeler/{izleme_b}/kaynaklar",
+                     json={"url": paylasilan}, headers=basliklar_b)
+    assert y.status_code == 400
+    assert "başka bir ürüne bağlı" in y.json()["detail"]
+
+
+def test_kaynak_ekleme_ssrf_kapisindan_gecer(istemci):
+    basliklar, izleme_id = _izleme_kur(istemci)
+    y = istemci.post(f"/api/izlemeler/{izleme_id}/kaynaklar",
+                     json={"url": "http://169.254.169.254/latest/meta-data/"},
+                     headers=basliklar)
+    assert y.status_code == 400

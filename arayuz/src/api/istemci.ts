@@ -10,6 +10,8 @@
  */
 import type {
   Izleme,
+  Kaynak,
+  KaynakOnerisi,
   IzlemeDetay,
   IzlemeEkleGirdi,
   IzlemeGuncelleGirdi,
@@ -141,6 +143,20 @@ export const api = {
 
   izlemeSil: (id: number) =>
     istek<void>(`/izlemeler/${id}`, { method: 'DELETE' }),
+
+  // ── Çoklu kaynak ──────────────────────────────────────────────
+  // Arama YAVAŞTIR (~1-8 sn): dış siteye çıkıyor, gerekirse gerçek tarayıcı
+  // açılıyor. Arayüz bekleme durumu göstermeli.
+  kaynakOnerileri: (id: number) =>
+    istek<KaynakOnerisi[]>(`/izlemeler/${id}/kaynak-onerileri`),
+
+  // Öneri TEK BAŞINA hiçbir şey değiştirmez; kaynak ancak kullanıcı bir
+  // adayı seçince eklenir.
+  kaynakEkle: (id: number, url: string) =>
+    istek<Kaynak>(`/izlemeler/${id}/kaynaklar`, {
+      method: 'POST',
+      gövde: { url },
+    }),
 
   // ── Set ───────────────────────────────────────────────────────
   setler: () => istek<KmSet[]>('/setler'),

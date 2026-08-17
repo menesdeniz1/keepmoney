@@ -640,3 +640,42 @@ Fiyatın okunamaması iki apayrı olguyu örtüyordu: **ayıklayıcı bozulmuş 
 3. **Serbest metin YALNIZCA `metin_alani` kapsamında aranır**, kapsam tanımlı değilse hiç aranmaz. 1,5 MB'lık bir sayfada "stokta yok" ifadesi sponsorlu kutuda ya da yorumlarda geçebilir; tüm belgede aramak tam da maskeleme demekti. Bu, regex fiyat okumasında zaten kullanılan korumanın aynısı.
 
 **Worker'da başarılı okuma sayılır:** `hata_serisi` sıfırlanır ve host ödüllendirilir — site bizi engellemedi, ürün tükendi. Haftalarca stokta olmayan bir ürün yüzünden "fiyatını okuyamıyorum" uyarısı gitmemeli.
+
+---
+
+## K52 — Pazar derinliği: geçmişi olmayan ürünün tek savunması
+
+**Boşluk:** Koruma katmanının bütün ölçütleri (`asiri_supheli`, ani düşüş/yükseliş, regex doğrulaması) SON İYİ FİYATA bakıyordu. Yeni eklenen bir üründe öyle bir fiyat yok — yani ilk okumada gelen absürt bir değeri hiçbir kural yakalayamıyordu. Üstelik o değer geçmişin BAŞLANGICI oluyor ve sonraki tüm "90 günün dibi" hesaplarını kirletiyordu.
+
+Bu, ürünün en çok güvendiği anda en savunmasız olduğu yerdi: kullanıcı linki yapıştırır, ilk fiyatı görür, ona göre karar verir.
+
+**Çözüm:** Toplayıcı sayfası (akakçe) aynı ürünü satan onlarca mağazayı tek sayfada listeliyor. "En ucuz 4.000 TL ama ikinci en ucuz 52.000 TL" tablosu, geçmiş olmadan da o 4.000'in gerçek olmadığını söyler — referans, pazarın kendisi.
+
+| Ölçüt | Eşik | Sonuç |
+|---|---|---|
+| `fiyat_supheli` | 2. fiyat > en ucuzun **1,5 katı** | İkinci okumayla doğrula |
+| `asiri_supheli` | 2. fiyat > en ucuzun **3 katı** | Bozuk — 2-okuma yolu GEÇERSİZ |
+
+Üç katı eşiğinin `asiri_supheli`de olması kritik: bozuk bir liste kaydı ikinci okumada da aynı değeri döndürür, yani tutarlılık kontrolü onu doğrulayamaz (bkz. K-serisi "bozuk kaynak kendisiyle tutarlıdır" vakası).
+
+**TEK SATICI TEK BAŞINA ŞÜPHE SEBEBİ DEĞİL.** Birçok ürünü gerçekten tek mağaza satıyor; öyle saymak her niş ürünü engellerdi. Sinyal, kıyaslanacak ikinci bir fiyatın VARLIĞINDA ve aradaki farkın büyüklüğünde.
+
+**Kullanıcıya da gösteriliyor** — web ve Telegram'da aynı satır: "🏪 14 satıcı · 2.si 41.500". Koruma katmanının kullandığı veriyi kullanıcıdan saklamak, kararı denetlenemez kılardı.
+
+---
+
+## K53 — Toplayıcı eşleştirmesi ÖNERİDİR, otomatik bağlama değildir
+
+**İhtiyaç:** Kullanıcı tek mağaza linki yapıştırıyor ama asıl sorusu "bu ürün en ucuz nerede". Ayrıca ölçümde görüldü ki Hepsiburada ve n11 gerçek tarayıcıyla bile 403 dönüyor — o mağazaların fiyatına ulaşmanın tek sağlam yolu toplayıcı.
+
+**Karar: sistem arar, KULLANICI seçer.** Otomatik eşleştirme cazip ama "RTX 5070 Ti Prime" ile "RTX 5070 Ti Prime OC" ayrı ürünlerdir ve fiyatları %15 farklıdır. Yanlış eşleştirme, yanlış ürünün fiyatını doğru ürünün geçmişine yazar: grafik çizilir, "dip bölgesi" denir, kullanıcı yanlış ürüne bakarak alır. Hata SESSİZDİR ve geçmişe işlediği için geri alınamaz.
+
+Öneri sunmak serbest; sessizce yanlış veri yazmak değil. Öncül proje (tracker) de tam olarak bunu yapıyordu: arar, ilk 3 adayı buton olarak sunar, kullanıcı doğrusunu seçer.
+
+**Ayrıştırma sayfa yapısına değil URL kalıbına dayanıyor.** Akakçe ürün sayfaları daima `...-fiyati,<id>.html`; CSS sınıfları değişse de bu kalıp değişmiyor. Öncül projede aylarca çalışan yaklaşım buydu.
+
+**`render` zorlanmıyor.** Arama sonuç sayfasındaki bağlantılar sunucu HTML'inde geliyor; toplayıcı bot duvarı çıkarırsa zincir zaten kendiliğinden tarayıcıya yükseliyor (K49). Pahalı yol yalnızca gerektiğinde ödeniyor.
+
+**Eşzamanlılık sınırlı (semafor=2).** Tarayıcı motoru ~250 MB yiyor ve arama kullanıcı isteğiyle tetikleniyor; on kişi aynı anda ararsa API süreci belleği tüketip ölür ve TARAMA DA durur. Sıra beklemek, çökmekten iyidir.
+
+**Kaynak ekleme geçici ürün YARATMIYOR.** İlk uygulama `kaynak_bul_veya_olustur` çağırıyordu; o fonksiyon adres yeniyse yanına bir `Product` da yaratıyor, sonra onu silmek gerekiyordu — ve `Product→Source` cascade'i yüzünden yeni kaynak da siliniyordu. Testte yakalandı. Kaynağı doğrudan mevcut ürüne bağlamak hem daha basit hem doğru.

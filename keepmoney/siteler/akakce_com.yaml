@@ -3,8 +3,19 @@ satici: "Akakçe"
 render: true
 toplayici: true          # tek sayfada tüm satıcıların en ucuzu
 fiyat_secici: "span.pt_v8"
+
+# ── Pazar derinliği (öncül projeden, üretimde kanıtlanmış) ──────
+# Bu üç seçici, GEÇMİŞİ OLMAYAN ürünün tek savunmasıdır: koruma katmanının
+# diğer bütün ölçütleri son iyi fiyata bakıyor ve yeni üründe öyle bir fiyat
+# yok. "En ucuz 4.000 TL ama ikincisi 52.000 TL" tablosu, geçmiş olmadan da
+# o 4.000'in gerçek olmadığını söyler.
+satici_secici: "#PL > li:first-child img[alt]"   # en ucuz satıcının adı
+saticilar_secici: "#PL > li"                     # satıcı sayısı
+saticilar_fiyat_secici: "span.pt_v8"             # 2. en ucuz fiyat
+
 notlar: |
   Toplayıcı kaynak — tarama bütçesinde önceliklidir: 10 mağaza taramak
-  yerine 1 sayfa okunur.
+  yerine 1 sayfa okunur. Bot koruması sert olan mağazaların (Hepsiburada,
+  n11 vb.) fiyatına ulaşmanın da en sağlam yolu burasıdır.
   DİKKAT: tek satıcının hatalı girdiği fiyat "en ucuz" olarak görünebiliyor.
-  Bu yüzden karar.asiri_supheli koruması bu kaynakta da devrede.
+  karar.pazar_aykiri bu tuzağı satıcı listesine bakarak yakalıyor.

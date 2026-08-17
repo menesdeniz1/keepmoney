@@ -128,6 +128,36 @@ export function useIzlemeSil() {
   })
 }
 
+/**
+ * Toplayıcıda aynı ürünü satan başka mağazaları arar.
+ *
+ * `enabled: false` ile başlar — arama YAVAŞ (~1-8 sn, gerekirse gerçek
+ * tarayıcı açılıyor) ve dış siteye yük bindiriyor. Sayfa her açıldığında
+ * kendiliğinden çalışması kabul edilemez; kullanıcı açıkça istemeli.
+ */
+export function useKaynakOnerileri(id: number) {
+  return useQuery({
+    queryKey: ['kaynak-onerileri', id] as const,
+    queryFn: () => api.kaynakOnerileri(id),
+    enabled: false,
+    // Aday listesi kısa ömürlü olmalı: fiyatlar ve listeler değişiyor.
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+/** Kullanıcının SEÇTİĞİ adayı ürüne kaynak olarak bağlar. */
+export function useKaynakEkle(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (url: string) => api.kaynakEkle(id, url),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: anahtar.izleme(id) })
+      void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
+    },
+  })
+}
+
 export function useSetOlustur() {
   const qc = useQueryClient()
   return useMutation({

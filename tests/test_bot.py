@@ -246,3 +246,59 @@ def test_md_kacir_tum_ozel_karakterleri_kapsar():
 
 def test_normal_metin_bozulmaz():
     assert kartlar.md_kacir("Kingston Beast 32GB DDR5") == "Kingston Beast 32GB DDR5"
+
+
+# ── Pazar derinliği: iki yüz AYNI bilgiyi göstermeli ─────────────
+# Kullanıcı Telegram'dan "dip bölgesi" mesajı alıp web'de "tek satıcı
+# belirgin ucuz" uyarısını görüyorsa, bilgiyi eksik veren yüz güveni bozar.
+
+class _SahteKaynak:
+    def __init__(self, satici_sayisi=None, ikinci_fiyat=None, son_fiyat=None):
+        self.satici_sayisi = satici_sayisi
+        self.ikinci_fiyat = ikinci_fiyat
+        self.son_fiyat = son_fiyat
+
+
+class _SahteUrun:
+    def __init__(self, sources, ad="Test Ürün", guncel_fiyat=40000.0):
+        self.sources = sources
+        self.ad = ad
+        self.guncel_fiyat = guncel_fiyat
+        self.guncel_satici = None
+        self.puan = None
+        self.yorum_sayisi = None
+
+
+class _SahteIzleme:
+    def __init__(self, urun):
+        self.product = urun
+        self.hedef_fiyat = None
+
+
+def test_kartta_pazar_derinligi_gorunur():
+    urun = _SahteUrun([_SahteKaynak(satici_sayisi=14, ikinci_fiyat=41500.0,
+                                    son_fiyat=38999.0)])
+    metin = kartlar.urun_karti(_SahteIzleme(urun), None, "yorum")
+    assert "14 satıcı" in metin
+    assert "41.500" in metin
+
+
+def test_kartta_aykiri_fiyat_uyarisi_cikar():
+    """Web'deki uyarının Telegram karşılığı."""
+    urun = _SahteUrun([_SahteKaynak(satici_sayisi=9, ikinci_fiyat=52000.0,
+                                    son_fiyat=4000.0)])
+    metin = kartlar.urun_karti(_SahteIzleme(urun), None, "yorum")
+    assert "Tek satıcı belirgin ucuz" in metin
+
+
+def test_makul_farkta_uyari_cikmaz():
+    urun = _SahteUrun([_SahteKaynak(satici_sayisi=9, ikinci_fiyat=46000.0,
+                                    son_fiyat=40000.0)])
+    metin = kartlar.urun_karti(_SahteIzleme(urun), None, "yorum")
+    assert "belirgin ucuz" not in metin
+
+
+def test_pazar_verisi_yoksa_satir_hic_cikmaz():
+    """Toplayıcı olmayan üründe boş bir '🏪' satırı gürültüdür."""
+    urun = _SahteUrun([_SahteKaynak()])
+    assert "🏪" not in kartlar.urun_karti(_SahteIzleme(urun), None, "yorum")

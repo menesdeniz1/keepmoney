@@ -209,8 +209,13 @@ class Tarayici:
 
         okuma = karar.KaynakOkumasi(
             url=kaynak.url, host=kaynak.host, fiyat=c.fiyat, guven=c.guven,
-            satici=kural.get("satici") or kaynak.satici,
-            ekstra={"puan": c.puan, "yorum": c.yorum_sayisi, "baslik": c.baslik},
+            # Toplayıcıda gerçek satıcı, sayfanın sahibi değil o listedeki
+            # en ucuz mağazadır: "Akakçe" demek kullanıcıya bilgi vermez.
+            satici=c.satici_adi or kural.get("satici") or kaynak.satici,
+            satici_sayisi=c.satici_sayisi, ikinci_fiyat=c.ikinci_fiyat,
+            ekstra={"puan": c.puan, "yorum": c.yorum_sayisi, "baslik": c.baslik,
+                    "satici_sayisi": c.satici_sayisi,
+                    "ikinci_fiyat": c.ikinci_fiyat},
         )
 
         # Koruma katmanı — durum kaynakta saklanır, kullanıcıda değil
@@ -228,6 +233,12 @@ class Tarayici:
         kaynak.bozuk_uyarildi = durum.asiri_supheli_uyarildi
         kaynak.son_kontrol = utc_simdi()
         kaynak.son_guven = c.guven
+        # Pazar derinliği okuma REDDEDİLSE BİLE saklanır: kullanıcıya "neden
+        # bu fiyata güvenmedik" sorusunun cevabını veren şey tam da bu tablo.
+        if c.satici_sayisi is not None:
+            kaynak.satici_sayisi = c.satici_sayisi
+            kaynak.ikinci_fiyat = c.ikinci_fiyat
+            kaynak.satici = c.satici_adi or kaynak.satici
 
         olcumler.fiyat_guveni.labels(guven=c.guven).inc()
 

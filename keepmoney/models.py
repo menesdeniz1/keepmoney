@@ -144,9 +144,17 @@ class Source(Base):
 
     son_fiyat = Column(Float, nullable=True)
     son_guven = Column(String, nullable=True)     # json-ld | secici | meta | regex
-    durum = Column(String, default="BEKLEMEDE")   # OK | ENGELLI | OLU | HATA
+    # OK | ENGELLI | OLU | HATA | BEKLEMEDE | STOKTA_YOK
+    durum = Column(String, default="BEKLEMEDE")
     son_kontrol = Column(DateTime, nullable=True)
     hata_serisi = Column(Integer, default=0)
+
+    # Pazar derinliği — yalnızca toplayıcı kaynaklarda dolar (bkz.
+    # ayikla.pazar_ayikla). Saklanıyor çünkü kullanıcıya gösterilen "5 satıcı ·
+    # 2. en ucuz 41.500" bilgisi kararın BAĞLAMIDIR: tek satıcının aykırı
+    # fiyatı, geçmişi olmayan üründe elimizdeki tek uyarı işaretidir.
+    satici_sayisi = Column(Integer, nullable=True)
+    ikinci_fiyat = Column(Float, nullable=True)
 
     # Koruma katmanı durumu (karar.IzlemeDurumu) — KAYNAĞA ait, kullanıcıya
     # değil: "bu okuma güvenilir mi" sorusu nesneldir, herkes için aynı cevabı

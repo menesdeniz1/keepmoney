@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Trash2 } from 'lucide-react'
 
 import { useIzleme, useIzlemeGuncelle, useIzlemeSil, useSetler } from '../api/kancalar'
+import KaynakOnerileri from '../bilesenler/KaynakOnerileri'
 import Onay from '../bilesenler/Onay'
 // Recharts ~400 KB. Panel ve diğer sayfalar bunu indirmesin diye
 // yalnızca bu sayfa açıldığında yüklenir (kod bölme).
@@ -242,6 +243,38 @@ export default function IzlemeDetay() {
             </li>
           ))}
         </ul>
+
+        {/*
+          Pazar derinliği. "Kaç mağaza satıyor ve ikincisi kaça" bilgisi,
+          kullanıcının fiyata güvenip güvenmeyeceğini belirleyen tek bağlam
+          olabiliyor — özellikle yeni eklenmiş, fiyat geçmişi henüz oluşmamış
+          üründe. Koruma katmanı aynı sinyali kullanıyor (karar.pazar_aykiri);
+          burada gösterilmesi kullanıcının kararı DENETLEYEBİLMESİ için.
+        */}
+        {urun.kaynaklar
+          .filter((k) => k.satici_sayisi != null)
+          .map((k) => (
+            <p
+              key={`pazar-${k.id}`}
+              className="mt-3 text-xs text-slate-500 dark:text-slate-400"
+            >
+              🏪 {k.satici_sayisi} satıcı
+              {k.ikinci_fiyat != null && <> · 2. en ucuz: {tl(k.ikinci_fiyat)}</>}
+              {k.ikinci_fiyat != null &&
+                k.son_fiyat != null &&
+                k.ikinci_fiyat > k.son_fiyat * 1.5 && (
+                  <span className="ml-1 font-medium text-amber-600 dark:text-amber-500">
+                    ⚠️ tek satıcı belirgin ucuz — mağazayı teyit et
+                  </span>
+                )}
+              {k.satici_sayisi === 1 && (
+                <span className="ml-1">· kıyaslanacak ikinci fiyat yok</span>
+              )}
+            </p>
+          ))}
+
+        <KaynakOnerileri izlemeId={izleme.id} />
+
         {urun.kaynaklar.some((k) => k.ortaklik) && (
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
             "ortaklık" işaretli bağlantılardan alışveriş yaparsan küçük bir

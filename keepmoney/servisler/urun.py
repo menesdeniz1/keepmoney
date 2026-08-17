@@ -61,6 +61,7 @@ def _kaynak(k) -> dict:
         "son_fiyat": k.son_fiyat, "durum": k.durum,
         "son_kontrol": k.son_kontrol,
         "cikis_url": cikis, "ortaklik": ortaklik_var,
+        "satici_sayisi": k.satici_sayisi, "ikinci_fiyat": k.ikinci_fiyat,
     }
 
 

@@ -8,6 +8,7 @@ from keepmoney.karar import (
     dogrula,
     en_iyi_kaynak,
     fiyat_supheli,
+    pazar_aykiri,
 )
 
 
@@ -171,3 +172,69 @@ def test_hepsi_engelliyse_none():
 def test_fiyatsiz_kaynak_yine_de_doner():
     o = [okuma(fiyat=None, host="a.com")]
     assert en_iyi_kaynak(o).host == "a.com"
+
+
+# ── Pazar aykırılığı: geçmişi OLMAYAN ürünün tek savunması ───────
+# Bu modüldeki diğer bütün ölçütler `son_iyi_fiyat`a bakıyor. Yeni eklenen
+# üründe öyle bir fiyat yok — ilk okumada gelen absürt bir değeri hiçbiri
+# yakalayamaz ve o değer geçmişin başlangıcı olur, sonraki tüm "dip"
+# hesaplarını kirletir.
+
+def _toplayici(fiyat, ikinci=None, satici_sayisi=None, guven="json-ld"):
+    return KaynakOkumasi(url="https://akakce.com/x", host="akakce.com",
+                         fiyat=fiyat, guven=guven, ikinci_fiyat=ikinci,
+                         satici_sayisi=satici_sayisi)
+
+
+def test_gecmissiz_urunde_aykiri_fiyat_yakalanir():
+    """Asıl kazanım: `son_iyi_fiyat` YOK ve yine de şüphe uyanıyor."""
+    okuma = _toplayici(4000.0, ikinci=52000.0, satici_sayisi=14)
+    assert fiyat_supheli(okuma, IzlemeDurumu()) is True
+
+
+def test_makul_kampanya_supheli_sayilmaz():
+    """Gerçek kampanyada bir satıcı %20-30 ucuz olabilir; bunu şüpheli
+    saymak her fırsatı geciktirirdi."""
+    okuma = _toplayici(40000.0, ikinci=46000.0, satici_sayisi=9)
+    assert fiyat_supheli(okuma, IzlemeDurumu()) is False
+
+
+def test_asiri_aykiri_fiyat_bozuk_sayilir():
+    """3 kat fark artık kampanya değil, hatalı liste kaydı. İkinci okuma da
+    aynı hatalı kaydı okuyacağı için 2-okuma yolu burada işe yaramaz."""
+    okuma = _toplayici(4000.0, ikinci=52000.0)
+    assert asiri_supheli(okuma, IzlemeDurumu()) is True
+
+
+def test_tek_satici_tek_basina_suphe_sebebi_degil():
+    """Birçok ürünü gerçekten tek mağaza satıyor. Sinyal, kıyaslanacak
+    ikinci bir fiyatın VARLIĞINDA."""
+    okuma = _toplayici(4000.0, ikinci=None, satici_sayisi=1)
+    assert fiyat_supheli(okuma, IzlemeDurumu()) is False
+    assert asiri_supheli(okuma, IzlemeDurumu()) is False
+
+
+def test_pazar_verisi_olmayan_kaynak_etkilenmez():
+    """Toplayıcı olmayan sitelerde bu ölçüt hiç devreye girmemeli."""
+    okuma = KaynakOkumasi(url="https://magaza.com/x", host="magaza.com",
+                          fiyat=4000.0, guven="secici")
+    assert pazar_aykiri(okuma) is False
+    assert fiyat_supheli(okuma, IzlemeDurumu()) is False
+
+
+def test_aykiri_fiyat_ikinci_okumayla_temizlenmez():
+    """Bozuk eşiğindeki okuma, tutarlı gelse bile kabul edilmemeli —
+    bozuk kaynak kendisiyle günlerce tutarlı kalabilir."""
+    durum = IzlemeDurumu()
+    okuma = _toplayici(4000.0, ikinci=52000.0)
+    for _ in range(2):
+        gecerli, sebep = dogrula(okuma, durum)
+        assert gecerli is False
+        assert sebep == "bozuk"
+
+
+def test_ucuz_ama_pazarla_uyumlu_fiyat_gecer():
+    """Yanlış pozitif koruması: gerçekten ucuz ama pazar da orada."""
+    okuma = _toplayici(38000.0, ikinci=39500.0, satici_sayisi=22)
+    gecerli, sebep = dogrula(okuma, IzlemeDurumu())
+    assert gecerli is True, sebep

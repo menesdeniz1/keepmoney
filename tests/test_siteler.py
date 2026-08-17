@@ -128,3 +128,15 @@ def test_toplayicilar_gercek_tarayici_ister():
     """Maliyet modeli bunların üstünde duruyor: 10 mağaza yerine 1 sayfa."""
     for d in ("akakce.com", "cimri.com"):
         assert kural(f"https://www.{d}/x")["render"] is True
+
+
+def test_oncul_projedeki_tum_siteler_tanimli():
+    """`tracker` üretimde bu sitelerden fiyat okuyordu; port sırasında
+    düşmemeliler. Kural dosyası olmayan site çalışmaz demek değil (varsayılan
+    zincir devrede) ama öğrenilmiş seçici kaybolur."""
+    tanimli = tanimli_siteler()
+    for domain in ("amazon.com.tr", "hepsiburada.com", "trendyol.com",
+                   "n11.com", "akakce.com", "mediamarkt.com.tr",
+                   "incehesap.com", "itopya.com", "tebilon.com",
+                   "sinerji.gen.tr"):
+        assert domain in tanimli, domain

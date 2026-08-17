@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from ... import semalar
+from ... import semalar, toplayici
+from ...cekici import HttpCekici
 from ...servisler import izleme as svc
 from ...servisler import urun as urun_svc
 from ..deps import DB, Kullanici
@@ -70,3 +71,47 @@ def sil(izleme_id: int, k: Kullanici, db: DB):
         svc.sil(db, k, izleme_id)
     except svc.IzlemeHatasi as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+
+# ── Çoklu kaynak: toplayıcıdan öneri, kullanıcı onayıyla ekleme ──
+# Bu iki uç bilinçli olarak AYRI. Arama sonucu hiçbir şeyi değiştirmez;
+# yalnızca kullanıcı bir adayı seçtiğinde kaynak eklenir. Otomatik
+# eşleştirme yapılmıyor: "RTX 5070 Ti Prime" ile "Prime OC" ayrı ürünler ve
+# yanlış eşleştirme, yanlış ürünün fiyatını doğru ürünün geçmişine yazar —
+# sessiz, grafiğe işleyen, geri dönüşü olmayan bir veri hatası.
+
+@router.get("/{izleme_id}/kaynak-onerileri",
+            response_model=list[semalar.KaynakOnerisi])
+def kaynak_onerileri(izleme_id: int, k: Kullanici, db: DB):
+    """Bu ürünü satan başka mağazalar için toplayıcıda arar.
+
+    YAVAŞ UÇ (~1-8 sn): dış siteye çıkıyor ve gerekirse gerçek tarayıcı
+    açılıyor. Kullanıcının açıkça tetiklediği bir işlem olduğu için kabul
+    edilebilir; arayüz bekleme durumu gösteriyor.
+
+    Hata durumunda BOŞ liste döner, 5xx değil: arama bir kolaylıktır,
+    erişilemezse kullanıcı linki elle de ekleyebilir.
+    """
+    try:
+        w = svc.izleme_getir(db, k, izleme_id)
+    except svc.IzlemeHatasi as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+    cekici = HttpCekici()
+    try:
+        return toplayici.ara(cekici, w.product.ad)
+    finally:
+        cekici.kapat()
+
+
+@router.post("/{izleme_id}/kaynaklar", response_model=semalar.KaynakYaniti,
+             status_code=status.HTTP_201_CREATED)
+def kaynak_ekle(izleme_id: int, istek: semalar.KaynakEkleIstegi,
+                k: Kullanici, db: DB):
+    """Kullanıcının SEÇTİĞİ adayı bu ürüne kaynak olarak bağlar."""
+    try:
+        kaynak = svc.kaynak_ekle(db, k, izleme_id, str(istek.url))
+    except svc.IzlemeHatasi as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    db.commit()
+    return urun_svc._kaynak(kaynak)
