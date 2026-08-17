@@ -177,3 +177,62 @@ def test_env_ornekte_gercek_sir_yok():
             # anahtarın yanlışlıkla işlendiği anlamına gelir.
             assert not deger or anahtar_sorunu(deger) is not None, (
                 ".env.example'da politikaya uyan gerçek bir anahtar var")
+
+
+# ── Anahtar doğrulaması: yanlış pozitif olmamalı ─────────────────
+# CI'da yakalandı: `secrets.token_urlsafe(48)` çıktısı şans eseri "xxx"
+# içerdi ve GEÇERLİ, belgelerimizin önerdiği komutla üretilmiş anahtar
+# "şablon/örnek değer içeriyor" diye reddedildi. Kullanıcı doğru şeyi yapar,
+# uygulama açılmaz, hata mesajı onu yanlış yöne gönderir.
+
+def test_csprng_anahtari_asla_reddedilmez():
+    """Belgelerimizin önerdiği komut HER ZAMAN kabul edilmeli.
+
+    Çok sayıda örnek: hata olasılığı düşük ama sıfır değil ve tek bir
+    kullanıcının başına gelmesi yeter.
+    """
+    for _ in range(20000):
+        anahtar = secrets.token_urlsafe(48)
+        assert anahtar_sorunu(anahtar) is None, anahtar
+
+
+def test_xxx_iceren_csprng_anahtari_kabul_edilir():
+    """Hatayı doğrudan temsil eden vaka (rastgeleliğe bağlı değil).
+
+    Arama harf duyarsız olduğu için "xXxX" de eşleşiyordu; üç karakterlik
+    bir dizinin rastgele 64 karakter içinde belirmesi ~1/500.
+    """
+    anahtar = secrets.token_urlsafe(48)[:30] + "xxx" + secrets.token_urlsafe(48)[:30]
+    assert anahtar_sorunu(anahtar) is None
+
+
+def test_sablon_degeri_hala_reddediliyor():
+    """Düzeltme korumayı KAYBETMEMELİ.
+
+    Sondaki vaka özellikle önemli: önce "anahtar yeterince çeşitliyse kalıp
+    taramasını atla" çözümü denenmişti ve bu anahtar çeşitlilik eşiğini
+    aştığı için kontrolden KAÇIYORDU. Yani ilk çözüm gerçek bir korumayı
+    zayıflatıyordu; testi bu yüzden burada tutuyoruz.
+    """
+    for zayif in ("changeme-changeme-changeme-changeme-changeme-1",
+                  "bu-benim-cok-gizli-anahtarim-degistir-lutfen-1",
+                  "my-super-secret-key-1234567890-abcdefghijk",
+                  "abc-xxxxxxxxxxxx-def-123456789-ghijklmnop"):
+        assert anahtar_sorunu(zayif) is not None, zayif
+
+
+def test_dusuk_cesitlilik_hala_reddediliyor():
+    assert anahtar_sorunu("ab" * 40) is not None
+
+
+def test_kaliplar_yeterince_uzun():
+    """Kısa kalıp CSPRNG çıktısında yanlış pozitif üretir.
+
+    Bu testin varlık sebebi: listeye ileride "todo" gibi kısa bir kalıp
+    eklemek cazip olacak ve hatanın kendisi ancak binlerce anahtar sonra,
+    üstelik kullanıcının makinesinde görünecek.
+    """
+    from keepmoney.ayarlar import _SUPHELI_KALIPLAR, MIN_KALIP_UZUNLUK
+
+    for kalip in _SUPHELI_KALIPLAR:
+        assert len(kalip) >= MIN_KALIP_UZUNLUK, kalip

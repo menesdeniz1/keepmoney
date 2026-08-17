@@ -159,10 +159,38 @@ ONERILEN_ANAHTAR_BAYT = 48                       # 384 bit
 # PAROLA DEĞİL, rastgele bir bit dizisidir ve CSPRNG'den üretilmelidir.
 # Aşağıdaki iki sezgisel kontrol, elle yazılmış "anahtar"ları yakalar.
 MIN_BENZERSIZ_KARAKTER = 12
+
+# Kalıplar ALT DİZİ olarak ve BÜYÜK/KÜÇÜK HARF DUYARSIZ aranıyor; bu yüzden
+# hepsi YETERİNCE UZUN olmalı. Kural: en az 5 karakter.
+#
+# ARİTMETİK. `token_urlsafe` 64 karakterlik bir alfabe kullanıyor ama arama
+# harf duyarsız olduğu için bir harfin eşleşme olasılığı 2/64 = 1/32.
+# 64 karakterlik bir çıktıda k harflik bir dizinin belirme olasılığı kabaca
+# 60 × (1/32)^k:
+#     k=3 ("xxx")   → ~1/500      her koşuda görülür
+#     k=4 ("xxxx")  → ~1/17.000   binlerce anahtarda görülür
+#     k=5           → ~1/550.000
+#     k=6           → ~1/18.000.000
+#
+# Bu liste bir dönem "xxx" ve "todo" içeriyordu ve gerçek bir hataya yol açtı:
+# CI'da GEÇERLİ, üstelik belgelerimizin önerdiği komutla üretilmiş bir anahtar
+# "şablon/örnek değer içeriyor" diye reddedildi. Kullanıcı doğru şeyi yapıyor,
+# uygulama açılmıyor ve hata mesajı onu yanlış yöne gönderiyor.
+#
+# ÇÖZÜM ENTROPİ EŞİĞİ DEĞİL. Önce "anahtar yeterince çeşitliyse kalıp
+# taramasını atla" denendi ve KORUMAYI ZAYIFLATTI: elle yazılmış
+# "my-super-secret-key-1234567890-abcdefghijk" de çeşitlilik eşiğini aşıyor.
+#
+# Kaybedilen koruma yok: "xxx"/"todo" ile başlayıp devam eden gerçek şablon
+# değerleri zaten ya uzun yazılır ("xxxxxx") ya da düşük çeşitlilikten
+# yakalanır (`MIN_BENZERSIZ_KARAKTER`).
+MIN_KALIP_UZUNLUK = 5
 _SUPHELI_KALIPLAR = (
     "changeme", "change-me", "secret", "password", "parola", "gizli",
-    "example", "ornek", "placeholder", "degistir", "todo", "xxx",
+    "example", "ornek", "placeholder", "degistir", "xxxxxx",
 )
+assert all(len(k) >= MIN_KALIP_UZUNLUK for k in _SUPHELI_KALIPLAR), (
+    "kısa kalıp CSPRNG çıktısında yanlış pozitif üretir — bkz. yukarıdaki tablo")
 
 _ANAHTAR_URET_IPUCU = (
     "Üret: python -c \"import secrets; print(secrets.token_urlsafe"
