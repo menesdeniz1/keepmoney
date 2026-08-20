@@ -773,3 +773,133 @@ zjeshocro0oBOrnEK0doOP8EeHVEi7mVjUwFv8ZVtjoFB6NVVFxvS1C5VwSN0lPz
 Yeni kuralla 2.000.000 örnekte **0** yanlış pozitif; test örneklemi de ölçüme göre 200.000'e çıkarıldı.
 
 **Genel ilke:** bir güvenlik sezgiseli kullanıcıyı yanlışlıkla engellediğinde bedel iki katıdır — kullanıcı doğru davranıp cezalandırılır ve mesaj onu yanlış yöne gönderir. Bu yüzden eşikler tahminle değil **ölçülerek** seçilir, ve yanlış pozitifi azaltan her değişiklik "gerçek tehdidi hâlâ yakalıyor muyum" karşı testiyle birlikte gelir.
+
+---
+
+## K58 — Kurulum bir belge değil, çalıştırılabilir bir betiktir
+
+**Yakalanan hata:** kurulum `CALISTIRMA.md`de adım adım yazılıydı ve gerçek
+kullanımda takıldı. Kullanıcı iki ayrı PowerShell penceresi açmak, ikisinde de
+doğru klasöre `cd` yapmak, sanal ortamı etkinleştirmek ve iki ayrı komut
+çalıştırmak zorundaydı. Olan şu: yeni pencere `C:\WINDOWS\system32`de açıldı,
+`.\.venv\Scripts\Activate.ps1` bulunamadı, komutlar sistem Python'ında koştu ve
+worker **tarayıcı motoru olmadan** açıldı. Ürünler tarandı, hiçbirinden fiyat
+gelmedi — hata veren bir şey yoktu.
+
+Belge doğruydu. Sorun belgenin yanlış olması değil, **her adımın sessizce
+atlanabilmesiydi**.
+
+**Karar: `kur.bat` / `basla.bat` / `dur.bat` + `betikler/kurulum.py`.** Altı
+tasarım kuralı, hepsi bir arızadan geliyor:
+
+**1. Mantık `.bat`ta değil Python'da.** `.bat` test edilemez; CI Linux'ta
+koşuyor ve cmd.exe yok. `.bat` dosyalarında yalnızca "doğru klasöre geç" ve
+"çalışır bir Python bul" var; gerisi `kurulum.py` ve `tests/test_kurulum.py`.
+`.bat`ların değişmezleri (ilk satır `cd /d "%~dp0"`, `Activate` geçmemesi,
+ASCII olması) ayrıca test ediliyor.
+
+**2. `kurulum.py` modül düzeyinde yalnızca stdlib import eder.** `kur` komutu
+`pip install`den ÖNCE, sistem Python'uyla çalışıyor. Oraya bir üçüncü parti
+import'u eklemek, kurulum betiğini "kurulum yapılmadan çalışmaz" hale getirir.
+
+**3. Sanal ortam etkinleştirilmez.** `Activate.ps1` PowerShell çalıştırma
+politikasına takılıyor ve bu tuzağa iki kez düşüldü. Etkinleştirmenin tek
+yaptığı PATH'i değiştirmek; `.venv\Scripts\python.exe` tam yoluyla çağrılınca
+sonuç aynı, tuzak sıfır.
+
+**4. Eksik ortamla BAŞLATILMAZ.** `basla`, `dogrula`yı geçmeden süreçleri
+açmıyor — ve kontrol listesinde **chromium'un dosya olarak var olması** da
+yer alıyor, paketin kurulu olması yetmiyor. Sebep K-öncesi bütün deneyimin
+özeti: eksik ortamla açılan worker sessizce hiçbir fiyat okumaz ve *çalışıyor
+görünen boş bir sistem, açık bir hatadan beterdir*.
+
+**5. Süreçler PID ile izlenir, pencere başlığıyla değil.** İlk tasarım
+`taskkill /FI "WINDOWTITLE eq KeepMoney API"` idi. **Ölçüldü ve yanlış çıktı:**
+Windows 11'de konsolun sahibi `WindowsTerminal.exe`; o başlık python.exe'ye
+değil terminal uygulamasına ait. Komut, KeepMoney'i değil kullanıcının açık
+bütün sekmeleriyle terminalini kapatırdı. `basla`, PID'leri
+`data/calisan.json`a yazıyor; `dur` öldürmeden önce PID'in **hâlâ bizim
+python'umuz olduğunu** doğruluyor ve makine yeniden başlatılmışsa kayda
+bayat diyor (PID'ler yeniden kullanılır — yanlış süreci öldürmek, hiçbir şey
+öldürmemekten çok daha kötüdür).
+
+**6. Yıkıcı adımlarda geri alınamazlık gözetilir.** `.env`deki mevcut JWT
+anahtarının üzerine asla yazılmaz (yazılsaydı bütün oturumlar bir anda
+düşerdi) ve `statik/` yalnızca içinde `index.html` varsa temizlenir — dizin
+tanınmıyorsa silmek yerine hata verilir.
+
+**Bir de ekran temizliği:** chromium'un yeri Playwright'a **ayrı süreçte**
+soruluyor. `sync_playwright()` bu sürümde kapanırken kendi asyncio görevini
+yarıda bırakıp yığın izi basıyor — ve bunu **başarılı** çağrıda da yapıyor.
+"Her şey yerinde" diyen bir ekranın altındaki yığın izi, aracın kendisine olan
+güveni bitirir. Yolu kendimiz hesaplamıyoruz: o mantığın tek doğru sahibi
+Playwright, kopyalanmış bir yol hesabı er ya da geç yanlış "chromium yok"
+hükmü verir.
+
+**Genel ilke:** bir kurulum adımı atlandığında ürün *çalışmıyor* değil *boş
+çalışıyorsa*, o adımın belgeye yazılması yetmez — çalıştırılabilir hale
+getirilmeli ve **doğrulanmalı**.
+
+---
+
+## K59 — Testler geliştiricinin `.env` dosyasını OKUMAZ
+
+**Yakalanan hata:** K58 doğrulanırken tam paket koşuldu ve yerelde iki test
+kırmızıydı, CI'da yeşil:
+
+- `test_uretimde_anahtarsiz_acilmaz` — test `monkeypatch.delenv` ile JWT
+  anahtarını siliyor ve uygulamanın açılmamasını bekliyor. Ama `Ayarlar`
+  `.env` de okuyor; geliştiricinin `.env`i anahtarı geri veriyor ve beklenen
+  hata **hiç oluşmuyor**.
+- `test_sistem_chromiumu_kullaniliyor` — `.env`deki boş satır
+  (`KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR=`) ayarı `None` yerine `""` yapıyor.
+
+CI'da `.env` yok, o yüzden orada görünmüyordu. **Aynı test paketi iki makinede
+iki farklı cevap veriyordu.**
+
+**Asıl tehlike ters yönde:** `.env` bir testi yanlışlıkla kırmızı yapabildiği
+gibi, **kırık olması gereken bir testi yeşil de gösterebilir**. O durumda
+kimse fark etmez.
+
+**Karar: `tests/conftest.py`, `Ayarlar.model_config["env_file"]`i kapatıyor.**
+Testlerde ayarların kaynağı yalnızca ortam değişkenleri ve `monkeypatch`.
+"Her değişiklikten sonra `pytest -q`" ritüeli ancak sonuç makineye bağlı
+değilse anlamlıdır.
+
+**Genel ilke:** test ortamı, geliştiricinin makinesinden **miras almamalıdır**.
+Ortamdan sızan her değer, testin ne ölçtüğünü belirsizleştirir.
+
+---
+
+## K60 — Test sonucu DUVAR SAATİNE bağlı olamaz
+
+**Yakalanan hata:** K58 doğrulanırken paket gece yarısından sonra koşuldu ve
+`test_worker.py`de altı test birden düştü; hepsi "uyarı üretilmedi" diyordu.
+Sebep bir hata değil, **çalışan bir özellikti**: sessiz saatler
+(00:00-08:00 TR) normal alarmı erteliyor (`worker.py::_watch_uyarilari`).
+
+Yani paket her gece sekiz saat boyunca kırmızıydı — ve kimse fark etmemişti,
+çünkü testler hep gündüz koşulmuştu. CI için de geçerli: 21:00-05:00 UTC
+arasında tetiklenen bir push rastgele kırılırdı ve "flaky test" diye
+geçiştirilirdi.
+
+**İkinci ve daha sinsi bulgu:** sessiz saat kuralının **kendi testi yoktu**.
+Uyarı testleri gündüz koştuğu için o satır hep `False` dönüyordu; yani kural
+sınanmıyor, yalnızca *atlanıyordu*. Kuralı bozan bir değişiklik hiçbir testi
+düşürmezdi.
+
+**Karar:** uyarı testleri saati **sabitler** (`_gunduz` fikstürü, sabit bir
+öğle vakti) — kuralı KAPATMADAN: gerçek `sessiz_saat_mi` çağrılmaya devam
+ediyor, yalnızca "şimdi" sabit. Kuralın kendisi iki testle ayrıca sınanıyor:
+gece normal alarmın ertelendiği (ve `son_bildirim_ts`in güncellenmediği —
+sabah kendiliğinden tetiklensin diye) ve ACİL eşiğinin sessiz saati deldiği.
+
+**Not (yapılmadı, bilinçli):** `_watch_uyarilari` saati iki kez okuyor —
+`simdi = utc_simdi()` ve ayrıca `sessiz_saat_mi()` içinde `tr_simdi()`. İkinci
+okuma enjekte edilebilir değil. `sessiz_saat_mi(..., simdi)` çağrısı hem
+tutarlı hem test edilebilir olurdu; üretim davranışını bu iş kapsamında
+değiştirmemek için test tarafında çözüldü.
+
+**Genel ilke:** K59'un kardeşi. Ortamdan miras alınan her şey — `.env`, saat,
+saat dilimi, makine hızı — testin neyi ölçtüğünü belirsizleştirir. "Bazen
+kırmızı" olan bir paket, hiç bakılmayan bir pakete dönüşür.

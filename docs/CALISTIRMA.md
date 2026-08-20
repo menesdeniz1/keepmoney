@@ -32,6 +32,47 @@ dizisidir; zayıfsa saldırgan istediği kullanıcı adına geçerli token üret
 
 ## 1. Yerelde ilk çalıştırma (~5 dakika)
 
+### Windows: çift tıkla (önerilen)
+
+Üç dosya var, üçü de depo kökünde:
+
+| Dosya | Ne yapar |
+|---|---|
+| **`kur.bat`** | Sanal ortam, paketler, **playwright + chromium**, `.env` + JWT anahtarı, veritabanı şeması, arayüz derlemesi — sonra hepsini **doğrular** |
+| **`basla.bat`** | Ortamı kontrol eder, API ve tarama worker'ını **ayrı pencerelerde** başlatır, API cevap verince tarayıcıyı açar |
+| **`dur.bat`** | İkisini de kapatır (chromium alt süreçleri dahil) |
+
+İlk sefer `kur.bat`, sonrasında yalnızca `basla.bat`. Depo güncellendiğinde
+(`git pull`) tekrar `kur.bat` çalıştır: adımların hepsi tekrar çalıştırılabilir
+ve **var olan `.env` anahtarına dokunmaz**.
+
+Bu betikler elle kurulumun kısayolu değil, **tuzaklarına karşı yazılmış hali**:
+
+- `cd /d "%~dp0"` ilk satır — çift tıkla açılan pencere yanlış klasörde
+  başlıyordu ve hiçbir göreli yol tutmuyordu,
+- sanal ortam **etkinleştirilmiyor**, `.venv\Scripts\python.exe` tam yoluyla
+  çağrılıyor — `Activate.ps1` çalıştırma politikasına takılıyor,
+- **chromium'un varlığı ayrıca kontrol ediliyor**; eksikse `basla.bat`
+  BAŞLATMIYOR. Sebebi aşağıdaki kutu.
+
+Ortamın durumunu tek başına sormak istersen:
+
+```powershell
+.\.venv\Scripts\python.exe betikler\kurulum.py dogrula
+```
+
+```
+ + python paketleri   15 paket
+ + saat dilimi        Europe/Istanbul
+ + .env               JWT anahtarı yerinde
+ + veritabanı şeması  güncel (9b47605c0346)
+ + tarayıcı motoru    chromium: chrome-win64
+ + arayüz             statik/index.html
+```
+
+Aşağısı **elle kurulum**: Linux/macOS için, ve Windows'ta bir adım
+patladığında ne olduğunu görmek için.
+
 **Linux / macOS:**
 
 ```bash

@@ -16,7 +16,7 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 > — durum, sıradaki iş, gerçek denemelerde yakalanmış tuzaklar.
 >
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (57 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (60 karar kaydı)
 
 ---
 
@@ -54,7 +54,19 @@ Ayrıntılı gerekçe: [`docs/MIMARI.md`](docs/MIMARI.md)
 **Adım adım kurulum, test ve canlıya alma:
 [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md).** Aşağısı özet.
 
-### Yerelde (~5 dakika)
+### Windows'ta çift tıkla
+
+| Dosya | Ne yapar |
+|---|---|
+| **`kur.bat`** | Sanal ortam, paketler, **playwright + chromium**, `.env` + JWT anahtarı, şema, arayüz derlemesi — sonra doğrular |
+| **`basla.bat`** | Ortamı kontrol eder, API + tarama worker'ını ayrı pencerelerde açar, tarayıcıyı açar |
+| **`dur.bat`** | İkisini de kapatır |
+
+İlk sefer `kur.bat`, sonrasında `basla.bat`. Ortamda bir eksik varsa
+`basla.bat` **başlatmaz** ve ne yapılacağını söyler: eksik ortamla açılan
+worker sessizce hiçbir fiyat okumaz.
+
+### Yerelde, elle (~5 dakika)
 
 ```bash
 git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney

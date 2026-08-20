@@ -9,7 +9,7 @@ geçmişi sıfırlanacağı için burada duran şey "ne var" değil, **"neden ö
 | Belge | Ne anlatır |
 |---|---|
 | **DEVIR.md** (bu) | Durum, sıradaki iş, tuzaklar, çalışma ritmi |
-| [`MIMARI.md`](MIMARI.md) | 57 tasarım kararı ve gerekçesi (K1–K57) |
+| [`MIMARI.md`](MIMARI.md) | 60 tasarım kararı ve gerekçesi (K1–K60) |
 | [`CALISTIRMA.md`](CALISTIRMA.md) | Kurulum, çalıştırma, seçici doğrulama, canlıya alma |
 
 ---
@@ -21,7 +21,7 @@ Aşağıdakini olduğu gibi yapıştır:
 ```
 KeepMoney projesinde çalışıyoruz. Önce şunları oku:
   docs/DEVIR.md   — durum, sıradaki iş, tuzaklar (BURADAN BAŞLA)
-  docs/MIMARI.md  — K1–K57 tasarım kararları
+  docs/MIMARI.md  — K1–K60 tasarım kararları
   docs/CALISTIRMA.md — kurulum ve çalıştırma
 
 Ben Windows'tayım, PowerShell kullanıyorum, proje
@@ -54,11 +54,11 @@ tek tek geri getirildi (bkz. §5).
 
 ### Kod ve testler
 
-- **627 test yeşil** (backend + arayüz + gerçek tarayıcıyla uçtan uca)
-- **CI 7 iş**, hepsi yeşil: `test`, `windows`, `postgres`, `tarayici-motoru`,
+- **664 test yeşil** (uçtan uca arayüz dosyası hariç — bkz. §4.5)
+- **CI 7 iş**: `test`, `windows`, `postgres`, `tarayici-motoru`,
   `uctan-uca`, `arayuz`, `imaj` (Docker imajı derlenip container ayağa
   kaldırılıyor, chromium ve arayüz doğrulanıyor)
-- **57 mimari karar** belgeli (`MIMARI.md`)
+- **60 mimari karar** belgeli (`MIMARI.md`)
 - Son commit: `3c5f616`
 
 ### Gerçek linklerle okuma oranı
@@ -144,44 +144,20 @@ olmayan üründeki **tek uyarı işaretidir** (K52).
 
 ## 4. Sıradaki iş — öncelik sırasıyla
 
-### 4.1 ⭐ TEK TIK KURULUM VE ÇALIŞTIRMA (ilk yapılacak)
+> **Eski 4.1 (tek tık kurulum) YAPILDI:** `kur.bat` / `basla.bat` / `dur.bat`
+> + `betikler/kurulum.py` + 66 test (K58). Ölçüldü: kurulum baştan sona
+> çalıştırıldı, uygulama açıldı, `dur.bat` ikisini de kapattı. Liste bir
+> kaydı — worker'ı günlerce çalıştırmayı bekleten şey tam da buydu.
 
-**Problem:** Kullanım şu an elle ve kırılgan. Kullanıcı iki ayrı PowerShell
-penceresi açmak, ikisinde de `cd` yapıp sanal ortamı etkinleştirmek, sonra
-iki ayrı komut çalıştırmak zorunda. Gerçek kullanımda tam da burada takıldı:
-yeni pencere `C:\WINDOWS\system32`'de açıldı, `.\.venv\Scripts\Activate.ps1`
-bulunamadı, komutlar sistem Python'ında çalıştı ve worker **tarayıcı motoru
-olmadan** açıldı — hiçbir üründen fiyat gelmedi.
+### 4.1 ⭐ Worker'ı günlerce çalıştır — asıl bilinmeyen
 
-**Öncül projede bu vardı ve porta taşınmadı.** `tracker/kur.bat` ve
-`tracker/calistir.bat` dosyalarına bak — çift tıkla çalışan, `cd /d "%~dp0"`
-ile kendi klasörüne geçen, Python yoksa açık hata veren betikler. Aynı
-yaklaşım buraya da gelmeli.
+Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.bat`
+çift tıkla API'yi ve worker'ı açıyor. Birkaç gün açık bırak, sonra bak:
 
-**Yapılacak:**
-
-- `kur.bat` — çift tıkla ilk kurulum: Python kontrolü, `.venv` oluşturma,
-  `pip install -r requirements.txt`, **playwright + chromium**, `.env`
-  oluşturma + JWT anahtarı üretip içine yazma, `alembic upgrade head`,
-  arayüz derleme (`npm ci && npm run build`), `statik/` kopyalama.
-- `basla.bat` — çift tıkla çalıştırma: kendi klasörüne geçer, sanal ortamı
-  kullanır (**aktive etmeye gerek bırakmadan**, doğrudan
-  `.venv\Scripts\python.exe` çağırarak), API ve worker'ı **iki ayrı pencerede**
-  başlatır (`start` komutu), sonra tarayıcıda `http://localhost:8000` açar.
-- `dur.bat` — ikisini de kapatır.
-
-**Tasarım kuralları:**
-- `cd /d "%~dp0"` ilk satır olmalı — nereden çalıştırılırsa çalıştırılsın
-  doğru klasöre geçsin (kullanıcının takıldığı yer tam olarak buydu).
-- **Sanal ortamı aktive etmeye çalışma**, `.venv\Scripts\python.exe`'yi
-  doğrudan çağır. `Activate.ps1` PowerShell çalıştırma politikasına takılıyor
-  ve bu tuzağa iki kez düşüldü.
-- Eksik olan her şey için **açık ve çalıştırılabilir** hata mesajı ver.
-  Sessiz devam etme — worker'ın tarayıcısız açılıp hiçbir şey okumaması tam
-  olarak bu yüzden oldu.
-- Testleri de yaz: `.bat` içeriği doğrudan test edilemez ama betiklerin
-  çağırdığı Python tarafı (anahtar üretme, ortam doğrulama) test edilebilir.
-  Mümkünse mantığı `betikler/kurulum.py` içine al, `.bat` yalnızca onu çağırsın.
+- Fiyat geçmişi grafikleri oluşuyor mu
+- Uyarılar mantıklı mı — özellikle **yanlış "dibe vurdu" uyarısı** var mı
+- `tarama_turu` log satırlarında `basarisiz` sayısı zamanla artıyor mu
+- Veritabanı boyutu
 
 ### 4.2 Amazon MSI monitör — tek gerçek bilinmeyen
 
@@ -206,17 +182,7 @@ başka bir yerde (ör. "Diğer satıcılar") fiyat var mı?
 **Ama acele etme:** akakçe aynı ürünü **25.999,00** okuyor ve 16 satıcı
 gösteriyor. Ürünün pratik cevabı zaten var. Bu bir *merak*, blokaj değil.
 
-### 4.3 Worker'ı günlerce çalıştır — asıl bilinmeyen
-
-Kalan tek doğrulanmamış alan. `basla.bat` yazıldıktan sonra birkaç gün açık
-bırak, sonra bak:
-
-- Fiyat geçmişi grafikleri oluşuyor mu
-- Uyarılar mantıklı mı — özellikle **yanlış "dibe vurdu" uyarısı** var mı
-- `tarama_turu` log satırlarında `basarisiz` sayısı zamanla artıyor mu
-- Veritabanı boyutu
-
-### 4.4 Hiç gerçek sayfayla denenmemiş siteler
+### 4.3 Hiç gerçek sayfayla denenmemiş siteler
 
 `incehesap`, `itopya`, `mediamarkt`, `cimri`, `tebilon`, `sinerji` — kural
 dosyaları var ama **hiç gerçek linkle sınanmadı**. Seçiciler tracker'dan
@@ -226,7 +192,7 @@ onu zorunlu tutuyor.
 Kullanıcı zamanla link ekleyecek. **Sen kendin link uydurma** — gerçek
 sayfayla doğrulanmamış seçici, doğrulanmış gibi görünür ve daha kötüdür.
 
-### 4.5 Trendyol/Hepsiburada kanonik URL kuralı — KANIT BEKLİYOR
+### 4.4 Trendyol/Hepsiburada kanonik URL kuralı — KANIT BEKLİYOR
 
 Amazon'da `kanonik_yol_kalibi` ile çözülen ürün-bölünmesi sorunu bu sitelerde
 de olabilir (`-p-<id>` kimliği, değişken slug). **Ama kanıt yok.** Amazon'daki
@@ -235,6 +201,27 @@ bölünmeyi kullanıcının gerçek link listesi göstermişti.
 **Yanlış yazılan bir kural iki AYRI ürünü birleştirir — bölmekten beter,
 çünkü yanlış ürünün fiyatı doğru ürünün geçmişine yazılır.** Kanıt gelmeden
 dokunma.
+
+### 4.5 Uçtan uca testler TAM DOSYA koşusunda yerelde kırılıyor
+
+Bu makinede ölçüldü ve **K58 çalışmasından önce de vardı** (yeni testler hariç
+tutularak doğrulandı):
+
+- Dosyanın tamamı koşulunca **7-15 test** `Page.goto ... wait_until=
+  "networkidle"` ile 30 sn'de zaman aşımına uğruyor. Sayı koşumdan koşuma
+  değişiyor ve **makine yüküyle artıyor**: boştayken 7, paralel iş varken 15.
+- **Aynı testler tek başına koşunca 14 saniyede geçiyor.**
+- Hep dosyanın SONUNDAKİ testler düşüyor.
+
+Yani hata testlerin kendisinde değil, **koşum boyunca biriken bir şeyde**:
+tek uvicorn süreci ve tek tarayıcı bütün dosya boyunca paylaşılıyor, veri
+birikiyor. Hipotez (doğrulanmadı): veri arttıkça arayüzün istekleri hiç
+susmuyor ve `networkidle` 500 ms'lik sessizliği bulamıyor.
+
+CI'daki `uctan-uca` işi yeşil; sorun yerelde. Ama **yerelde kırmızı bir paket,
+"her değişiklikten sonra pytest" ritüelini işe yaramaz hale getirir** —
+kırmızıya bakmayı öğrenirsin. Ya `networkidle` beklemesi belirli bir öğeyi
+beklemeye çevrilmeli, ya sunucu/veritabanı test başına yenilenmeli.
 
 ---
 
@@ -299,6 +286,36 @@ duruyor çünkü API onu kullanmıyor. Ama **worker onsuz Türkiye'nin ana
 sitelerinin hiçbirinden fiyat okuyamaz**. Gerçek kurulumda bu atlandı; worker
 tek satır uyarı verip çalışmaya devam etti ve hiçbir üründen fiyat gelmedi.
 
+**5.13 — Windows 11'de konsol penceresinin sahibi python değil.** `dur.bat`ın
+ilk tasarımı `taskkill /FI "WINDOWTITLE eq KeepMoney API"` idi. Ölçüldü:
+`tasklist /V` o başlığı **`WindowsTerminal.exe`** üzerinde gösteriyor; python
+sürecinin başlığı `N/A`. Yani komut, KeepMoney'i değil kullanıcının terminal
+uygulamasını (açık bütün sekmeleriyle) kapatırdı. Süreçler artık PID ile
+izleniyor ve öldürmeden önce PID'in bizim python'umuz olduğu doğrulanıyor.
+
+**5.14 — Geliştiricinin `.env`i test sonucunu değiştiriyordu.** `Ayarlar`
+`.env` okuyor; CI'da o dosya yok, yerelde var. İki test yerelde kırmızıydı
+(`test_uretimde_anahtarsiz_acilmaz`, `test_sistem_chromiumu_kullaniliyor`) ve
+CI'da yeşil. Asıl tehlike ters yönde: `.env` **kırık olması gereken bir testi
+yeşil de gösterebilir**. `conftest.py` artık `.env` okumasını kapatıyor (K59).
+
+**5.15 — Playwright'ın sync API'si başarılı çağrıda bile yığın izi basıyor.**
+`sync_playwright()` kapanırken kendi asyncio görevini yarıda bırakıyor ve
+süreç sonunda "Task was destroyed but it is pending!" + `TargetClosedError`
+yazıyor — sorgu BAŞARILIYKEN de. Kurulum doğrulaması bu yüzden chromium'un
+yerini ayrı bir süreçte soruyor: "Her şey yerinde" diyen ekranın altındaki
+yığın izi, aracın kendisine olan güveni bitirir.
+
+**5.16 — Test paketi her gece 00:00-08:00 arasında kırmızıya dönüyordu.**
+Sessiz saatler (00:00-08:00 TR) normal alarmı erteliyor — gerçek ve istenen
+davranış. Ama `test_worker.py`deki uyarı testleri saati sabitlemiyordu: yerel
+saat 00:04'te altı test birden düştü ve hepsi "uyarı üretilmedi" diyordu. CI
+için de geçerliydi; 21:00-05:00 UTC arasında tetiklenen her koşu rastgele
+kırılırdı. Testler artık saati sabitliyor (kuralı KAPATMADAN) ve sessiz saat
+kuralının kendisi ayrıca test ediliyor — o satırın hiç doğrudan testi yoktu,
+uyarı testleri gündüz koştuğu için tesadüfen geçiyordu. Ders K59'un aynısı:
+**test sonucu ortamdan (makineden, saatten) miras almamalı.**
+
 ---
 
 ## 6. Çalışma ritmi ve kurallar
@@ -334,9 +351,16 @@ girmez; `.env.example` yalnızca güvenli yer tutucu içerir.
 ### Her değişiklikten sonra
 
 ```powershell
-pytest -q                    # 627 test
+pytest -q                    # 664 test (+ uçtan uca arayüz dosyası, §4.5)
 ruff check .
 cd arayuz ; npm run lint ; npx tsc --noEmit ; npm test ; cd ..
+```
+
+Testler kodu ölçer, ortamı değil. Ortamın kendisini (paketler, chromium,
+şema, `.env`) ayrıca sorabilirsin:
+
+```powershell
+.\.venv\Scripts\python.exe betikler\kurulum.py dogrula
 ```
 
 Push ettikten sonra **CI'ı KONTROL ET**. Bir dönem üç commit boyunca CI
@@ -366,6 +390,8 @@ Seçici yazarken gereken döngü budur.
 | `keepmoney/toplayici.py` | Akakçe araması (öneri sunar, **otomatik bağlamaz**) |
 | `keepmoney/siteler/*.yaml` | Site kuralları — düzeltme kod değil config işidir |
 | `betikler/kaynak_dene.py` | **Tanı aracı.** En çok kullanılan dosya |
+| `betikler/kurulum.py` | Kurulum/çalıştırma mantığı — `kur.bat`, `basla.bat`, `dur.bat` bunu çağırır |
+| `kur.bat` · `basla.bat` · `dur.bat` | Çift tıkla kurulum / çalıştırma / durdurma (kök dizin) |
 | `arayuz/src/` | React 19 + TS + Vite + TanStack Query |
 
 ---
