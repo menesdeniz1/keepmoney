@@ -79,6 +79,12 @@ def ozet(db: Session, s: WatchSet) -> dict:
     Kilitli üye için kilitli fiyat kullanılır ("bunu şu fiyata aldım/ayırdım").
     Fiyatı bilinmeyen üye varsa `hedefte` ASLA True dönmez — eksik toplamla
     'bütçeye girdin' demek kullanıcıyı yanlış yönlendirir.
+
+    BOŞ SET de hedefte SAYILMAZ, aynı sebeple: üye yokken `eksik == 0` ve
+    `toplam (0) <= bütçe` sağlanıyordu, yani kullanıcı set kurar kurmaz
+    ekranda yeşil "🎯 bütçe altında" görüyordu. Hiçbir şey almadan bütçenin
+    altında olmak bir başarı değil, yalnızca boş bir listedir; rozet burada
+    ölçtüğü şeyi yanlış bildiriyordu.
     """
     toplam = 0.0
     eksik = 0
@@ -99,5 +105,6 @@ def ozet(db: Session, s: WatchSet) -> dict:
         "toplam": round(toplam, 2),
         "eksik_uye": eksik,
         "uye_sayisi": len(uyeler),
-        "hedefte": bool(s.hedef_butce and eksik == 0 and toplam <= s.hedef_butce),
+        "hedefte": bool(s.hedef_butce and uyeler and eksik == 0
+                        and toplam <= s.hedef_butce),
     }

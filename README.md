@@ -16,7 +16,7 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 > — durum, sıradaki iş, gerçek denemelerde yakalanmış tuzaklar.
 >
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (60 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (63 karar kaydı)
 
 ---
 

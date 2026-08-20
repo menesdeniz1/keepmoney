@@ -903,3 +903,97 @@ değiştirmemek için test tarafında çözüldü.
 **Genel ilke:** K59'un kardeşi. Ortamdan miras alınan her şey — `.env`, saat,
 saat dilimi, makine hızı — testin neyi ölçtüğünü belirsizleştirir. "Bazen
 kırmızı" olan bir paket, hiç bakılmayan bir pakete dönüşür.
+
+---
+
+## K61 — Okunmayan bir boru, sessiz kilitlenme mekanizmasıdır
+
+**Yakalanan hata:** uçtan uca testler aylarca "flaky" sayıldı; tam dosya
+koşusunda 32 testin 15'i `Page.goto … wait_until="networkidle" 30000ms`
+ile düşüyor, tek başlarına 14 saniyede geçiyorlardı.
+
+Sebep testlerde değil, onları besleyen fikstürdeydi: uvicorn
+`stdout=subprocess.PIPE` ile açılıyor ve borudan koşum boyunca HİÇ
+okunmuyordu. Uygulama istek başına bir INFO satırı yazıyor; boru tamponu
+dolduğu anda yazma çağrısı BLOKE oluyor ve **sunucu bütünüyle donuyor** —
+`/saglik` dahil hiçbir istek dönmüyor.
+
+**Ölçüm:** aynı akış boruyla 16. turda kilitleniyor; çıktı dosyaya
+yönlendirilince 25 tur sorunsuz. Düzeltmeden sonra paket
+**15 kırık / 461 sn → 32 geçer / 63 sn**.
+
+**Üç hipotez ölçümle ELENDİ** (hepsi makul görünüyordu):
+- *veri birikmesi* — 0/5/20/30 üründe pano hep 0,5 sn'de networkidle'a oturdu,
+- *DB havuzu sızıntısı* — 20 kayıt boyunca `checkedout` hep 0,
+- *kopan istemci bağlantıları* — 60 yarım istek sunucuyu etkilemedi.
+
+**Karar: alt süreç çıktısı ya OKUNUR ya DOSYAYA yönlendirilir.** Test
+fikstürü artık geçici dizindeki `sunucu.log`a yazıyor; dosya bloke etmiyor
+ve teşhis çıktısı da korunuyor (arıza anında son 2 KB teste basılıyor —
+eski kod onu yalnızca süreç ölmüşse okuyabiliyordu).
+
+**Genel ilke iki tane.** Birincisi: *test altyapısı da üretim kodu kadar
+dikkat ister*; oradaki bir hata, ürün hakkında YANLIŞ bilgi üretir ve
+"testler zaten kırıktı" alışkanlığı bütün paketi işe yaramaz hâle getirir.
+İkincisi: **hata mesajının gösterdiği yer, arızanın olduğu yer değildir.**
+"Sayfa yüklenmedi" diyen mesajın altında kilitlenmiş bir sunucu vardı.
+
+---
+
+## K62 — SPA geri düşüşü, DOSYA isteklerini yutmamalı
+
+**Yakalanan hata:** `/{yol:path}` yakalayıcısı, bulunamayan HER yola
+`index.html` döndürüyordu — dosya gibi görünenlere de. Tarayıcı istediği
+JavaScript'in yerine HTML alınca hata **"Unexpected token '<'"** olur; yani
+sorunun "dosya yok" olduğunu SÖYLEMEZ.
+
+Bu, dağıtım sonrası en sinsi arızalardan biri: kullanıcının önbelleğindeki
+eski `index.html` artık var olmayan bir parça dosyasını ister, `200` + HTML
+alır ve ekran bembeyaz kalır. `sw.js` eksik olsaydı servis çalışanı da aynı
+sebeple "unknown error" derdi.
+
+**Karar:** yol bulunamadıysa ve **adında nokta varsa** 404. Uygulamanın
+rotalarında nokta yoktur (`/izleme/12`, `/setler`, …) — bu varsayım bir
+testle kayda geçti, noktalı bir rota eklenirse test kırmızıya döner.
+
+`/api/*` zaten ayrıydı (aksi halde olmayan uç JSON yerine HTML dönerdi); bu
+karar aynı ilkeyi statik varlıklara uyguluyor: **geri düşüş, yalnızca gerçek
+bir belirsizlikte devreye girmeli.**
+
+Bu katmanın hiç birim testi yoktu; `tests/test_statik.py` eklendi — geri
+düşüş, kökteki gerçek dosyalar, API'nin gölgelenmemesi, önbellek başlığı ve
+**yol geçişi** (`../` ile dizin dışına çıkma) dahil.
+
+---
+
+## K63 — İndeks, sorgu planı ÖLÇÜLEREK seçilir
+
+**Ölçüm (SQLite `EXPLAIN QUERY PLAN`):**
+
+```
+SELECT ts, fiyat FROM price_readings WHERE product_id=? ORDER BY ts
+  SEARCH price_readings USING INDEX ix_price_readings_product_id
+  USE TEMP B-TREE FOR ORDER BY          ← her çağrıda bellekte sıralama
+```
+
+Aynı desen uyarı listesinde de vardı (`WHERE user_id=? ORDER BY created_at`).
+İkisi de ürünün en sıcak okuma yolları: fiyat geçmişi hem grafikte hem HER
+tarama turunda okunuyor, uyarı listesi panel her açıldığında.
+
+**Karar:** `(product_id, ts)` ve `(user_id, created_at)` bileşik indeksleri.
+Plandan sıralama adımı kalktı. Tek sütunluk indeksler KALDIRILDI — bileşiğin
+en soldaki sütunu aynı işi görüyor ve sürekli büyüyen bir tabloda ikinci bir
+ağaç bakımı bedava değil.
+
+**Göç elle yazıldı, iki sebeple:**
+1. **Önce yeni indeks kurulur, sonra eskisi düşer.** Tersi, üretimde
+   (Postgres) tablonun bir süre indekssiz kalması demektir.
+2. **`batch_alter_table` kullanılmadı.** O, SQLite'ın ALTER TABLE kısıtları
+   için var ve tabloyu yeniden inşa edebiliyor; indeks işlemlerini iki
+   veritabanı da doğrudan destekliyor. Ürünün en değerli tablosunu
+   (fiyat geçmişi, yeniden üretilemez) gereksiz yere kopyalama riskine
+   sokmanın sebebi yok.
+
+**Genel ilke:** indeks tahminle değil **plana bakarak** eklenir; ve eklenen
+her indeksin yazma tarafında bir bedeli olduğu için, kapsanan bir indeks
+bırakılmaz.

@@ -306,6 +306,24 @@ def test_set_olustur_ve_toplam(istemci, db):
     assert y["hedefte"] is True
 
 
+def test_bos_set_hedefte_demez(istemci, db):
+    """Üyesi olmayan set "🎯 bütçe altında" DEMEZ.
+
+    Eskiden derdi: üye yokken `eksik == 0` ve `toplam (0) <= bütçe` sağlanıyor,
+    kullanıcı seti kurar kurmaz yeşil rozeti görüyordu. Hiçbir şey almadan
+    bütçenin altında olmak bir başarı değil, boş bir listedir — bu, eksik
+    üyeli sette zaten uygulanan ilkenin (aşağıdaki test) uç hâli.
+    """
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b,
+                     json={"ad": "Boş set", "hedef_butce": 100000}).json()
+
+    y = istemci.get(f"/api/setler/{s['id']}", headers=b).json()
+    assert y["uye_sayisi"] == 0
+    assert y["toplam"] == 0
+    assert y["hedefte"] is False
+
+
 def test_eksik_uyeli_set_hedefte_demez(istemci, db):
     b = kayit_ol(istemci)
     s = istemci.post("/api/setler", headers=b,

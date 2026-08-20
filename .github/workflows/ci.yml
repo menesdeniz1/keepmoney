@@ -180,6 +180,14 @@ jobs:
       - name: Derleme
         run: npm run build
 
+      # Python tarafında `pip-audit` vardı, arayüz tarafı denetimsizdi —
+      # oysa bu ağaç node_modules ile çok daha büyük bir saldırı yüzeyi.
+      # `--audit-level=high`: orta/düşük seviye bulgular çoğunlukla yalnızca
+      # geliştirme zincirini ilgilendiriyor ve işi sürekli kırmızıya
+      # boğarsa kimse bakmaz; yüksek ve kritik olanlar durdurur.
+      - name: Bağımlılık açık taraması
+        run: npm audit --audit-level=high
+
   # ÜRETİMİN GERÇEK ÇIKTISI BU İMAJ ve hiçbir iş onu denemiyordu. Dockerfile
   # değişiklikleri yalnızca dağıtım anında sınanıyordu — yani hata, en kötü
   # anda ortaya çıkıyordu. Somut örnek: `render: true` isteyen kurallar aylarca

@@ -9,7 +9,7 @@ geçmişi sıfırlanacağı için burada duran şey "ne var" değil, **"neden ö
 | Belge | Ne anlatır |
 |---|---|
 | **DEVIR.md** (bu) | Durum, sıradaki iş, tuzaklar, çalışma ritmi |
-| [`MIMARI.md`](MIMARI.md) | 60 tasarım kararı ve gerekçesi (K1–K60) |
+| [`MIMARI.md`](MIMARI.md) | 63 tasarım kararı ve gerekçesi (K1–K63) |
 | [`CALISTIRMA.md`](CALISTIRMA.md) | Kurulum, çalıştırma, seçici doğrulama, canlıya alma |
 
 ---
@@ -21,7 +21,7 @@ Aşağıdakini olduğu gibi yapıştır:
 ```
 KeepMoney projesinde çalışıyoruz. Önce şunları oku:
   docs/DEVIR.md   — durum, sıradaki iş, tuzaklar (BURADAN BAŞLA)
-  docs/MIMARI.md  — K1–K60 tasarım kararları
+  docs/MIMARI.md  — K1–K63 tasarım kararları
   docs/CALISTIRMA.md — kurulum ve çalıştırma
 
 Ben Windows'tayım, PowerShell kullanıyorum, proje
@@ -54,35 +54,39 @@ tek tek geri getirildi (bkz. §5).
 
 ### Kod ve testler
 
-- **664 test yeşil** (uçtan uca arayüz dosyası hariç — bkz. §4.5)
+- **716 test yeşil** — uçtan uca arayüz dosyası DAHİL (32 senaryo,
+  gerçek tarayıcı + gerçek sunucu). Tam paket 142 sn.
 - **CI 7 iş**: `test`, `windows`, `postgres`, `tarayici-motoru`,
   `uctan-uca`, `arayuz`, `imaj` (Docker imajı derlenip container ayağa
   kaldırılıyor, chromium ve arayüz doğrulanıyor)
-- **60 mimari karar** belgeli (`MIMARI.md`)
+- **63 mimari karar** belgeli (`MIMARI.md`)
 - Son commit: `fb2870f`
 
 ### Gerçek linklerle okuma oranı
 
-18 gerçek link, `betikler/kaynak_dene.py --dosya linkler.txt`:
+37 gerçek link (kullanıcının PC toplama tablosundan), `betikler/kaynak_dene.py
+--dosya linkler.txt`:
 
 | Site | Sonuç | Not |
 |---|---|---|
-| akakce.com | **3/3** | + 16 satıcı pazar derinliği okunuyor |
-| amazon.com.tr | **6/7** | Kalan tek bilinmeyen (§4.2) |
-| trendyol.com | **1/1** | |
-| n11.com | **1/1** | |
+| n11.com | **5/5** | Kural dosyası ilk kez gerçek sayfayla doğrulandı |
+| idefix.com | **2/2** | Kural dosyası yok, varsayılan zincir |
+| gamer.gen.tr | **1/1** | Kural dosyası YOK — varsayılan zincir json-ld'den okudu |
+| trendyol.com | **1/1** | `render: true`, playwright ile 9,2 sn |
 | ikea.com.tr | **1/1** | Kural dosyası yok, varsayılan zincir |
-| idefix.com | **1/1** | Kural dosyası yok, varsayılan zincir |
-| hepsiburada.com | 0/1 | Bot duvarı 403 — **tasarım gereği akakçe'den okunuyor** |
+| amazon.com.tr | **10/17** | 3'ü stokta yok (arıza değil), 4'ü gerçek iş (§4.2) |
+| hepsiburada.com | 0/3 | Bot duvarı 403 — **tasarım gereği akakçe'den okunuyor** |
+| sinerji.gen.tr | 0/3 | **YENİ BİLGİ:** bot duvarı. Kural dosyası var ama işe yaramıyor |
+| pttavm.com | 0/2 | Bot duvarı (Cloudflare "Attention Required") |
 | shop.nurus.com | 0/1 | Shopify bot duvarı |
 | wraithesports.com | 0/1 | Shopify bot duvarı |
-| vatanbilgisayar.com | 0/1 | **Link ölü** (HTTP 200 + "404 File not found") |
 
-**Ham oran %72. Ama okunamayan 5 satırın 4'ü kod hatası DEĞİL:** üçü bot
-duvarı (toplayıcıya yönlendirilir — Hepsiburada'nın fiyatını akakçe zaten
-veriyor), biri kullanıcının verdiği ölü link. Gerçek bilinmeyen **1 tane**.
+**Ham oran %54. Aracın kendi ayrımı: 4 gerçek iş · 10 bot duvarı · 3 stokta
+yok · 0 ölü link.** Yani okunamayan 17 satırın 13'ü kod hatası değil.
 
-Bu ayrımı rapor artık kendisi yapıyor (§5.9).
+**Kanonik URL birleştirme GERÇEK linklerde doğrulandı (K16):** aynı ASIN'in
+üç farklı biçimi (`/dp/`, `/gp/product/`, takip parametreli uzun hâl) tek
+kaynağa düştü — `B0DVGVZZYY`, `B0B7CMZ3QH` ve `B0F7RD9D4V` için ayrı ayrı.
 
 ### Uçtan uca doğrulanmış akışlar
 
@@ -175,9 +179,20 @@ Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.b
 çalıştı ama eleman hiç gelmedi. **Zamanlama hipotezi çürütüldü.** (Düzeltme
 yine de kaldı: yavaş sayfalara karşı doğru bir koruma ve testi var.)
 
-**Sıradaki adım:** `--incele` artık aday listesini kesmiyor ve yabancı
-olmayanları öne alıyor; yeniden kaydedilmiş HTML'de bakılmalı. Sayfada
-başka bir yerde (ör. "Diğer satıcılar") fiyat var mı?
+**YENİ KANIT (37 linklik koşu):** bu imza tek ürüne özgü DEĞİL. Aynı desen
+üç üründe birden görüldü — MSI monitör (`B0BSLHZKB6`), Keychron klavye
+(`B0F7RD9D4V`) ve Ryzen 7800X3D (`B0CJML6LQZ`): `#centerCol` var ama içinde
+yalnızca ürün adı, puan ve buybox'ın "Güvenli işlem · İade Politikası"
+dipnotu duruyor; fiyat satırı HİÇ YOK. Bütün fiyat adayları sponsorlu
+karusellerde (`sp_detail_*`).
+
+Yani seçici kırık değil: **Amazon bu sayfalarda fiyatı HTML'e koymuyor.**
+Aynı koşuda 10 Amazon linki sorunsuz okundu, yani sorun sayfaya özgü.
+
+**Sıradaki adım:** kaydedilmiş HTML'lerde "Diğer satıcılar" bloğu arandı —
+üç sayfadan yalnızca birinde var. Oradan okunacak fiyat buybox fiyatı
+DEĞİLDİR; yazılacaksa ayrı ve düşük güvenli bir kaynak olarak yazılmalı,
+yoksa yanlış fiyat doğru ürünün geçmişine girer.
 
 **Ama acele etme:** akakçe aynı ürünü **25.999,00** okuyor ve 16 satıcı
 gösteriyor. Ürünün pratik cevabı zaten var. Bu bir *merak*, blokaj değil.
@@ -201,34 +216,6 @@ bölünmeyi kullanıcının gerçek link listesi göstermişti.
 **Yanlış yazılan bir kural iki AYRI ürünü birleştirir — bölmekten beter,
 çünkü yanlış ürünün fiyatı doğru ürünün geçmişine yazılır.** Kanıt gelmeden
 dokunma.
-
-### 4.5 Uçtan uca testler TAM DOSYA koşusunda yerelde kırılıyor
-
-Bu makinede ölçüldü ve **K58 çalışmasından önce de vardı** (yeni testler hariç
-tutularak doğrulandı):
-
-- Dosyanın tamamı koşulunca **32 testin 15'i** `Page.goto ... wait_until=
-  "networkidle"` ile 30 sn'de zaman aşımına uğruyor (iki bağımsız koşum:
-  461 sn ve 461 sn, aynı 15 test). Daha erken bir koşumda 7'ydi — sayı
-  koşumdan koşuma oynuyor.
-- **Aynı testler tek başına koşunca 14 saniyede geçiyor.**
-- Hep dosyanın SONUNDAKİ testler düşüyor.
-
-Yani hata testlerin kendisinde değil, **koşum boyunca biriken bir şeyde**:
-tek uvicorn süreci ve tek tarayıcı bütün dosya boyunca paylaşılıyor, veri
-birikiyor. Hipotez (doğrulanmadı): veri arttıkça arayüzün istekleri hiç
-susmuyor ve `networkidle` 500 ms'lik sessizliği bulamıyor.
-
-Kontrol deneyi yapıldı: `conftest.py` değişikliği (K59) kapatılıp dosya
-yeniden koşuldu — **15 kırık, 17 geçer, 460,8 sn**; değişiklik açıkken
-**15 kırık, 17 geçer, 461,4 sn**. Yani bu arıza K58/K59 çalışmasından
-bağımsız. (Zaten mekanizması da yok: `test_e2e_arayuz.py` hiçbir `keepmoney`
-modülü import etmiyor, sunucuyu alt süreç olarak açıyor.)
-
-CI'daki `uctan-uca` işi yeşil; sorun yerelde. Ama **yerelde kırmızı bir paket,
-"her değişiklikten sonra pytest" ritüelini işe yaramaz hale getirir** —
-kırmızıya bakmayı öğrenirsin. Ya `networkidle` beklemesi belirli bir öğeyi
-beklemeye çevrilmeli, ya sunucu/veritabanı test başına yenilenmeli.
 
 ---
 
@@ -329,6 +316,21 @@ uyarı testleri gündüz koştuğu için tesadüfen geçiyordu. Ders K59'un ayn�
 göre farklı cevap veriyor. Depoya betik eklerken:
 `git update-index --chmod=+x <dosya>`.
 
+**5.18 — Uçtan uca sunucusu, LOG BORUSU dolunca kilitleniyordu.** `sunucu`
+fikstürü uvicorn'u `stdout=PIPE` ile açıyor ve borudan hiç okumuyordu.
+Uygulama istek başına bir INFO satırı yazıyor; Windows'ta boru tamponu
+dolduğu anda yazma çağrısı BLOKE oluyor ve sunucu tamamen donuyor —
+`/saglik` dahil. Testler bunu "Page.goto … networkidle 30000ms" diye
+görüyordu, yani hata mesajı yanlış yeri gösteriyordu ve arıza aylarca
+"flaky e2e" sayıldı.
+
+Ölçüm: boruyla 16. turda kilit, dosyayla 25 tur sorunsuz. Düzeltmeden sonra
+paket **15 kırık / 461 sn → 32 geçer / 63 sn**.
+
+Ders: **bir alt sürecin çıktısını boruya bağlıyorsan ya oku ya dosyaya
+yönlendir.** Okunmayan boru, sessiz bir kilitlenme mekanizmasıdır. Bir de
+şu: hata mesajının gösterdiği yer, arızanın olduğu yer değildir.
+
 ---
 
 ## 6. Çalışma ritmi ve kurallar
@@ -364,7 +366,7 @@ girmez; `.env.example` yalnızca güvenli yer tutucu içerir.
 ### Her değişiklikten sonra
 
 ```powershell
-pytest -q                    # 664 test (+ uçtan uca arayüz dosyası, §4.5)
+pytest -q                    # 716 test (uçtan uca dahil, ~2,5 dk)
 ruff check .
 cd arayuz ; npm run lint ; npx tsc --noEmit ; npm test ; cd ..
 ```
@@ -406,10 +408,12 @@ Seçici yazarken gereken döngü budur.
 | `betikler/kurulum.py` | Kurulum/çalıştırma mantığı — `kur.bat`, `basla.bat`, `dur.bat` bunu çağırır |
 | `kur.bat` · `basla.bat` · `dur.bat` | Çift tıkla kurulum / çalıştırma / durdurma (kök dizin) |
 | `arayuz/src/` | React 19 + TS + Vite + TanStack Query |
+| `tests/test_statik.py` | SPA sunumu: geri düşüş, API gölgelenmesi, yol geçişi |
 
 ---
 
-*Son güncelleme: bu belge yazıldığında son commit `fb2870f`, 664 test yeşil
-(uçtan uca arayüz dosyası hariç — §4.5), arayüz tarafı temiz (eslint, tsc,
-18 vitest). CI bu makineden DOĞRULANAMADI: depo özel ve `gh` kurulu değil —
-push sonrası GitHub Actions'a elle bakılmalı.*
+*Son güncelleme: 716 test yeşil (uçtan uca dahil), arayüz temiz (eslint, tsc,
+18 vitest), `pip-audit` ve `npm audit` sıfır açık, `alembic check` temiz.
+CI bu makineden DOĞRULANAMADI: depo özel ve `gh` kurulu değil — push sonrası
+GitHub Actions'a elle bakılmalı. Docker da yerelde denenemedi (kurulu değil);
+imajı CI'daki `imaj` işi her push'ta derleyip ayağa kaldırıyor.*
