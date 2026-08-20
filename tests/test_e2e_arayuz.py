@@ -15,6 +15,7 @@ sessizce yanlış şeyi doğrulamaktansa açıkça atlamak doğrudur.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import subprocess
@@ -71,32 +72,61 @@ def sunucu(tmp_path_factory):
     }
     ortam.pop("KEEPMONEY_TEST_VERITABANI_URL", None)
 
+    # ── Sunucu çıktısı BORUYA DEĞİL DOSYAYA yazılır ──────────────
+    #
+    # Burası `stdout=subprocess.PIPE` idi ve borudan koşum boyunca HİÇ
+    # okunmuyordu. Sonuç, teşhisi günler alabilecek bir arıza: uygulama
+    # istek başına bir INFO satırı yazıyor, Windows'ta boru tamponu birkaç
+    # on KB'de doluyor, dolduğu anda uvicorn'un log yazma çağrısı BLOKE
+    # oluyor ve sunucu bütünüyle donuyor. Testler bunu "Page.goto ...
+    # networkidle 30000ms" diye görüyordu — yani hata, sunucunun kilitli
+    # olduğunu değil, sayfanın yüklenmediğini söylüyordu.
+    #
+    # ÖLÇÜLDÜ (bkz. docs/DEVIR.md §5.18): aynı akış boruyla 16. turda
+    # kilitleniyor, `/saglik` dahil her istek ölüyor; çıktı dosyaya
+    # yönlendirildiğinde 25 tur sorunsuz. Dosya hem bloke etmez hem
+    # teşhis çıktısını KORUR — arıza anında altındaki `_sunucu_kaydi`
+    # onu teste basıyor.
+    kayit_yolu = dizin / "sunucu.log"
+    kayit = kayit_yolu.open("w", encoding="utf-8")
+
     surec = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "keepmoney.api.app:app",
          "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
         cwd=KOK, env=ortam,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdout=kayit, stderr=subprocess.STDOUT,
     )
+
+    def _sunucu_kaydi(sinir: int = 2000) -> str:
+        kayit.flush()
+        try:
+            return kayit_yolu.read_text(encoding="utf-8", errors="replace")[-sinir:]
+        except OSError:
+            return "(sunucu kaydı okunamadı)"
 
     taban = f"http://127.0.0.1:{port}"
     import urllib.error
     import urllib.request
-    for _ in range(60):
-        if surec.poll() is not None:
-            cikti = surec.stdout.read().decode("utf-8", "replace") if surec.stdout else ""
-            pytest.fail(f"sunucu açılmadı:\n{cikti[-2000:]}")
-        try:
-            with urllib.request.urlopen(f"{taban}/saglik", timeout=1):
-                break
-        except (urllib.error.URLError, OSError):
-            time.sleep(0.25)
-    else:
-        surec.kill()
-        pytest.fail("sunucu zamanında ayağa kalkmadı")
+    try:
+        for _ in range(60):
+            if surec.poll() is not None:
+                pytest.fail(f"sunucu açılmadı:\n{_sunucu_kaydi()}")
+            try:
+                with urllib.request.urlopen(f"{taban}/saglik", timeout=1):
+                    break
+            except (urllib.error.URLError, OSError):
+                time.sleep(0.25)
+        else:
+            surec.kill()
+            pytest.fail(f"sunucu zamanında ayağa kalkmadı:\n{_sunucu_kaydi()}")
 
-    yield taban
-    surec.terminate()
-    surec.wait(timeout=10)
+        yield taban
+    finally:
+        surec.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            surec.wait(timeout=10)
+        surec.kill()
+        kayit.close()
 
 
 @pytest.fixture(scope="module")
