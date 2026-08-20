@@ -648,3 +648,38 @@ def test_bagimlilik_uyarisi_venv_yoksa_kurulum_anlatir(windows):
                                    windows=windows, venv_var=False)
     assert "pip install -r requirements.txt" in metin
     assert "venv .venv" in metin
+
+
+# ── Tanı aracı bilmediği sebebi SÖYLEMEMELİ ─────────────────────
+# `render` zaten açıkken fiyat okunamıyorsa sebep BİLİNMİYOR. Eskiden
+# koşulsuz "`fiyat_secici` güncellenmeli" deniyordu ve gerçek bir koşuda bu
+# yanlıştı: Amazon'daki bir monitörde sayfadaki tüm fiyatlar sponsorlu
+# kutulardaydı, yani yazılacak bir seçici YOKTU. Araç, bilen komuta
+# yönlendirmeli.
+
+def test_render_aciksa_secici_yaz_demez(capsys):
+    sonuc = kd.Sonuc(url="https://amazon.com.tr/dp/B0BSLHZKB6",
+                     domain="amazon.com.tr",
+                     sorun="fiyat okunamadı — sebebi için `--incele` çalıştır")
+    kd._satir_yaz(sonuc)
+    cikti = capsys.readouterr().out
+    assert "--incele" in cikti
+    assert "`fiyat_secici` güncellenmeli" not in cikti
+
+
+def test_denenen_katmanlar_satirda_gorunur(capsys):
+    """Satırdaki tek "requests" kelimesi, tarayıcının hiç denenmediğini
+    sandırıyordu."""
+    kd._satir_yaz(kd.Sonuc(
+        url="x", domain="shop.nurus.com", sorun="bot koruması sayfası",
+        yontem="requests",
+        denenenler=("requests", "cloudscraper", "playwright")))
+    cikti = capsys.readouterr().out
+    assert "denenen katmanlar: requests → cloudscraper → playwright" in cikti
+
+
+def test_basarili_satirda_katman_listesi_gurultu_yapmaz(capsys):
+    kd._satir_yaz(kd.Sonuc(url="x", domain="magaza.com", fiyat=100.0,
+                           guven="secici", yontem="playwright",
+                           denenenler=("requests", "playwright")))
+    assert "denenen katmanlar" not in capsys.readouterr().out

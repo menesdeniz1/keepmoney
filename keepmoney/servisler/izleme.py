@@ -33,6 +33,16 @@ COP_PARAMETRELER = {
     "content-id", "th", "psc", "smid", "linkCode", "tag",
     # Hepsiburada / Trendyol mağaza ve kampanya izleri
     "magaza", "wt_pc", "adj_t", "adj_campaign", "adj_adgroup", "v",
+    # Google Shopping tıklama kimliği. Gerçek bir link listesinde yakalandı:
+    #   .../products/vxe-r1-kablosuz-mouse?srsltid=AfmBOoqyVmp6aK4B...&variant=475...
+    # `srsltid` her tıklamada DEĞİŞİYOR. Atılmazsa aynı ürünün Google'dan
+    # gelen iki linki iki ayrı kanonik URL üretir; ürün ikiye bölünür, aynı
+    # sayfa iki kez taranır ve fiyat geçmişi parçalanır — K16'nın ihlali.
+    # DİKKAT: `variant` ATILMIYOR. Shopify'da varyant AYRI BİR ÜRÜNDÜR
+    # (farklı renk/boyut, farklı fiyat); onu atmak iki ayrı ürünü tek kayda
+    # BİRLEŞTİRİRDİ — bölmekten beter, çünkü yanlış fiyat doğru ürüne yazılır.
+    "srsltid", "gad_source", "gbraid", "wbraid", "msclkid", "ttclid",
+    "epik", "irclickid", "mc_cid", "mc_eid", "yclid", "twclid",
 }
 
 # Amazon takip verisini yolun İÇİNE gömer:

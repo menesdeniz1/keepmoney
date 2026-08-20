@@ -136,3 +136,42 @@ def test_akakce_yolu_bozulmuyor():
     url = ("https://www.akakce.com/monitor/en-ucuz-msi-mag-271qp-qd-oled"
            "-fiyati,1077309366.html")
     assert url_normalize(url).endswith("fiyati,1077309366.html")
+
+
+# ── Google Shopping tıklama kimliği ─────────────────────────────
+# Gerçek bir link listesinde yakalandı:
+#   .../products/vxe-r1-kablosuz-mouse?srsltid=AfmBOoqy...&variant=475...
+# `srsltid` HER TIKLAMADA değişiyor. Atılmazsa aynı ürünün Google'dan gelen
+# iki linki iki ayrı kanonik URL üretir; ürün ikiye bölünür, aynı sayfa iki
+# kez taranır ve fiyat geçmişi parçalanır.
+
+def test_google_tiklama_kimligi_atilir():
+    a = ("https://wraithesports.com/products/vxe-r1-kablosuz-mouse"
+         "?srsltid=AfmBOoqyVmp6aK4Bup1VjyQyQ8qLgvuMlmTMBgiK8hPWvqZ68znZqDXp"
+         "&variant=47501043728577")
+    b = ("https://wraithesports.com/products/vxe-r1-kablosuz-mouse"
+         "?srsltid=BAMBASKAtiklamaKimligi999&variant=47501043728577")
+    assert url_normalize(a) == url_normalize(b)
+    assert "srsltid" not in url_normalize(a)
+
+
+def test_shopify_varyanti_KORUNUR():
+    """Karşı test — ve bu daha tehlikeli yön.
+
+    Shopify'da varyant AYRI BİR ÜRÜNDÜR (farklı renk/boyut, farklı fiyat).
+    `variant` atılsaydı iki ayrı ürün TEK kayda birleşirdi: bölünmekten
+    beter, çünkü yanlış ürünün fiyatı doğru ürünün geçmişine yazılır.
+    """
+    tekil = "https://wraithesports.com/products/vxe-r1?variant=47501043728577"
+    baska = "https://wraithesports.com/products/vxe-r1?variant=99999999999999"
+    assert url_normalize(tekil) != url_normalize(baska)
+    assert "variant=47501043728577" in url_normalize(tekil)
+
+
+@pytest.mark.parametrize("parametre", [
+    "gad_source", "gbraid", "wbraid", "msclkid", "ttclid", "yclid",
+])
+def test_diger_reklam_tiklama_kimlikleri_de_atilir(parametre):
+    """Aynı sınıftan olan hepsi birden eklendi; biri unutulursa sessizce böler."""
+    url = f"https://magaza.com/urun-x?{parametre}=abc123XYZ"
+    assert url_normalize(url) == "https://magaza.com/urun-x"

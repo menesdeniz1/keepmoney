@@ -322,3 +322,47 @@ def test_olu_sayfada_bosuna_yukselinmez(monkeypatch):
         "ölü sayfada yükselme YAPILMAMALI"))
     c.cek("https://magaza.com/yok")
     assert cagrilar == ["requests"]
+
+
+# ── Denenen katmanlar taşınmalı ─────────────────────────────────
+# Hiçbiri temiz değilken gövdesi olan İLK deneme dönüyor, yani `yontem`
+# çoğu zaman "requests" oluyor. Tanı çıktısında bu, "tarayıcı hiç denenmedi"
+# izlenimi veriyordu: gerçek bir koşuda iki Shopify mağazası için tam olarak
+# bu yanlış sonuca varıldı ve yükselme merdiveni bozuk sanıldı.
+
+def test_hicbiri_temiz_degilse_denenen_katmanlar_bildirilir(monkeypatch):
+    from keepmoney import cekici as c
+
+    duvar = "<html><head><title>Just a moment...</title></head><body></body></html>"
+    ck = c.HttpCekici()
+    monkeypatch.setattr(ck, "_requests",
+                        lambda u: c.Cekim(html=duvar, http_kodu=200,
+                                          yontem="requests"))
+    monkeypatch.setattr(ck, "_cloudscraper_cek",
+                        lambda u: c.Cekim(html=duvar, http_kodu=200,
+                                          yontem="cloudscraper"))
+    monkeypatch.setattr(ck, "_playwright",
+                        lambda u, k: c.Cekim(html=duvar, http_kodu=200,
+                                             yontem="playwright"))
+
+    sonuc = ck.cek("https://magaza.com/urun", {})
+    assert sonuc.yontem == "requests"                       # dönen yanıt
+    assert sonuc.denenenler == ("requests", "cloudscraper", "playwright")
+
+
+def test_temiz_yanitta_zincir_erken_biter(monkeypatch):
+    """Karşı test: ilk katman işe yaradıysa diğerleri DENENMEMELİ."""
+    from keepmoney import cekici as c
+
+    ck = c.HttpCekici()
+    monkeypatch.setattr(ck, "_requests",
+                        lambda u: c.Cekim(html="<html><body>ok</body></html>",
+                                          http_kodu=200, yontem="requests"))
+    monkeypatch.setattr(ck, "_cloudscraper_cek",
+                        lambda u: pytest.fail("temiz yanıt varken denenmemeli"))
+    monkeypatch.setattr(ck, "_playwright",
+                        lambda u, k: pytest.fail("temiz yanıt varken denenmemeli"))
+
+    sonuc = ck.cek("https://magaza.com/urun", {})
+    assert sonuc.yontem == "requests"
+    assert sonuc.denenenler == ()          # erken dönüşte liste doldurulmuyor

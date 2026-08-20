@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 from urllib.parse import urljoin
 
@@ -57,6 +57,12 @@ class Cekim:
     http_kodu: int | None = None
     hata: str | None = None
     yontem: str = "yok"          # requests | cloudscraper | playwright
+    # Zincirde DENENEN tüm katmanlar. `yontem` yalnızca döndürülen yanıtın
+    # katmanını söylüyor; hiçbiri temiz değilken gövdesi olan İLK deneme
+    # dönüyor, yani `yontem="requests"` görünüyor. Bu, "tarayıcı hiç
+    # denenmedi" izlenimi veriyordu — tanı sırasında tam olarak bu yanlış
+    # sonuca varıldı ve merdiven bozuk sanıldı. Gerçekte üçü de denenmişti.
+    denenenler: tuple[str, ...] = ()
 
     @property
     def basarili(self) -> bool:
@@ -193,10 +199,16 @@ class HttpCekici:
         # katman engel/ölü sayfa ayrımını ancak HTML'e bakarak yapabilir.
         # Boş bir `Cekim` döndürmek, "engellendik" ile "ağ koptu" arasındaki
         # farkı silerdi — ikisi çok farklı tepkiler gerektiriyor.
+        #
+        # Denenen katmanların LİSTESİ de taşınıyor: dönen yanıt `requests`
+        # olduğu için "tarayıcı hiç denenmedi" sanılıyordu (bkz. `denenenler`).
+        tumu = tuple(d.yontem for d in denemeler)
         for d in denemeler:
             if d.html:
-                return d
-        return denemeler[0] if denemeler else Cekim(hata="hiçbir katman denenmedi")
+                return replace(d, denenenler=tumu)
+        if denemeler:
+            return replace(denemeler[0], denenenler=tumu)
+        return Cekim(hata="hiçbir katman denenmedi")
 
     # ── katmanlar ────────────────────────────────────────────────
 

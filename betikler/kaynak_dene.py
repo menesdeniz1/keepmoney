@@ -203,6 +203,12 @@ class Sonuc:
     url: str
     domain: str
     yontem: str = "yok"
+    # Zincirde denenen TÜM katmanlar. `yontem` yalnızca döndürülen yanıtınki;
+    # hiçbiri temiz değilken gövdesi olan ilk deneme dönüyor ve satırda
+    # "requests" görünüyor. Bu, "tarayıcı hiç denenmedi" izlenimi veriyordu:
+    # gerçek bir koşuda iki Shopify mağazası için tam olarak bu yanlış sonuca
+    # varıldı ve yükselme merdiveni bozuk sanıldı.
+    denenenler: tuple[str, ...] = ()
     http_kodu: int | None = None
     fiyat: float | None = None
     guven: str = "yok"
@@ -265,6 +271,7 @@ def _dene(cekici: HttpCekici, robots: RobotsKapisi, throttle: HostThrottle,
     cekim = cekici.cek(url, kural)
     s.sure_sn = time.monotonic() - basla
     s.yontem, s.http_kodu = cekim.yontem, cekim.http_kodu
+    s.denenenler = cekim.denenenler
 
     if cekim.hata:
         s.sorun = cekim.hata
@@ -290,9 +297,16 @@ def _dene(cekici: HttpCekici, robots: RobotsKapisi, throttle: HostThrottle,
         # asla tutmayacak bir seçici yazmaya gönderiyoruz.
         s.sorun = "stokta yok (sayfa sağlam, ürünün fiyatı yok)"
     elif c.fiyat is None:
+        # `render` zaten açıkken SEBEBİ BİLMİYORUZ. Eskiden koşulsuz
+        # "`fiyat_secici` güncellenmeli" deniyordu ve bu ÇOĞU ZAMAN YANLIŞTI:
+        # gerçek bir koşuda Amazon'daki bir monitör böyle raporlandı, oysa
+        # sayfadaki tüm fiyatlar sponsorlu kutulardaydı — yani ürünün kendi
+        # fiyatı sayfada yoktu (satışta değil ya da JS ile geliyor) ve
+        # yazılacak bir seçici yoktu. Tanı aracı bilmediği bir sebebi
+        # SÖYLEMEMELİ; bilen komuta yönlendirmeli.
         s.sorun = ("fiyat okunamadı — "
                    + ("`render: true` dene" if not kural.get("render")
-                      else "`fiyat_secici` güncellenmeli"))
+                      else "sebebi için `--incele` çalıştır"))
     else:
         s.fiyat = c.fiyat
     return s, cekim.html
@@ -307,6 +321,11 @@ def _satir_yaz(s: Sonuc) -> None:
     baslik = (s.baslik or "")[:48]
     print(f" {isaret} {s.domain:<24} {deger:<28} {s.yontem:<12} "
           f"{s.sure_sn:5.1f}sn  {baslik}")
+
+    # Başarısız satırda HANGİ KATMANLARIN denendiğini söyle. Satırdaki tek
+    # "requests" kelimesi, tarayıcının hiç denenmediğini sandırıyordu.
+    if not s.basarili and len(s.denenenler) > 1:
+        print(f"     denenen katmanlar: {' → '.join(s.denenenler)}")
 
     # Seçicisi OLAN bir sitede fiyatın regex'ten gelmesi "okundu" gibi
     # görünür ama arızadır: altı seçicinin altısı da tutmamış demektir, yani
