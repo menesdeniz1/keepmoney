@@ -451,3 +451,42 @@ def test_arac_cp1252_ortaminda_da_calisir():
 
     assert sonuc.returncode == 0, sonuc.stderr.decode("utf-8", "replace")
     assert b"kaynak_dene.py" in sonuc.stdout
+
+
+# ── Pazar derinliği NORMAL koşuda görünür ───────────────────────
+# Önce yalnızca `--incele` modunda gösteriliyordu; yani kimsenin bakmadığı
+# yere konmuştu. Bu seçiciler sessizce kırılırsa koruma katmanının "tek
+# satıcı aykırı ucuz" ölçütü devre dışı kalır ve geçmişi olmayan ürün
+# savunmasız olur — sessiz kalmak en kötü seçenek.
+
+def test_normal_koşuda_pazar_satiri_yazilir(capsys):
+    s = kd.Sonuc(url="x", domain="akakce.com", fiyat=25999.0, guven="json-ld",
+                 satici_adi="Vatan", satici_sayisi=14, ikinci_fiyat=27400.0)
+    kd._satir_yaz(s)
+    cikti = capsys.readouterr().out
+    assert "14 satıcı" in cikti
+    assert "Vatan" in cikti
+    assert "27.400,00" in cikti
+
+
+def test_aykiri_fiyat_satirda_uyarilir(capsys):
+    kd._satir_yaz(kd.Sonuc(url="x", domain="akakce.com", fiyat=4000.0,
+                           guven="json-ld", satici_sayisi=9,
+                           ikinci_fiyat=52000.0))
+    assert "TEK SATICI AYKIRI UCUZ" in capsys.readouterr().out
+
+
+def test_toplayicida_pazar_okunamazsa_uyarilir(capsys):
+    """Fiyat geldi ama satıcı listesi okunamadı: koruma ölçütü devre dışı."""
+    kd._satir_yaz(kd.Sonuc(url="x", domain="akakce.com", fiyat=25999.0,
+                           guven="json-ld"))
+    assert "pazar derinliği OKUNAMADI" in capsys.readouterr().out
+
+
+def test_toplayici_olmayanda_pazar_satiri_cikmaz(capsys):
+    """Mağaza sayfasında 'pazar' kavramı yok; boş satır gürültüdür."""
+    kd._satir_yaz(kd.Sonuc(url="x", domain="magaza.com", fiyat=100.0,
+                           guven="secici"))
+    cikti = capsys.readouterr().out
+    assert "🏪" not in cikti
+    assert "OKUNAMADI" not in cikti

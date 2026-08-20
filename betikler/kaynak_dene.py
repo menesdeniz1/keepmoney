@@ -160,10 +160,21 @@ class Sonuc:
     baslik: str | None = None
     sure_sn: float = 0.0
     sorun: str | None = None
+    # Toplayıcı sayfalarında pazar derinliği. Normal koşuda GÖSTERİLİR:
+    # bu seçiciler sessizce kırılırsa koruma katmanının "tek satıcı aykırı
+    # ucuz" ölçütü devre dışı kalır ve geçmişi olmayan ürün savunmasız olur.
+    # Yalnızca `--incele`de göstermek, kimsenin bakmadığı yere koymaktı.
+    satici_adi: str | None = None
+    satici_sayisi: int | None = None
+    ikinci_fiyat: float | None = None
 
     @property
     def basarili(self) -> bool:
         return self.fiyat is not None
+
+    @property
+    def pazar_var(self) -> bool:
+        return self.satici_sayisi is not None
 
 
 def _linkleri_oku(args) -> list[str]:
@@ -218,6 +229,9 @@ def _dene(cekici: HttpCekici, robots: RobotsKapisi, throttle: HostThrottle,
 
     c = cikar(cekim.html, kural, cekim.http_kodu)
     s.baslik, s.guven = c.baslik, c.guven
+    s.satici_adi = c.satici_adi
+    s.satici_sayisi = c.satici_sayisi
+    s.ikinci_fiyat = c.ikinci_fiyat
     if c.engelli:
         s.sorun = "bot koruması sayfası"
     elif c.olu:
@@ -244,6 +258,21 @@ def _satir_yaz(s: Sonuc) -> None:
     baslik = (s.baslik or "")[:48]
     print(f" {isaret} {s.domain:<24} {deger:<28} {s.yontem:<12} "
           f"{s.sure_sn:5.1f}sn  {baslik}")
+
+    if s.pazar_var:
+        parca = f"     🏪 {s.satici_sayisi} satıcı"
+        if s.satici_adi:
+            parca += f" · en ucuz: {s.satici_adi}"
+        if s.ikinci_fiyat:
+            parca += f" · 2.si {tl(s.ikinci_fiyat)}"
+            if s.fiyat and s.ikinci_fiyat > s.fiyat * 1.5:
+                parca += "  ⚠ TEK SATICI AYKIRI UCUZ"
+        print(parca)
+    elif siteler.kural(s.domain).get("toplayici") and s.basarili:
+        # Toplayıcıdan fiyat geldi ama satıcı listesi okunamadı: koruma
+        # ölçütü sessizce devre dışı demektir. Sessiz kalmak en kötüsü.
+        print("     ! pazar derinliği OKUNAMADI — `saticilar_secici` kırık, "
+              "koruma ölçütü devre dışı")
 
 
 def _rapor(sonuclar: list[Sonuc]) -> None:
