@@ -16,6 +16,10 @@ from urllib.parse import urlparse
 
 import yaml
 
+from .gunluk import log
+
+logger = log("keepmoney.siteler")
+
 SITELER_DIZINI = Path(__file__).resolve().parent / "siteler"
 
 VARSAYILAN: dict = {
@@ -46,11 +50,19 @@ def _tum_kurallar() -> dict[str, dict]:
             continue                      # _SABLON.yaml gibi örnekler atlanır
         try:
             kural = yaml.safe_load(yol.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError:
+        except yaml.YAMLError as e:
+            # Bozuk YAML süreci düşürmemeli — bir dosyadaki girinti hatası
+            # tüm taramayı durdurmaz. Ama SESSİZ de kalmamalı: dosya atlanınca
+            # site "tanımsız" olur, varsayılan zincire düşer ve öğrenilmiş
+            # seçici kaybolur. Dışarıdan görünüşü "site okumuyor" — kimse
+            # kural dosyasına bakmaz.
+            logger.error("site_kurali_bozuk", dosya=yol.name, hata=str(e))
             continue
         domain = str(kural.get("domain") or "").lower().replace("www.", "")
-        if domain:
-            out[domain] = kural
+        if not domain:
+            logger.error("site_kurali_domainsiz", dosya=yol.name)
+            continue
+        out[domain] = kural
     return out
 
 

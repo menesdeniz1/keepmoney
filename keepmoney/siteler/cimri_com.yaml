@@ -2,4 +2,21 @@ domain: "cimri.com"
 satici: "Cimri"
 render: true
 toplayici: true
+# DİKKAT: seçici GENİŞ ve sınıf adları karma (`ProductPrice_abc123`), yani
+# sayfadaki ilk eşleşmeyi alır. Toplayıcı sayfasında onlarca fiyat vardır —
+# "benzer ürünler", "aynı kategoriden" kutuları dahil. Bu seçicinin doğru
+# fiyatı verdiği GERÇEK BİR SAYFADA DOĞRULANMADI.
 fiyat_secici: "[class*='ProductPrice'], [class*='price']"
+notlar: |
+  DOĞRULANMAMIŞ KAYNAK. Gerçek bir cimri.com linkiyle hiç denenmedi;
+  seçiciler tahmindir. Denemeden önce:
+      python betikler/kaynak_dene.py <cimri linki> --html-kaydet hata_html/
+
+  Satıcı listesi seçicileri (`saticilar_secici`, `saticilar_fiyat_secici`)
+  YOK. Sonucu: `karar.pazar_aykiri` bu kaynakta çalışmaz. O ölçüt, fiyat
+  geçmişi olmayan bir üründe elimizdeki TEK uyarı işaretidir — tek satıcının
+  yanlış girdiği "3.000 TL"lik bir kayıt, ikinci en ucuz 30.000 TL'yken
+  yakalanamaz. akakce.com'da bu seçiciler var; cimri ikinci tercihtir.
+
+  Toplayıcı işaretli olduğu için tarama bütçesinde ÖNCELİKLİ. Doğrulanana
+  kadar kullanıcıya akakçe önerilmeli (toplayici.py akakçe'yi kullanıyor).

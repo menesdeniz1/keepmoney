@@ -8,6 +8,7 @@ tanımlıdır. Yanlış tipte bir değer verilirse uygulama AÇILIRKEN patlar �
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -160,37 +161,86 @@ ONERILEN_ANAHTAR_BAYT = 48                       # 384 bit
 # Aşağıdaki iki sezgisel kontrol, elle yazılmış "anahtar"ları yakalar.
 MIN_BENZERSIZ_KARAKTER = 12
 
-# Kalıplar ALT DİZİ olarak ve BÜYÜK/KÜÇÜK HARF DUYARSIZ aranıyor; bu yüzden
-# hepsi YETERİNCE UZUN olmalı. Kural: en az 5 karakter.
-#
-# ARİTMETİK. `token_urlsafe` 64 karakterlik bir alfabe kullanıyor ama arama
-# harf duyarsız olduğu için bir harfin eşleşme olasılığı 2/64 = 1/32.
-# 64 karakterlik bir çıktıda k harflik bir dizinin belirme olasılığı kabaca
+# ARİTMETİK. `token_urlsafe` 64 karakterlik bir alfabe kullanıyor. Arama harf
+# duyarsız yapılırsa bir harfin eşleşme olasılığı 2/64 = 1/32 olur ve 64
+# karakterlik bir çıktıda k harflik bir dizinin belirme olasılığı kabaca
 # 60 × (1/32)^k:
-#     k=3 ("xxx")   → ~1/500      her koşuda görülür
-#     k=4 ("xxxx")  → ~1/17.000   binlerce anahtarda görülür
-#     k=5           → ~1/550.000
-#     k=6           → ~1/18.000.000
+#     k=3 ("xxx")   → ~1/500          her koşuda görülür
+#     k=4 ("xxxx")  → ~1/17.000       binlerce anahtarda görülür
+#     k=5 ("ornek") → ~1/550.000
+#     k=6 ("secret")→ ~1/18.000.000
+#     k=7 ("example")→ ~1/570.000.000
 #
-# Bu liste bir dönem "xxx" ve "todo" içeriyordu ve gerçek bir hataya yol açtı:
-# CI'da GEÇERLİ, üstelik belgelerimizin önerdiği komutla üretilmiş bir anahtar
-# "şablon/örnek değer içeriyor" diye reddedildi. Kullanıcı doğru şeyi yapıyor,
-# uygulama açılmıyor ve hata mesajı onu yanlış yöne gönderiyor.
+# BU LİSTE İKİ KEZ YANLIŞ POZİTİF ÜRETTİ. Önce "xxx"/"todo" vardı; sonra
+# kalıplar 5 karaktere uzatıldı ve CI yine kırmızıya döndü: belgelerimizin
+# önerdiği komutla üretilmiş
+#     zjeshocro0oBOrnEK0doOP8EeHVEi7mVjUwFv8ZVtjoFB6NVVFxvS1C5VwSN0lPz
+# anahtarı "şablon/örnek değer içeriyor ('ornek')" diye reddedildi. Kullanıcı
+# doğru şeyi yapıyor, uygulama açılmıyor ve hata mesajı onu yanlış yöne
+# gönderiyor. 20.000 anahtarlık testte ~%3,6 ihtimalle patlıyordu.
 #
-# ÇÖZÜM ENTROPİ EŞİĞİ DEĞİL. Önce "anahtar yeterince çeşitliyse kalıp
-# taramasını atla" denendi ve KORUMAYI ZAYIFLATTI: elle yazılmış
+# KALIBI UZATMAK ÇÖZÜM DEĞİL: "ornek" ve "gizli" gerçek şablon kelimeleri,
+# listeden çıkarılamaz. ÇÖZÜM ENTROPİ EŞİĞİ DE DEĞİL — "anahtar yeterince
+# çeşitliyse taramayı atla" denendi ve KORUMAYI ZAYIFLATTI: elle yazılmış
 # "my-super-secret-key-1234567890-abcdefghijk" de çeşitlilik eşiğini aşıyor.
 #
-# Kaybedilen koruma yok: "xxx"/"todo" ile başlayıp devam eden gerçek şablon
-# değerleri zaten ya uzun yazılır ("xxxxxx") ya da düşük çeşitlilikten
-# yakalanır (`MIN_BENZERSIZ_KARAKTER`).
+# ÇÖZÜM ARAMA BİÇİMİNDE. Ayırt edici işaret şudur: şablon değerinde kelime
+# BÜTÜN bir harf dizisidir ve TUTARLI yazılır ("ornek-anahtar", "MY-SECRET-KEY").
+# CSPRNG çıktısında ise kelime rastgele harflerin İÇİNE gömülüdür ve karışık
+# yazılır — yukarıdaki anahtarda geçen dizi "BOrnEK"tir; "ornek" ancak harfler
+# küçültülüp komşularından koparılınca ortaya çıkıyor.
+#
+# Bu yüzden KISA kalıplar yalnızca bütün bir harf dizisiyle ve üç yazımdan
+# biriyle (ornek / ORNEK / Ornek) eşleşir. UZUN kalıplar (≥7) yukarıdaki
+# tabloya göre zaten güvenli; onlarda alt dizi araması korunuyor, çünkü
+# "myexamplekey..." gibi ayraçsız yazılmış değerleri de yakalaması gerekir.
 MIN_KALIP_UZUNLUK = 5
+KALIP_GUVENLI_UZUNLUK = 7
 _SUPHELI_KALIPLAR = (
     "changeme", "change-me", "secret", "password", "parola", "gizli",
-    "example", "ornek", "placeholder", "degistir", "xxxxxx",
+    "example", "ornek", "placeholder", "degistir",
 )
 assert all(len(k) >= MIN_KALIP_UZUNLUK for k in _SUPHELI_KALIPLAR), (
     "kısa kalıp CSPRNG çıktısında yanlış pozitif üretir — bkz. yukarıdaki tablo")
+
+# Harf dizileri: "parola123-abc" → ["parola", "abc"]. Rakam ve ayraçlar
+# kelimeyi böler; şablon değerlerinde kelime tam da böyle ayrılmış durur.
+_HARF_DIZISI = re.compile(r"[A-Za-z]+")
+
+# "xxxxxx" bir KELİME DEĞİL, dolgudur — ve kelime kuralına uymuyor: kullanıcı
+# "abc-xxxxxxxxxxxx-def" yazdığında dizi 12 karakterdir, 6'lık kalıba eşit
+# değildir ve kelime araması onu kaçırır (gerçek bir test vakası buydu).
+# Dolgu yapısal olarak aranmalı: aynı karakterin arka arkaya tekrarı.
+#
+# EŞİK ÖLÇÜLDÜ, tahmin edilmedi. 500.000 `token_urlsafe(48)` çıktısında:
+#     5 tekrar → 2 kez görüldü      (yanlış pozitif üretir)
+#     6 tekrar → 0                  (ve üstü de 0)
+# Altı seçildi: ölçümde temiz, ama insanın yazacağı dolguyu (genelde 8-20
+# karakter) rahatça yakalıyor.
+MIN_TEKRAR = 6
+_DOLGU = re.compile(rf"(.)\1{{{MIN_TEKRAR - 1},}}")
+
+
+def _kalip_gorunuyor_mu(anahtar: str) -> str | None:
+    """Anahtarda şablondan kopyalanmış bir kelime/dolgu var mı? Varsa hangisi."""
+    dolgu = _DOLGU.search(anahtar)
+    if dolgu:
+        return dolgu.group(0)
+
+    kucuk = anahtar.lower()
+    diziler: set[str] | None = None
+    for kalip in _SUPHELI_KALIPLAR:
+        if len(kalip) >= KALIP_GUVENLI_UZUNLUK:
+            if kalip in kucuk:
+                return kalip
+            continue
+        if diziler is None:
+            diziler = set(_HARF_DIZISI.findall(anahtar))
+        # Üç yazım: insanların şablona yazdığı biçimler. Rastgele çıktıda
+        # kelime bu biçimlerden biriyle ve tam bir dizi olarak belirmez.
+        if diziler & {kalip, kalip.upper(), kalip.capitalize()}:
+            return kalip
+    return None
 
 _ANAHTAR_URET_IPUCU = (
     "Üret: python -c \"import secrets; print(secrets.token_urlsafe"
@@ -214,10 +264,9 @@ def anahtar_sorunu(anahtar: str) -> str | None:
                 "karakter). Uzunluk tek başına yetmez; anahtar CSPRNG ile "
                 "üretilmelidir")
 
-    kucuk = anahtar.lower()
-    for kalip in _SUPHELI_KALIPLAR:
-        if kalip in kucuk:
-            return f"şablon/örnek değer içeriyor ('{kalip}')"
+    kalip = _kalip_gorunuyor_mu(anahtar)
+    if kalip:
+        return f"şablon/örnek değer içeriyor ('{kalip}')"
 
     return None
 

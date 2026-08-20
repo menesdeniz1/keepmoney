@@ -185,15 +185,44 @@ def test_env_ornekte_gercek_sir_yok():
 # "şablon/örnek değer içeriyor" diye reddedildi. Kullanıcı doğru şeyi yapar,
 # uygulama açılmaz, hata mesajı onu yanlış yöne gönderir.
 
+# Testin ÖRNEK SAYISI ölçülerek seçildi: 2.000.000 anahtarda eski kural 11
+# kez yanlış pozitif verdi (~1/182.000 — kalıp sayısı 11 olduğu için tek
+# kalıp hesabından çok daha sık). 20.000 örnekle bu ~%10 ihtimalle
+# yakalanıyordu, yani test HEM sızdırıyor HEM de rastgele kırmızıya dönüyordu;
+# nitekim bir CI koşusunda tam da öyle oldu. 200.000 örnekte aynı hata ~%67
+# ihtimalle yakalanır ve yeni kuralla ölçülen yanlış pozitif 2.000.000'da 0.
+
 def test_csprng_anahtari_asla_reddedilmez():
     """Belgelerimizin önerdiği komut HER ZAMAN kabul edilmeli.
 
-    Çok sayıda örnek: hata olasılığı düşük ama sıfır değil ve tek bir
-    kullanıcının başına gelmesi yeter.
+    Hata olasılığı düşük ama sıfır değil ve tek bir kullanıcının başına
+    gelmesi yeter: uygulama açılmaz ve hata mesajı onu yanlış yöne gönderir.
     """
-    for _ in range(20000):
+    for _ in range(200_000):
         anahtar = secrets.token_urlsafe(48)
         assert anahtar_sorunu(anahtar) is None, anahtar
+
+
+def test_gercek_ci_anahtari_kabul_edilir():
+    """Rastgeleliğe bağlı olmayan regresyon vakası.
+
+    Bu anahtar `secrets.token_urlsafe(48)` çıktısıdır ve CI'da reddedildi:
+    küçültülünce "...0b(ornek)0doo..." beliriyor. Kelime rastgele harflerin
+    İÇİNDE ve karışık yazımda ("BOrnEK") — şablon değeri böyle görünmez.
+    """
+    assert anahtar_sorunu(
+        "zjeshocro0oBOrnEK0doOP8EeHVEi7mVjUwFv8ZVtjoFB6NVVFxvS1C5VwSN0lPz"
+    ) is None
+
+
+@pytest.mark.parametrize("anahtar", [
+    # Kelime gömülü ve karışık yazımda → şablon değil, rastgele çıktı.
+    "aBOrnEKz3kQ7wPm2LtY9xVn4RsG8hJd1CfU6bA5eZi0oNqW",
+    "zzSeCrEtqq3kQ7wPm2LtY9xVn4RsG8hJd1CfU6bA5eZi0oN",
+    "kkgIzLiww3kQ7wPm2LtY9xVn4RsG8hJd1CfU6bA5eZi0oNq",
+])
+def test_kelime_gomulu_rastgele_anahtar_kabul_edilir(anahtar):
+    assert anahtar_sorunu(anahtar) is None
 
 
 def test_xxx_iceren_csprng_anahtari_kabul_edilir():
@@ -236,3 +265,29 @@ def test_kaliplar_yeterince_uzun():
 
     for kalip in _SUPHELI_KALIPLAR:
         assert len(kalip) >= MIN_KALIP_UZUNLUK, kalip
+
+
+# ── Dolgu (aynı karakterin tekrarı) ──────────────────────────────
+# "xxxxxx" bir kelime değil, dolgudur. Kelime kuralına uymuyordu: kullanıcı
+# "abc-xxxxxxxxxxxx-def" yazınca harf dizisi 12 karakter oluyor ve 6'lık
+# kalıba EŞİT olmuyordu. Yapısal aranınca hem o vaka hem de listede hiç
+# olmayan dolgular ("aaaaaaaa") yakalanıyor — koruma genişledi, daralmadı.
+
+@pytest.mark.parametrize("anahtar", [
+    "abc-xxxxxxxxxxxx-def-123456789-ghijklmnop",
+    "abc-xxxxxx-def-123456789-ghijklmnopqrs",
+    "key-aaaaaaaaaaaa-1234567890-bcdefghijk",
+    "anahtar-111111-abcdefghijklmnop-qrstuvwxyz",
+])
+def test_dolgu_iceren_anahtar_reddedilir(anahtar):
+    assert anahtar_sorunu(anahtar) is not None, anahtar
+
+
+def test_dolgu_esigi_csprng_ciktisinda_yanlis_pozitif_uretmez():
+    """Eşik ölçülerek seçildi: 5 tekrar 500.000 örnekte 2 kez görülüyordu."""
+    from keepmoney.ayarlar import MIN_TEKRAR
+
+    assert MIN_TEKRAR >= 6
+    for _ in range(50_000):
+        anahtar = secrets.token_urlsafe(48)
+        assert anahtar_sorunu(anahtar) is None, anahtar

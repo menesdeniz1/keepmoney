@@ -140,3 +140,145 @@ def test_oncul_projedeki_tum_siteler_tanimli():
                    "incehesap.com", "itopya.com", "tebilon.com",
                    "sinerji.gen.tr"):
         assert domain in tanimli, domain
+
+
+# ── Kural dosyalarının bütünlüğü ────────────────────────────────
+# Bu dosyalar "kod değişikliği gerekmesin" diye YAML — yani üründe hata
+# yapması EN KOLAY yer burası ve hataların hepsi SESSİZ:
+#   * geçersiz CSS  → `fiyat_ayikla` içindeki `except: continue` yutar,
+#   * anahtar yazım hatası (`fiyat_secic`) → kimse okumaz, varsayılana düşer,
+#   * bozuk YAML    → `_tum_kurallar` dosyayı atlar, site tanımsız sanılır,
+#   * bozuk regex   → kanonik URL kalıbı hiç uygulanmaz, fiyat geçmişi bölünür.
+# Hiçbiri patlamaz; hepsi "site okumuyor" diye görünür ve saatlerce yanlış
+# yerde aranır. Amazon için ayrı bir CSS testi vardı — tek site yetmez.
+
+SECICI_ANAHTARLARI = (
+    "fiyat_secici", "metin_alani", "baslik_secici",
+    "satici_secici", "saticilar_secici", "saticilar_fiyat_secici",
+)
+
+# Kodun GERÇEKTEN okuduğu anahtarlar. Listede olmayan bir anahtar ya yazım
+# hatasıdır ya da kaldırılmış bir özelliğin kalıntısı; ikisi de sessizce
+# hiçbir şey yapmaz. Yeni bir anahtar eklerken buraya da eklenmeli — bu
+# testin amacı tam olarak o adımı zorunlu kılmak.
+BILINEN_ANAHTARLAR = set(SECICI_ANAHTARLARI) | {
+    "domain", "satici", "render", "bekleme_sn", "toplayici",
+    "kanonik_yol_kalibi", "kanonik_yol_bicimi", "ortaklik", "notlar",
+}
+
+
+def _kural_dosyalari():
+    from keepmoney.siteler import SITELER_DIZINI
+    return [y for y in sorted(SITELER_DIZINI.glob("*.yaml"))
+            if not y.name.startswith("_")]
+
+
+def _yukle(yol):
+    import yaml
+    return yaml.safe_load(yol.read_text(encoding="utf-8")) or {}
+
+
+def test_her_kural_dosyasi_gecerli_yaml_ve_domainli():
+    """`_tum_kurallar` bozuk YAML'ı sessizce atlıyor: site tanımsız sanılır."""
+    for yol in _kural_dosyalari():
+        kural_ = _yukle(yol)                 # bozuksa burada patlar
+        assert isinstance(kural_, dict), yol.name
+        assert kural_.get("domain"), f"{yol.name}: `domain` yok, dosya yüklenmez"
+
+
+def test_dosya_adi_domainle_uyusur():
+    """`amazon_com_tr.yaml` → `amazon.com.tr`. Uyuşmazlık, düzenlenen dosyanın
+    aslında başka bir siteyi etkilemesi demektir."""
+    for yol in _kural_dosyalari():
+        beklenen = _yukle(yol)["domain"].replace(".", "_").replace("-", "_")
+        assert yol.stem == beklenen, f"{yol.name} ≠ {beklenen}.yaml"
+
+
+def test_tum_seciciler_gecerli_css():
+    from bs4 import BeautifulSoup
+    corba = BeautifulSoup("<html></html>", "lxml")
+    for yol in _kural_dosyalari():
+        kural_ = _yukle(yol)
+        for anahtar in SECICI_ANAHTARLARI:
+            deger = kural_.get(anahtar)
+            if not deger:
+                continue
+            for parca in str(deger).split(","):
+                # Geçersizse SoupSieve burada patlar — sessiz atlama yerine
+                # test kırmızısı, aranan davranış budur.
+                corba.select(parca.strip())
+
+
+def test_bilinmeyen_anahtar_yok():
+    for yol in _kural_dosyalari():
+        fazla = set(_yukle(yol)) - BILINEN_ANAHTARLAR
+        assert not fazla, f"{yol.name}: kod bu anahtarları okumuyor: {fazla}"
+
+
+def test_kanonik_yol_kaliplari_derlenir_ve_bicimle_tutarli():
+    """Kanonik URL kalıbı bozuksa aynı ürün iki kayda düşer ve fiyat geçmişi
+    ikiye bölünür — K16'nın ihlali, üründeki en pahalı sessiz hata."""
+    import re
+    for yol in _kural_dosyalari():
+        kural_ = _yukle(yol)
+        kalip, bicim = (kural_.get("kanonik_yol_kalibi"),
+                        kural_.get("kanonik_yol_bicimi"))
+        if not kalip:
+            assert not bicim, f"{yol.name}: `bicim` var ama `kalibi` yok"
+            continue
+        derlenmis = re.compile(kalip)        # bozuksa burada patlar
+        if bicim:
+            # `\1` yazıp tek grup tanımlamamak sessizce ham yolu bırakmaz,
+            # `expand` çağrısında patlar — ama ancak o siteden link eklenince.
+            for numara in re.findall(r"\\(\d+)", bicim):
+                assert int(numara) <= derlenmis.groups, (
+                    f"{yol.name}: biçim \\{numara} istiyor, kalıpta "
+                    f"{derlenmis.groups} grup var")
+
+
+def test_toplayicida_pazar_seçicileri_tam():
+    """Eksik `saticilar_secici`, koruma ölçütünü (pazar_aykiri) SESSİZCE
+    kapatır: geçmişi olmayan üründe tek uyarı işaretimiz odur."""
+    for yol in _kural_dosyalari():
+        kural_ = _yukle(yol)
+        if not kural_.get("toplayici"):
+            continue
+        assert kural_.get("fiyat_secici"), f"{yol.name}: toplayıcı, fiyat yok"
+        # cimri.com'da liste seçicisi henüz yazılmadı; eksikliği görünür
+        # kılmak için `notlar` zorunlu — sessizce eksik kalmasın.
+        if not kural_.get("saticilar_secici"):
+            assert kural_.get("notlar"), (
+                f"{yol.name}: satıcı listesi seçicisi yok ve `notlar` boş — "
+                "koruma ölçütü sessizce devre dışı")
+
+
+def test_bozuk_kural_dosyasi_sessizce_atlanmaz(tmp_path, monkeypatch):
+    """Girinti hatası yüzünden atlanan dosya, dışarıdan "site okumuyor" diye
+    görünür ve kimse kural dosyasına bakmaz. Süreci düşürmeyelim ama log'a
+    düşsün: aranacak yeri söyleyen tek şey o satır.
+
+    Olay stdout'tan değil `capture_logs` ile okunuyor: `gunluk.kur()` bir kez
+    çalıştıktan sonra structlog akışı sabitliyor ve capsys hiçbir şey görmüyor
+    — testin sırası değişince sessizce yeşile dönüyordu.
+    """
+    from structlog.testing import capture_logs
+
+    from keepmoney import siteler as s
+
+    (tmp_path / "bozuk_com.yaml").write_text(
+        "domain: 'bozuk.com'\n  fiyat_secici: ']['\n", encoding="utf-8")
+    (tmp_path / "adsiz_com.yaml").write_text("satici: 'Adsız'\n",
+                                             encoding="utf-8")
+    (tmp_path / "saglam_com.yaml").write_text(
+        "domain: 'saglam.com'\nsatici: 'Sağlam'\n", encoding="utf-8")
+    monkeypatch.setattr(s, "SITELER_DIZINI", tmp_path)
+    s._tum_kurallar.cache_clear()
+    try:
+        with capture_logs() as kayitlar:
+            kurallar = s._tum_kurallar()
+        assert set(kurallar) == {"saglam.com"}          # süreç düşmedi
+        olaylar = {(k["event"], k.get("dosya")) for k in kayitlar}
+        assert ("site_kurali_bozuk", "bozuk_com.yaml") in olaylar
+        assert ("site_kurali_domainsiz", "adsiz_com.yaml") in olaylar
+    finally:
+        s._tum_kurallar.cache_clear()                   # gerçek kurallara dön
