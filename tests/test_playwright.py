@@ -70,6 +70,28 @@ JS_ILE_FIYAT = """<!doctype html>
   document.getElementById('fiyat').textContent = '48.999,90 TL';
 </script></body></html>"""
 
+# GEÇ YERLEŞEN FİYAT. Gerçek bir vakada Amazon sayfası 1451 KB olarak geldi,
+# başlık ve ürün kolonu yerindeydi, ama fiyat bloğu henüz yoktu: kanıt olarak
+# basılan kolon metninde ad, puan, enerji sınıfı ve buybox'ın "güvenli işlem /
+# iade politikası" DİPNOTU vardı — buybox render edilmeye başlamış, fiyat
+# satırı gelmemişti. Aynı koşuda aynı sitenin altı sayfası sorunsuz okundu;
+# mesele seçici değil ZAMANLAMA'ydı ve hatası sessizdi: sayfa dolu gelir,
+# fiyat yok.
+#
+# Burada 2500 ms, testte kullanılan `bekleme_sn: 1`den kasten BÜYÜK: sabit
+# bekleme tek başına yetmez, `_fiyati_bekle` devreye girmezse test kırılır.
+GEC_GELEN_FIYAT = """<!doctype html>
+<html><head><title>MSI Monitör</title></head>
+<body><div id="centerCol"><h1>MSI Monitör</h1>
+  <div>Güvenli işlem · İade Politikası</div>
+  <div id="corePrice_desktop"></div></div>
+<script>
+  setTimeout(function () {
+    document.getElementById('corePrice_desktop').innerHTML =
+      '<span class="a-price"><span class="a-offscreen">25.999,00 TL</span></span>';
+  }, 2500);
+</script></body></html>"""
+
 # Sayfa iç ağdaki bir kaynağı çekmeye çalışıyor — SSRF süzgecinin
 # engellemesi gereken şey tam olarak bu.
 IC_AGA_ISTEK = """<!doctype html>
@@ -102,7 +124,8 @@ class _Islemci(BaseHTTPRequestHandler):
 @pytest.fixture
 def sunucu():
     """Yerelde gerçek HTTP sunucusu. Dönen: taban URL."""
-    _Islemci.sayfalar = {"/js": JS_ILE_FIYAT, "/ssrf": IC_AGA_ISTEK}
+    _Islemci.sayfalar = {"/js": JS_ILE_FIYAT, "/ssrf": IC_AGA_ISTEK,
+                        "/gec": GEC_GELEN_FIYAT}
     s = HTTPServer(("127.0.0.1", 0), _Islemci)
     t = threading.Thread(target=s.serve_forever, daemon=True)
     t.start()
@@ -228,3 +251,58 @@ def test_sistem_chromiumu_kullaniliyor(cekici, sunucu, yerel_ag_serbest):
     assert ayarlar().playwright_calistirilabilir == (CHROMIUM or None)
     cekim = cekici.cek(f"{sunucu}/js", {"render": True, "bekleme_sn": 1})
     assert cekim.html is not None, cekim.hata
+
+
+# ── Geç yerleşen fiyat ──────────────────────────────────────────
+# Sabit bekleme "yavaş olan sayfa" diye bir şeyi hesaba katmıyordu ve hatası
+# SESSİZDİ: sayfa dolu gelir, fiyat yoktur, rapor "fiyat okunamadı" der ve
+# kimse zamanlamadan şüphelenmez — seçici aranır, oysa seçici doğrudur.
+
+AMAZON_KURALI = {
+    "render": True,
+    "bekleme_sn": 1,                       # fiyat 2500 ms'de geliyor
+    "fiyat_secici": "#corePrice_desktop span.a-price .a-offscreen",
+}
+
+
+def test_sabit_beklemeden_sonra_gelen_fiyat_yakalanir(sunucu, cekici,
+                                                      yerel_ag_serbest):
+    from keepmoney import ayikla
+
+    cekim = cekici.cek(f"{sunucu}/gec", AMAZON_KURALI)
+
+    assert cekim.yontem == "playwright", cekim.hata
+    assert "25.999,00" in cekim.html
+    c = ayikla.cikar(cekim.html, AMAZON_KURALI, 200)
+    assert c.fiyat == 25999.0
+    assert c.guven == "secici"
+
+
+def test_sabit_bekleme_tek_basina_yetmiyordu(sunucu, cekici, yerel_ag_serbest):
+    """Kontrol grubu: düzeltme olmadan bu sayfa fiyatsız gelirdi.
+
+    `fiyat_secici` verilmezse `_fiyati_bekle` beklemez — yani eski davranış.
+    Bu test kırmızıya dönerse sayfa artık hızlanmış demektir ve üstteki test
+    de anlamını yitirmiştir.
+    """
+    from keepmoney import ayikla
+
+    cekim = cekici.cek(f"{sunucu}/gec", {"render": True, "bekleme_sn": 1})
+    assert ayikla.cikar(cekim.html, AMAZON_KURALI, 200).fiyat is None
+
+
+def test_fiyati_olmayan_sayfa_ek_beklemeden_sonra_yine_doner(sunucu, cekici,
+                                                             yerel_ag_serbest,
+                                                             monkeypatch):
+    """Fiyatı GERÇEKTEN olmayan sayfa hata değil: sessizce devam edilmeli.
+
+    Aksi halde tükenmiş bir ürün, düzeltilecek bir arıza gibi raporlanırdı.
+    """
+    from keepmoney import cekici as c_mod
+    monkeypatch.setattr(c_mod, "FIYAT_EK_BEKLEME_SN", 1)   # testi bekletmesin
+
+    cekim = cekici.cek(f"{sunucu}/ssrf",
+                       {"render": True, "bekleme_sn": 1,
+                        "fiyat_secici": "#asla-olmayan-secici"})
+    assert cekim.yontem == "playwright", cekim.hata
+    assert cekim.html                                       # gövde YİNE geldi

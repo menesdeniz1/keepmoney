@@ -34,6 +34,13 @@ from .ayikla import engel_mi
 
 VARSAYILAN_ZAMAN_ASIMI = 25
 
+# Sabit beklemeden SONRA fiyat elemanı için tanınan ek süre (bkz.
+# `_fiyati_bekle`). Üst sınır: yavaş bir sayfa uğruna tarama bütçesini
+# tüketmeyelim — fiyatı GERÇEKTEN olmayan sayfa da var ve o durumda bu süre
+# tamamen boşa gider. `render: true` olan sayfalarda en kötü senaryo
+# bekleme_sn + bu değer.
+FIYAT_EK_BEKLEME_SN = 6
+
 # HTML gövdesinden karakter kodlaması sezme. requests, `Content-Type` başlığı
 # charset taşımayan `text/*` yanıtlarında RFC 2616 gereği ISO-8859-1 varsayar;
 # Türk e-ticaret sitelerinin çoğu UTF-8 ama charset'i yalnızca <meta> ile
@@ -319,6 +326,7 @@ class HttpCekici:
             yanit = self._sayfa.goto(url, wait_until="domcontentloaded",
                                      timeout=self.zaman_asimi * 1000)
             self._sayfa.wait_for_timeout(int(kural.get("bekleme_sn", 2)) * 1000)
+            self._fiyati_bekle(kural)
             return Cekim(html=self._sayfa.content(),
                          http_kodu=yanit.status if yanit else None,
                          yontem="playwright")
@@ -326,6 +334,40 @@ class HttpCekici:
             return Cekim(hata=f"guvensiz_hedef: {e}", yontem="playwright")
         except Exception as e:
             return Cekim(hata=f"{type(e).__name__}: {e}", yontem="playwright")
+
+    def _fiyati_bekle(self, kural: dict) -> None:
+        """Sabit beklemeden SONRA, fiyat elemanı hâlâ yoksa biraz daha bekler.
+
+        SABİT SÜRE YETMİYOR. Gerçek bir vakada Amazon sayfası 1451 KB olarak
+        geldi, başlık ve `#centerCol` yerindeydi, ama fiyat bloğu HENÜZ
+        yerleşmemişti. Kanıt kesindi: ürün kolonunun metninde ad, puan, enerji
+        sınıfı ve buybox'ın "güvenli işlem / iade politikası" DİPNOTU vardı —
+        yani buybox render edilmeye BAŞLAMIŞ, fiyat satırı gelmemişti. Aynı
+        koşuda aynı sitenin altı sayfası sorunsuz okundu; mesele seçici değil,
+        ZAMANLAMA. Sabit bekleme "yavaş olan sayfa" diye bir şeyi hesaba
+        katmıyor ve hatası da sessiz: sayfa dolu geliyor, fiyat yok.
+
+        SABİT SÜRE KALDIRILMADI, ÜSTÜNE EKLENDİ. Bugün çalışan sayfaların
+        davranışı birebir aynı kalmalı: akakçe'nin pazar derinliği seçicileri
+        (`#PL > li`) o süre içinde yerleşiyor ve erken anlık görüntü onları
+        sessizce kaybettirirdi — yani bir arızayı düzeltirken başka bir
+        korumayı kapatırdık.
+
+        Bulunamazsa SESSİZCE devam eder: fiyatı gerçekten olmayan sayfa da
+        var (ürün tükenmiş). Burada hata yükseltmek, normal bir durumu arıza
+        gibi gösterirdi.
+        """
+        secici = kural.get("fiyat_secici")
+        if not secici:
+            return
+        try:
+            # `state="attached"`: Amazon fiyatı `.a-offscreen` içinde, yani
+            # ekran okuyucu için var ama GÖRÜNMEZ. "visible" beklemek her
+            # Amazon sayfasında boşuna zaman aşımı demek olurdu.
+            self._sayfa.wait_for_selector(secici, state="attached",
+                                          timeout=FIYAT_EK_BEKLEME_SN * 1000)
+        except Exception:
+            pass
 
     def _playwright_baslat(self, sync_playwright) -> None:
         if self._sayfa is not None:
