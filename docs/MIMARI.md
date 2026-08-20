@@ -721,3 +721,55 @@ Yani en ikincil özelliğin doluluğu, ürünün tamamını düşürebilirdi.
 **Genel ilke:** paylaşılan bir kaynağı bekleyen her kod, o beklemenin neyi tuttuğunu bilmek zorundadır. İş parçacığı havuzunda bekleme, kuyruk değil kilittir.
 
 Testler üç şeyi ayrı ayrı koruyor: slot doluyken beklenmediği (süre ölçülerek), reddin KALICI olmadığı, ve hata durumunda slotun SIZDIRILMADIĞI — sızan bir slot aramayı kalıcı olarak kilitlerdi.
+
+---
+
+## K56 — "Ulaşılamadı" ile "sonuç yok" farklı cevaplardır
+
+**Yakalanan hata:** ürün gerçekten kurulup (uvicorn + SQLite, gerçek HTTP istekleri) uçtan uca denenirken çıktı. 595 test yeşildi ve ikisi de görünmüyordu, çünkü testlerde `toplayici.ara` taklit ediliyordu — yani ölçülen şey "fonksiyon doğru mu", "akış doğru mu" değildi.
+
+Toplayıcı araması **her hatada boş liste** döndürüyordu. Ağ hatası, bot duvarı, gerçekten sonuç olmaması: üçü de `200 + []`. Arayüz üçüne birden **"bu ürün için eşleşme bulunamadı"** diyordu.
+
+Sonuç: bir ağ hatası, kullanıcıya **ürünün hiçbir yerde satılmadığı** gibi görünüyordu. Kullanıcı yanlış sonuca varır ve elle link eklemeyi denemez — yani sistem hatayı gizleyerek kullanıcının düzeltme şansını da elinden alıyordu.
+
+**İkinci sebep aynı sınıftan:** ürün adı ilk taramada okunuyor; o ana kadar `Product.ad` link kimliğidir (`B0BSLHZKB6`). Link eklenir eklenmez arama yapılırsa akakçe'de `B0BSLHZKB6` aranıyor ve sonuç **her zaman** boş. Ekranda yine "eşleşme bulunamadı" — kullanıcı özelliğin bozuk olduğunu sanır.
+
+**Karar: boş liste TEK bir anlama gelir — "sayfa okundu, eşleşme yok".** Diğer durumların kendi cevabı var:
+
+| Durum | Cevap | Kullanıcı ne görür |
+|---|---|---|
+| Sayfa okundu, eşleşme yok | `200 []` | "eşleşme bulunamadı" |
+| Ürün adı henüz okunmadı | `409` + sebep | "önce ilk tarama gerekiyor" |
+| Toplayıcıya ulaşılamıyor | `503` + `Retry-After` | "arama yapılamadı, linki elle ekleyebilirsin" |
+| Eşzamanlılık sınırı dolu (K55) | `503` + `Retry-After` | aynı |
+
+409 durumunda toplayıcıya istek **hiç gitmiyor**: sonucu baştan belli olan bir arama, dış siteye yük bindirmemeli.
+
+**Genel ilke:** bir fonksiyonun "boş" dönüşü kaç farklı sebebi temsil ediyorsa, çağıran katman o kadar körleşir. Hata yutmak kodu sağlamlaştırmaz; yalnızca arızayı normal davranış gibi gösterir. `except: return []` yazmadan önce sorulacak soru şudur: **bu boşluğu gören kişi doğru sonuca varabilir mi?**
+
+---
+
+## K57 — Sezgisel kontroller yanlış pozitif ÜRETMEMELİ; eşikleri ölçerek seç
+
+**Yakalanan hata (CI kırmızıydı):** belgelerimizin önerdiği komutla üretilmiş geçerli bir JWT anahtarı
+
+```
+zjeshocro0oBOrnEK0doOP8EeHVEi7mVjUwFv8ZVtjoFB6NVVFxvS1C5VwSN0lPz
+```
+
+"şablon/örnek değer içeriyor (`ornek`)" diye reddedildi: harfler küçültülünce `...0b(ornek)0doo...` beliriyor. Kullanıcı doğru şeyi yapıyor, uygulama açılmıyor ve hata mesajı onu yanlış yöne gönderiyor.
+
+**Ölçüm:** 2.000.000 `token_urlsafe(48)` çıktısında eski kural **11 kez** yanlış pozitif verdi — ~1/182.000. Testin 20.000 örneği bunu ancak ~%10 ihtimalle yakalıyordu: hem sızdıran hem rastgele kırmızıya dönen bir test.
+
+**İki çözüm denendi ve ikisi de yanlıştı:**
+
+1. **Kalıbı uzatmak** — `ornek` ve `gizli` gerçek şablon kelimeleridir, listeden çıkarılamaz.
+2. **Entropi eşiği** ("anahtar yeterince çeşitliyse taramayı atla") — **korumayı zayıflattı**: elle yazılmış `my-super-secret-key-1234567890-abcdefghijk` de çeşitlilik eşiğini aşıyor. Bu deneme bir testle kalıcılaştırıldı.
+
+**Doğru çözüm arama biçimindeydi.** Ayırt edici işaret şu: şablon değerinde kelime **bütün bir harf dizisidir** ve **tutarlı yazılır** (`ornek-anahtar`, `MY-SECRET-KEY`). CSPRNG çıktısında ise kelime rastgele harflerin **içine gömülüdür** ve karışık yazılır (`BOrnEK`). Kısa kalıplar (<7) artık yalnızca bütün bir harf dizisiyle ve üç yazımdan biriyle (`ornek`/`ORNEK`/`Ornek`) eşleşiyor; uzun kalıplar aritmetik olarak zaten güvenli, onlarda alt dizi araması korundu.
+
+**`xxxxxx` listeden çıkarıldı** — o bir kelime değil, **dolgu**, ve kelime kuralıyla kaçıyordu (`abc-xxxxxxxxxxxx-def` dizisi 12 karakter, 6'ya eşit değil). Yerine yapısal kural: aynı karakterin 6+ tekrarı. Eşik ölçüldü (500.000 örnekte 5 tekrar 2 kez görüldü, 6 tekrar 0). Koruma **genişledi**: listede hiç olmayan `aaaaaaaa` dolgusu da yakalanıyor.
+
+Yeni kuralla 2.000.000 örnekte **0** yanlış pozitif; test örneklemi de ölçüme göre 200.000'e çıkarıldı.
+
+**Genel ilke:** bir güvenlik sezgiseli kullanıcıyı yanlışlıkla engellediğinde bedel iki katıdır — kullanıcı doğru davranıp cezalandırılır ve mesaj onu yanlış yöne gönderir. Bu yüzden eşikler tahminle değil **ölçülerek** seçilir, ve yanlış pozitifi azaltan her değişiklik "gerçek tehdidi hâlâ yakalıyor muyum" karşı testiyle birlikte gelir.
