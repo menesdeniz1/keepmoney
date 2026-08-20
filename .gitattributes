@@ -1,0 +1,15 @@
+# Çift tıklanan betikler CRLF ile checkout edilmeli.
+#
+# NEDEN: `.bat` dosyalarını cmd.exe satır satır okuyor ve LF-only dosyalarda
+# `goto` etiketleri ile çok satırlı yapılar bazı Windows sürümlerinde yanlış
+# ayrıştırılıyor. Bu depoda dosyalar LF ile yazıldı ve bu makinede çalıştı —
+# ama "bu makinede çalıştı" bir garanti değil; `core.autocrlf` ayarı kapalı
+# olan bir klonda dosya LF olarak açılır ve arıza kurulumun İLK adımında,
+# yani en kötü yerde çıkar.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell betikleri tersi: CRLF olursa `#!/usr/bin/env bash` satırı bozulur ve
+# "bad interpreter" hatası verir (yedekle.sh, geri-yukle.sh üretimde crontab
+# üzerinden çalışıyor).
+*.sh text eol=lf
