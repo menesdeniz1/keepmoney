@@ -28,6 +28,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -176,12 +177,28 @@ class PriceReading(Base):
     id = Column(Integer, primary_key=True)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False,
                        index=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False,
-                        index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     fiyat = Column(Float, nullable=False)
     ts = Column(DateTime, default=utc_simdi, index=True)
 
     source = relationship("Source", back_populates="readings")
+
+    __table_args__ = (
+        # ÜRÜNÜN EN SICAK SORGUSU: `WHERE product_id=? ORDER BY ts`.
+        # Hem grafik hem HER tarama turu (worker `_okuma_gecmisi` ile analiz
+        # ve bir sonraki kontrol aralığı için okuyor) bu deseni kullanıyor.
+        #
+        # ÖLÇÜLDÜ: yalnız `product_id` indeksiyle SQLite planı
+        #   SEARCH ... USING INDEX ix_price_readings_product_id
+        #   USE TEMP B-TREE FOR ORDER BY        ← her sorguda bellekte sıralama
+        # Bileşik indeks o sıralamayı ortadan kaldırıyor.
+        #
+        # Bu tablo SÜREKLİ BÜYÜR (ürünün asıl değeri fiyat geçmişi) ve
+        # yazma yolu da sıcak; bu yüzden tek `product_id` indeksi bırakılmadı:
+        # bileşiğin en soldaki sütunu zaten aynı işi görüyor, ikisini birden
+        # tutmak her INSERT'e bedava olmayan ikinci bir ağaç eklerdi.
+        Index("ix_price_readings_product_ts", "product_id", "ts"),
+    )
 
 
 class DomainHealth(Base):
@@ -260,7 +277,7 @@ class Alert(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
-                     nullable=False, index=True)
+                     nullable=False)
     # ON DELETE SET NULL — SİLME DEĞİL: uyarı, olmuş bir olayın kaydıdır.
     # Kullanıcı ürünü takipten çıkardığında geçmiş bildirimleri kaybolmamalı;
     # yalnızca artık var olmayan izlemeye işaret etmemeli.
@@ -283,3 +300,10 @@ class Alert(Base):
 
     user = relationship("User", back_populates="alerts")
     watch = relationship("Watch", back_populates="alerts")
+
+    __table_args__ = (
+        # Bildirim listesi: `WHERE user_id=? ORDER BY created_at DESC`.
+        # Panel her açılışta okunmamış sayısını da soruyor. Tek `user_id`
+        # indeksiyle plan yine TEMP B-TREE ile sıralıyordu.
+        Index("ix_alerts_user_created", "user_id", "created_at"),
+    )

@@ -21,7 +21,7 @@ JSON 404 yerine HTML döner ve istemci "beklenmeyen yanıt" hatası verir.
 """
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -66,6 +66,22 @@ def arayuzu_bagla(app: FastAPI, dizin: Path | None = None) -> bool:
         aday = (kok / yol).resolve()
         if yol and kok in aday.parents and aday.is_file():
             return FileResponse(aday)
+
+        # DOSYA GİBİ GÖRÜNÜP BULUNAMAYAN yol → 404, index.html DEĞİL.
+        #
+        # Aksi halde tarayıcı, istediği JavaScript'in yerine HTML alır ve
+        # hata "Unexpected token '<'" olarak görünür — yani sorunun eksik
+        # dosya olduğunu SÖYLEMEZ. Bu, dağıtım sonrası en sinsi arıza
+        # türlerinden biri: kullanıcının önbelleğindeki eski `index.html`
+        # artık var olmayan bir parça dosyasını ister, 200 + HTML alır ve
+        # ekran bembeyaz kalır. `sw.js` eksikse servis çalışanı da aynı
+        # sebeple "unknown error" der.
+        #
+        # Uygulamanın rotalarında nokta YOKTUR (/izleme/12, /setler, …), bu
+        # yüzden "adında nokta var" ölçütü SPA yollarını yanlışlıkla
+        # yakalamaz — `/assets` altı zaten StaticFiles'ta ve o da 404 döner.
+        if yol and "." in PurePosixPath(yol).name:
+            raise HTTPException(status_code=404, detail="Bulunamadı")
 
         return FileResponse(kok / "index.html",
                             headers={"Cache-Control": "no-cache"})
