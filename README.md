@@ -12,8 +12,11 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 > **Henüz canlıda çalışmadı** — site seçicileri gerçek sayfalara karşı
 > doğrulanmayı bekliyor ([`betikler/kaynak_dene.py`](betikler/kaynak_dene.py)
 > bunu tek komuta indiriyor).
+> **Projeye yeni bakıyorsan buradan başla:** [`docs/DEVIR.md`](docs/DEVIR.md)
+> — durum, sıradaki iş, gerçek denemelerde yakalanmış tuzaklar.
+>
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (54 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (57 karar kaydı)
 
 ---
 
