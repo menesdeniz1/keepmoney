@@ -407,14 +407,59 @@ def _rapor(sonuclar: list[Sonuc]) -> None:
         if secicisiz:
             print("  · `fiyat_secici` henüz yazılmamış: " + ", ".join(secicisiz))
 
-    kirik = [s for s in sonuclar if not s.basarili]
-    if kirik:
-        print("\nDüzeltilecekler:")
-        for s in kirik:
+    _basarisizlari_ayir([s for s in sonuclar if not s.basarili])
+
+
+# Okunamayan her satır BİR ARIZA DEĞİL. Rapor hepsini "Düzeltilecekler"
+# başlığı altında topluyordu ve 18 linklik bir denemede 5 satır çıkınca ürün
+# beş yerinden bozukmuş gibi görünüyordu. Oysa gerçekte biri kullanıcının
+# verdiği ÖLÜ bir linkti, üçü tasarım gereği toplayıcıya yönlendirilecek bot
+# duvarıydı ve yalnızca biri gerçekten bakılacak bir işti.
+#
+# Yanlış önceliklendirme pahalı: düzeltilemeyecek şeylerle uğraşılırken
+# düzeltilebilecek olan sırada bekliyor.
+def _basarisizlari_ayir(kirik: list[Sonuc]) -> None:
+    if not kirik:
+        return
+
+    olu = [s for s in kirik if s.sorun and "ölü" in s.sorun]
+    duvar = [s for s in kirik if s.sorun
+             and ("bot koruması" in s.sorun or "engellendi" in s.sorun)]
+    stoksuz = [s for s in kirik if s.sorun and "stokta yok" in s.sorun]
+    gercek = [s for s in kirik if s not in olu and s not in duvar
+              and s not in stoksuz]
+
+    if gercek:
+        print("\n▸ DÜZELTİLECEK (gerçek iş):")
+        for s in gercek:
             print(f"  {s.domain:<26} {s.sorun}")
             print(f"    {s.url}")
-        print("\nSite kuralları: keepmoney/siteler/<domain>.yaml "
+        print("  Site kuralları: keepmoney/siteler/<domain>.yaml "
               "(şablon: _SABLON.yaml)")
+
+    if duvar:
+        print("\n▸ BOT DUVARI — tasarım gereği toplayıcıya yönlendir:")
+        print("  Bu siteler gerçek tarayıcıyla bile 403 dönüyor. Seçici "
+              "yazmak ÇÖZMEZ.")
+        print("  Ürünü akakçe kaynağına bağla — fiyat oradan okunuyor.")
+        for s in duvar:
+            print(f"  {s.domain:<26} {s.sorun}")
+
+    if olu:
+        print("\n▸ ÖLÜ LİNK — listeden çıkar:")
+        print("  Sayfa kaldırılmış. Bizde düzeltilecek bir şey yok.")
+        for s in olu:
+            print(f"  {s.domain:<26} {s.url}")
+
+    if stoksuz:
+        print("\n▸ STOKTA YOK — arıza değil:")
+        print("  Sayfa sağlam, ürünün o an fiyatı yok. Sistem bunu ayrı bir")
+        print("  durum olarak kaydediyor.")
+        for s in stoksuz:
+            print(f"  {s.domain:<26} {s.url}")
+
+    print(f"\n  Özet: {len(gercek)} gerçek iş · {len(duvar)} bot duvarı · "
+          f"{len(olu)} ölü link · {len(stoksuz)} stokta yok")
 
 
 def incele(yol: pathlib.Path, domain: str | None = None) -> int:

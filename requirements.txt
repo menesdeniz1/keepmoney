@@ -31,9 +31,20 @@ beautifulsoup4>=4.12
 lxml>=5.0
 requests>=2.31
 
-# Opsiyonel — kurulu değillerse çekme zinciri sessizce kısalır:
-#   cloudscraper>=1.2.71   (Cloudflare atlatma denemesi)
-#   playwright>=1.45       (JS gerektiren siteler; playwright install chromium)
+# Ayrıca kurulur (pip ile buradan gelmiyor):
+#
+#   pip install playwright && playwright install chromium
+#
+# ADI "OPSİYONEL" AMA TARAMA İÇİN ZORUNLU. Burada listelenmemesinin tek
+# sebebi API'nin ona ihtiyaç duymaması; tarama worker'ı onsuz Türkiye'nin
+# ana sitelerinin HİÇBİRİNDEN fiyat okuyamaz — akakçe, Amazon, Trendyol,
+# n11, Hepsiburada, cimri, tebilon hepsi `render: true`.
+#
+# Gerçek bir kurulumda bu atlandı: worker açıldı, tek satır uyarı verdi,
+# çalışmaya devam etti ve hiçbir üründen fiyat gelmedi. `zamanlayici`
+# açılışta `tarayici_motoru_yok` uyarısını tam da bunun için basıyor.
+#
+#   cloudscraper>=1.2.71   (Cloudflare atlatma denemesi — gerçekten opsiyonel)
 
 # Gözlemlenebilirlik
 structlog>=24.4

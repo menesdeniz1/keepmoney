@@ -39,6 +39,7 @@ git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install playwright && playwright install --with-deps chromium   # ZORUNLU, bkz. aşağıda
 
 cp .env.example .env          # JWT anahtarını içine yaz
 mkdir -p data                 # SQLite dosyası buraya
@@ -56,6 +57,7 @@ cd keepmoney
 py -3 -m venv .venv                    # `python3` değil, `py`
 .\.venv\Scripts\Activate.ps1          # `source` değil
 pip install -r requirements.txt
+pip install playwright ; playwright install chromium   # ZORUNLU, bkz. aşağıda
 
 Copy-Item .env.example .env            # `cp` değil
 New-Item -ItemType Directory -Force data | Out-Null
@@ -72,6 +74,33 @@ Bundan sonraki tüm komutlarda `python` ve `pytest` doğrudan çalışır (sanal
 ortam etkinken). Çıktıyı dosyaya yönlendireceksen `>` yerine
 `| Out-File -Encoding utf8 rapor.txt` kullan — PowerShell'in varsayılan
 kodlaması Türkçe karakterleri bozar.
+
+> ### ⚠️ Tarayıcı motoru "opsiyonel" DEĞİL
+>
+> `requirements.txt` içinde playwright yorum satırında duruyor, çünkü API onu
+> kullanmıyor. Ama **tarama worker'ı onsuz Türkiye'nin ana sitelerinin
+> hiçbirinden fiyat okuyamaz**: akakçe, Amazon, Trendyol, n11, Hepsiburada,
+> cimri, tebilon — hepsi `render: true`.
+>
+> Gerçek bir kurulumda tam olarak bu oldu: `pip install -r requirements.txt`
+> yapıldı, worker açıldı ve tek satır uyarı verip çalışmaya devam etti —
+> ürünler tarandı, hiçbirinden fiyat gelmedi. Uyarı doğruydu ama ekranın
+> yukarısında kalıyordu:
+>
+> ```
+> [warning] tarayici_motoru_yok  etkilenen=['akakce.com', 'amazon.com.tr', ...]
+>                                sonuc='bu sitelerden fiyat okunamayacak'
+> ```
+>
+> Kurulu olup olmadığını doğrula:
+>
+> ```bash
+> python -c "import playwright; print('tarayıcı motoru VAR')"
+> ```
+>
+> **Worker'ı sanal ortam ETKİNKEN başlat.** İki ayrı terminalde çalıştığı için
+> birini aktive etmeyi unutmak kolay; unutulursa yukarıdaki uyarıyla aynı
+> sonuç çıkar (paketler o Python'da yoktur). Komut isteminde `(.venv)` yazmalı.
 
 İki terminal:
 

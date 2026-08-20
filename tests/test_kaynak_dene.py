@@ -204,7 +204,7 @@ def test_main_okunamayan_varsa_bir_doner(sunucu, yerel_ag_serbest, monkeypatch,
     assert kd.main() == 1
     cikti = capsys.readouterr().out
     assert "OKUMA ORANI: 1/2" in cikti
-    assert "Düzeltilecekler:" in cikti
+    assert "DÜZELTİLECEK (gerçek iş):" in cikti
     assert f"{sunucu}/bos" in cikti
 
 
@@ -771,3 +771,39 @@ def test_hepsi_yabanciysa_hukum_tum_sayiyla_verilir(tmp_path, capsys):
     cikti = capsys.readouterr().out
     assert "TÜM fiyatlar sponsorlu" in cikti
     assert "12 adayın 12'i" in cikti
+
+
+# ── Okunamayan her satır BİR ARIZA DEĞİL ────────────────────────
+# Rapor hepsini "Düzeltilecekler" altında topluyordu. 18 linklik gerçek bir
+# denemede 5 satır çıkınca ürün beş yerinden bozukmuş gibi görünüyordu; oysa
+# biri kullanıcının verdiği ÖLÜ linkti, üçü tasarım gereği toplayıcıya
+# yönlendirilecek bot duvarıydı, yalnızca biri gerçekten bakılacak işti.
+# Yanlış önceliklendirme pahalı: düzeltilemeyecek şeylerle uğraşılırken
+# düzeltilebilecek olan sırada bekler.
+
+def test_rapor_basarisizliklari_turune_gore_ayirir(capsys):
+    kd._rapor([
+        kd.Sonuc(url="https://magaza.com/a", domain="magaza.com",
+                 sorun="fiyat okunamadı — sebebi için `--incele` çalıştır"),
+        kd.Sonuc(url="https://hepsiburada.com/b", domain="hepsiburada.com",
+                 sorun="engellendi (HTTP 403)"),
+        kd.Sonuc(url="https://shop.nurus.com/c", domain="shop.nurus.com",
+                 sorun="bot koruması sayfası"),
+        kd.Sonuc(url="https://vatanbilgisayar.com/d", domain="vatanbilgisayar.com",
+                 sorun="ürün yok / sayfa ölü"),
+    ])
+    cikti = capsys.readouterr().out
+    assert "DÜZELTİLECEK (gerçek iş)" in cikti
+    assert "BOT DUVARI" in cikti and "toplayıcıya yönlendir" in cikti
+    assert "ÖLÜ LİNK" in cikti and "listeden çıkar" in cikti
+    assert "Özet: 1 gerçek iş · 2 bot duvarı · 1 ölü link" in cikti
+
+
+def test_gercek_is_yoksa_o_baslik_hic_cikmaz(capsys):
+    """Yapılacak iş yokken "Düzeltilecekler" başlığı görmek moral bozar."""
+    kd._rapor([kd.Sonuc(url="https://vatanbilgisayar.com/d",
+                        domain="vatanbilgisayar.com",
+                        sorun="ürün yok / sayfa ölü")])
+    cikti = capsys.readouterr().out
+    assert "DÜZELTİLECEK (gerçek iş)" not in cikti
+    assert "Özet: 0 gerçek iş" in cikti
