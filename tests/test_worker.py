@@ -1,6 +1,6 @@
 """Tarama motoru testleri — uçtan uca, sahte çekiciyle (gerçek ağ yok)."""
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -45,6 +45,33 @@ def db(motor):
     s = sessionmaker(bind=motor)()
     yield s
     s.close()
+
+
+# Sessiz saatler (00:00-08:00 TR) NORMAL alarmı erteliyor — gerçek ve istenen
+# bir davranış. Ama uyarı testleri saati sabitlemiyordu: paket her gece
+# 00:00-08:00 arasında KIRMIZIYA dönüyordu ve bu, gerçek koşuda yakalandı
+# (yerel saat 00:04'te altı test birden düştü). CI için de geçerli — 21:00-05:00
+# UTC arasında tetiklenen her koşu rastgele kırılırdı.
+#
+# Çözüm saatin SABİTLENMESİ, kuralın kapatılması değil: gerçek `sessiz_saat_mi`
+# çağrılmaya devam ediyor, yalnızca "şimdi"nin yerine sabit bir öğle vakti
+# konuyor. Kuralın kendisi aşağıda ayrıca test ediliyor.
+OGLE_UTC = datetime(2026, 8, 15, 11, 0)      # naive UTC → 14:00 Türkiye
+GECE_UTC = datetime(2026, 8, 15, 0, 30)      # naive UTC → 03:30 Türkiye
+
+
+def _saati_sabitle(monkeypatch, an):
+    from keepmoney import worker as w
+    from keepmoney.zaman import sessiz_saat_mi as gercek
+
+    monkeypatch.setattr(
+        w, "sessiz_saat_mi",
+        lambda baslangic, bitis, dt=None: gercek(baslangic, bitis, dt or an))
+
+
+@pytest.fixture(autouse=True)
+def _gunduz(monkeypatch):
+    _saati_sabitle(monkeypatch, OGLE_UTC)
 
 
 def kur(db, fiyat="50000", url="https://magaza.com/urun", hedef=None,
@@ -659,3 +686,36 @@ def test_stok_yok_fiyat_gecmisine_yazmaz(db):
     assert okuma.fiyat is None
     assert okuma.ekstra["stok_yok"] is True
     assert db.query(PriceReading).count() == 0
+
+
+# ---------- sessiz saatler ----------
+
+def test_sessiz_saatte_normal_alarm_ertelenir(db, monkeypatch):
+    """00:00-08:00 arası normal alarm gitmez.
+
+    Kritik ayrıntı: uyarı ERTELENİR, iptal edilmez — `son_bildirim_ts`
+    güncellenmediği için sabah ilk turda kendiliğinden tetiklenir. Bu satır
+    hiç doğrudan test edilmemişti; uyarı testleri gündüz koştuğu için
+    tesadüfen geçiyordu.
+    """
+    _saati_sabitle(monkeypatch, GECE_UTC)
+    _, p, _, w, t = kur(db, fiyat="45000", hedef=50000)
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 0
+    assert w.son_bildirim_ts is None          # sabah tetiklenebilsin
+
+
+def test_sessiz_saatte_acil_esigi_deler(db, monkeypatch):
+    """ACİL fiyat, sessiz saati DELER — kullanıcı bu eşiği tam da bunun için
+    koyuyor. Uyarı yine HEDEF türünde çıkar; aciliyet başlıkta belirtilir."""
+    _saati_sabitle(monkeypatch, GECE_UTC)
+    _, p, _, w, t = kur(db, fiyat="45000", hedef=50000)
+    w.acil_fiyat = 46000
+    db.commit()
+
+    t.urun_tara(p)
+
+    uyari = db.query(Alert).filter(Alert.tur == "HEDEF").one()
+    assert "ACİL" in uyari.baslik
