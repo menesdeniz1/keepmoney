@@ -167,6 +167,16 @@ EOF
 python betikler/kaynak_dene.py --dosya linkler.txt --html-kaydet hata_html/
 ```
 
+> **Sanal ortam HER YENİ terminalde yeniden etkinleştirilir.** Etkin değilse
+> araç `ModuleNotFoundError` verir — hata koddaymış gibi görünür ama değildir.
+> Araç bunu fark edip çalıştırılacak komutu söylüyor; yine de en sık düşülen
+> tuzak budur.
+>
+> ```powershell
+> .\.venv\Scripts\Activate.ps1     # Windows
+> source .venv/bin/activate         # Linux / macOS
+> ```
+
 Çıktı şuna benzer:
 
 ```

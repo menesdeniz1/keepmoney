@@ -617,3 +617,34 @@ def test_rapor_site_satirinda_zayif_okuma_gorunur(capsys):
     kd._rapor([kd.Sonuc(url="a", domain="amazon.com.tr", fiyat=1.0,
                         guven="regex")])
     assert "1 zayıf okuma" in capsys.readouterr().out
+
+
+# ── Eksik bağımlılık mesajı ─────────────────────────────────────
+# Gerçek kullanımda yaşandı: yeni bir PowerShell penceresinde `.venv` aktive
+# edilmemişti ve ekranda yalnızca
+#     ModuleNotFoundError: No module named 'yaml'
+# yığın izi vardı. Mesaj kullanıcıyı YANLIŞ yöne gönderiyor — hata koddaymış
+# gibi görünüyor, oysa yapılacak tek şey ortamı etkinleştirmek.
+
+def test_bagimlilik_uyarisi_komut_verir():
+    metin = kd._bagimlilik_uyarisi(ImportError("No module named 'yaml'"),
+                                   windows=False, venv_var=True)
+    assert "No module named 'yaml'" in metin        # gerçek hata gizlenmiyor
+    assert "source .venv/bin/activate" in metin
+
+
+def test_bagimlilik_uyarisi_windowsta_windows_komutu_verir():
+    """`source` ve `python3` Windows'ta YOK; yanlış komut vermek işe yaramaz."""
+    metin = kd._bagimlilik_uyarisi(ImportError("No module named 'yaml'"),
+                                   windows=True, venv_var=True)
+    assert r".venv\Scripts\Activate.ps1" in metin
+    assert "source " not in metin
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_bagimlilik_uyarisi_venv_yoksa_kurulum_anlatir(windows):
+    """Sanal ortam hiç yoksa "etkinleştir" demek çıkmaz sokak."""
+    metin = kd._bagimlilik_uyarisi(ImportError("No module named 'yaml'"),
+                                   windows=windows, venv_var=False)
+    assert "pip install -r requirements.txt" in metin
+    assert "venv .venv" in metin

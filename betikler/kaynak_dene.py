@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import pathlib
 import sys
 import time
@@ -68,21 +69,68 @@ def _cikti_utf8() -> None:
 
 _cikti_utf8()
 
-from keepmoney import siteler
-from keepmoney.ayikla import (
-    _corba,
-    _ld_bloklari,
-    cikar,
-    engel_mi,
-    olu_mu,
-    pazar_ayikla,
-    stok_yok_mu,
-)
-from keepmoney.cekici import HttpCekici
-from keepmoney.fiyat import parse_tl, tl
-from keepmoney.robots import RobotsKapisi
-from keepmoney.servisler.izleme import url_normalize
-from keepmoney.throttle import HostThrottle
+
+def _bagimlilik_uyarisi(hata: ImportError, windows: bool | None = None,
+                       venv_var: bool | None = None) -> str:
+    """Eksik bağımlılık için ÇALIŞTIRILABİLİR bir talimat üretir.
+
+    Çıplak `ModuleNotFoundError: No module named 'yaml'` traceback'i,
+    kullanıcıyı yanlış yöne gönderiyor: hata koddaymış gibi görünüyor, oysa
+    sanal ortam etkin değil. Gerçek bir kullanımda tam olarak bu oldu —
+    yeni bir PowerShell penceresinde `.venv` aktive edilmemişti ve ekranda
+    yalnızca yığın izi vardı.
+
+    Komutlar platforma göre değişiyor; Windows'ta `source` ve `python3` yok.
+
+    Platform ve sanal ortam durumu PARAMETRE: testte `os.name`i global olarak
+    değiştirmek `pathlib`i de bozuyor (o da `os.name`e bakıp WindowsPath
+    seçiyor) — yani ortamı taklit etmenin bedeli süreci bozmaktı.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if venv_var is None:
+        venv_var = (pathlib.Path(__file__).resolve().parent.parent
+                    / ".venv").is_dir()
+
+    if windows:
+        etkinlestir = r".\.venv\Scripts\Activate.ps1"
+        kur = f"py -3 -m venv .venv ; {etkinlestir} ; pip install -r requirements.txt"
+    else:
+        etkinlestir = "source .venv/bin/activate"
+        kur = f"python3 -m venv .venv && {etkinlestir} && pip install -r requirements.txt"
+
+    adim = (f"  {etkinlestir}" if venv_var
+            else f"  {kur}")
+    return (
+        f"\nBağımlılık eksik: {hata}\n\n"
+        + ("Sanal ortam var ama ETKİN DEĞİL. Önce onu etkinleştir:\n"
+           if venv_var else
+           "Sanal ortam kurulu değil. Kur ve bağımlılıkları yükle:\n")
+        + adim
+        + "\n\nSonra bu komutu tekrar çalıştır. (Hata bir keepmoney modülünü "
+          "gösteriyorsa sorun ortamda değil, kodda olabilir.)\n")
+
+
+try:
+    from keepmoney import siteler
+    from keepmoney.ayikla import (
+        _corba,
+        _ld_bloklari,
+        cikar,
+        engel_mi,
+        olu_mu,
+        pazar_ayikla,
+        stok_yok_mu,
+    )
+    from keepmoney.cekici import HttpCekici
+    from keepmoney.fiyat import parse_tl, tl
+    from keepmoney.robots import RobotsKapisi
+    from keepmoney.servisler.izleme import url_normalize
+    from keepmoney.throttle import HostThrottle
+except ImportError as _hata:
+    # Hatanın kendisi mesaja giriyor: gerçek bir kod hatasını gizlemeyelim.
+    print(_bagimlilik_uyarisi(_hata), file=sys.stderr)
+    raise SystemExit(2) from None
 
 # Güven zincirinin en zayıf halkası. Regex'ten gelen fiyat "okundu" sayılır
 # ama SEVİNİLECEK bir sonuç değildir: sayfadaki herhangi bir sayıyı yakalamış
