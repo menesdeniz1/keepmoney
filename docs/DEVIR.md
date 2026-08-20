@@ -59,7 +59,7 @@ tek tek geri getirildi (bkz. §5).
   `uctan-uca`, `arayuz`, `imaj` (Docker imajı derlenip container ayağa
   kaldırılıyor, chromium ve arayüz doğrulanıyor)
 - **60 mimari karar** belgeli (`MIMARI.md`)
-- Son commit: `3c5f616`
+- Son commit: `fb2870f`
 
 ### Gerçek linklerle okuma oranı
 
@@ -403,5 +403,7 @@ Seçici yazarken gereken döngü budur.
 
 ---
 
-*Son güncelleme: bu belge yazıldığında son commit `3c5f616`, 627 test yeşil,
-CI 7/7 yeşil.*
+*Son güncelleme: bu belge yazıldığında son commit `fb2870f`, 664 test yeşil
+(uçtan uca arayüz dosyası hariç — §4.5), arayüz tarafı temiz (eslint, tsc,
+18 vitest). CI bu makineden DOĞRULANAMADI: depo özel ve `gh` kurulu değil —
+push sonrası GitHub Actions'a elle bakılmalı.*
