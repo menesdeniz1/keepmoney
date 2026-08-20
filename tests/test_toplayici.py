@@ -7,6 +7,9 @@ grafiğe işleyen, geri alınamayan, sessiz bir veri hatası.
 """
 from __future__ import annotations
 
+import pytest
+
+from keepmoney import toplayici
 from keepmoney.cekici import Cekim
 from keepmoney.toplayici import Oneri, _sonuclari_ayikla, ara
 
@@ -105,18 +108,32 @@ def test_bos_sorgu_aga_cikmaz():
     assert c.cagrilar == []
 
 
-def test_cekim_basarisizsa_bos_liste():
-    """Arama bir KOLAYLIK, kritik yol değil: toplayıcı erişilemezse kullanıcı
-    linki elle de ekleyebilir. Ürün ekleme akışı kırılmamalı."""
+# "SONUÇ YOK" İLE "ULAŞILAMADI" AYRI ŞEYLER. İkisi de boş liste döndüğü sürece
+# arayüz ikisine de "bu ürün için eşleşme bulunamadı" diyor — yani bir ağ
+# hatası, ürünün hiçbir yerde satılmadığı gibi görünüyor ve kullanıcı elle
+# link eklemeyi denemiyor. Gerçek bir denemede tam olarak bu yaşandı: çekim
+# katmanı 403 aldı, uç 200 + `[]` döndürdü, ekranda "eşleşme bulunamadı" yazdı.
+
+def test_cekim_basarisizsa_erisim_hatasi():
     c = _SahteCekici(Cekim(html=None, http_kodu=503))
-    assert ara(c, "x") == []
+    with pytest.raises(toplayici.ErisimHatasi):
+        ara(c, "x")
 
 
-def test_cekici_patlarsa_bos_liste():
+def test_cekici_patlarsa_erisim_hatasi():
     class _Patlayan:
         def cek(self, url, kural=None):
             raise OSError("ağ yok")
-    assert ara(_Patlayan(), "x") == []
+    with pytest.raises(toplayici.ErisimHatasi):
+        ara(_Patlayan(), "x")
+
+
+def test_sayfa_okundu_ama_eslesme_yoksa_bos_liste():
+    """Karşı test: gerçekten sonuç yoksa boş liste DOĞRU cevaptır."""
+    c = _SahteCekici(Cekim(
+        html="<html><body><a href='/kampanyalar'>Kampanyalar</a></body></html>",
+        http_kodu=200))
+    assert ara(c, "olmayan urun") == []
 
 
 # ── Eşzamanlılık: kuyruğa girme, hızlı reddet ────────────────────
@@ -182,7 +199,8 @@ def test_hata_durumunda_slot_birakilir():
             raise OSError("ağ yok")
 
     for _ in range(5):
-        assert toplayici.ara(_Patlayan(), "x") == []
+        with pytest.raises(toplayici.ErisimHatasi):
+            toplayici.ara(_Patlayan(), "x")
     # Slot sızmadıysa normal arama hâlâ çalışır.
     c = _SahteCekici(Cekim(html=ARAMA_SAYFASI, http_kodu=200))
     assert len(toplayici.ara(c, "x")) == 2

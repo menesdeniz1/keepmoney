@@ -514,6 +514,25 @@ def test_arama_bozuksa_akis_kirilmaz(sayfa, sunucu):
     assert sayfa.get_by_role("heading", name="Fiyat geçmişi").is_visible()
 
 
+def test_ad_okunmadan_arayinca_sebep_gosterilir(sayfa, sunucu):
+    """Geçici ve kullanıcının ÇÖZEBİLECEĞİ durum, kalıcı arıza gibi
+    görünmemeli.
+
+    Ürün adı ilk taramada okunuyor; o ana kadar arama yapılamıyor. Sunucu
+    sebebi söylüyor (409); arayüz onu geçip "Arama şu an yapılamadı" deseydi
+    kullanıcı özelliğin bozuk olduğunu sanırdı.
+    """
+    sayfa.route(
+        "**/kaynak-onerileri",
+        lambda rota: rota.fulfill(
+            status=409, content_type="application/json",
+            body='{"detail":"Ürün adı henüz okunmadı — arama için önce ilk '
+                 'tarama gerekiyor. Birkaç dakika sonra tekrar dene."}'))
+    _detaya_git(sayfa, sunucu)
+    sayfa.get_by_role("button", name="Başka mağazalarda ara").click()
+    sayfa.wait_for_selector("text=Ürün adı henüz okunmadı", timeout=15000)
+
+
 # ── Pazar derinliği gösterimi ────────────────────────────────────
 # Koruma katmanının kullandığı sinyal kullanıcıya da gösteriliyor; amaç
 # kararın DENETLENEBİLİR olması. Burada API yanıtı değiştirilerek gerçek

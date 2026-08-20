@@ -65,6 +65,18 @@ class MesgulHata(RuntimeError):
     """Eşzamanlı arama sınırı doldu. Geçici — kullanıcı tekrar deneyebilir."""
 
 
+class ErisimHatasi(RuntimeError):
+    """Toplayıcıya ulaşılamadı (ağ, bot duvarı, boş yanıt).
+
+    "SONUÇ YOK" İLE "ARAMA YAPILAMADI" AYRI ŞEYLER. İkisi de boş liste
+    döndüğünde arayüz ikisine de "bu ürün için eşleşme bulunamadı" diyordu —
+    yani ağ hatası, kullanıcıya ürünün hiçbir yerde satılmadığı gibi
+    görünüyordu. Gerçek bir denemede tam olarak bu yaşandı: çekim katmanı
+    403 aldı, uç 200 + `[]` döndürdü, ekranda "eşleşme bulunamadı" yazdı.
+    Kullanıcı yanlış sonuca varır ve elle link eklemeyi denemez.
+    """
+
+
 @dataclass(frozen=True)
 class Oneri:
     """Kullanıcıya sunulan aday. Onaylanmadan hiçbir yere yazılmaz."""
@@ -73,11 +85,15 @@ class Oneri:
 
 
 def ara(cekici: Cekici, sorgu: str, limit: int = 3) -> list[Oneri]:
-    """Toplayıcıda ürün adıyla arar. Hata durumunda BOŞ liste döner.
+    """Toplayıcıda ürün adıyla arar.
 
-    Arama bir kolaylıktır, kritik yol değil: toplayıcı erişilemezse kullanıcı
-    linki elle de ekleyebilir. Bu yüzden istisna fırlatmıyoruz — arama
-    başarısız diye ürün ekleme akışı kırılmamalı.
+    Boş liste YALNIZCA "sayfa okundu, eşleşen ürün yok" demektir. Toplayıcıya
+    ulaşılamazsa `ErisimHatasi` yükselir — çağıran katman farkı kullanıcıya
+    doğru anlatabilsin diye (bkz. `ErisimHatasi`).
+
+    Arama bir kolaylıktır, kritik yol değil: bu fonksiyon yalnızca kullanıcının
+    açıkça tetiklediği uçtan çağrılıyor, ürün ekleme akışında değil. Yani
+    istisna yükseltmek hiçbir akışı kırmıyor.
     """
     sorgu = (sorgu or "").strip()
     if not sorgu:
@@ -96,13 +112,17 @@ def ara(cekici: Cekici, sorgu: str, limit: int = 3) -> list[Oneri]:
             cekim = cekici.cek(ARAMA_URL.format(quote_plus(sorgu)), {})
         except Exception as e:
             logger.warning("toplayici_arama_hatasi", sorgu=sorgu, hata=str(e))
-            return []
+            raise ErisimHatasi(
+                "Toplayıcıya şu an ulaşılamıyor.") from e
     finally:
         _ARAMA_SLOTU.release()
 
     if not cekim.html:
-        logger.info("toplayici_arama_bos", sorgu=sorgu, kod=cekim.http_kodu)
-        return []
+        # Gövde yok: ağ hatası, bot duvarı ya da boş yanıt. `cek` zinciri
+        # cloudscraper ve tarayıcıyı da denedikten sonra buraya düşüyor.
+        logger.info("toplayici_arama_erisilemedi", sorgu=sorgu,
+                    kod=cekim.http_kodu, hata=cekim.hata)
+        raise ErisimHatasi("Toplayıcıya şu an ulaşılamıyor.")
     return _sonuclari_ayikla(cekim.html, limit)
 
 

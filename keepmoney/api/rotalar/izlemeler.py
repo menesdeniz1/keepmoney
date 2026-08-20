@@ -89,17 +89,36 @@ def kaynak_onerileri(izleme_id: int, k: Kullanici, db: DB):
     açılıyor. Kullanıcının açıkça tetiklediği bir işlem olduğu için kabul
     edilebilir; arayüz bekleme durumu gösteriyor.
 
-    Hata durumunda BOŞ liste döner, 5xx değil: arama bir kolaylıktır,
-    erişilemezse kullanıcı linki elle de ekleyebilir.
+    BOŞ LİSTE = "sayfa okundu, eşleşme yok". Toplayıcıya ulaşılamazsa 503
+    döner — arayüz ikisine de "eşleşme bulunamadı" diyordu ve ağ hatası,
+    ürünün hiçbir yerde satılmadığı gibi görünüyordu.
     """
     try:
         w = svc.izleme_getir(db, k, izleme_id)
     except svc.IzlemeHatasi as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
 
+    # Ürün adı ilk taramada okunuyor; o ana kadar `ad` link kimliğidir
+    # ("B0BSLHZKB6"). Onunla arama yapmak HER ZAMAN boş sonuç verir ve arayüz
+    # bunu "eşleşme bulunamadı" diye gösterirdi — kullanıcı özelliğin
+    # çalışmadığını sanır. Gerçek bir denemede tam olarak bu oldu: link
+    # eklendi, hemen arandı, akakçe "B0BSLHZKB6" için hiçbir şey döndürmedi.
+    # Boş liste yerine SEBEBİ söylüyoruz; toplayıcıya da gereksiz istek gitmez.
+    if w.product.ad_gecici:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ürün adı henüz okunmadı — arama için önce ilk tarama gerekiyor. "
+            "Birkaç dakika sonra tekrar dene.")
+
     cekici = HttpCekici()
     try:
         return toplayici.ara(cekici, w.product.ad)
+    except toplayici.ErisimHatasi as e:
+        # Kalıcı bir arıza değil; kullanıcı biraz sonra tekrar deneyebilir ya
+        # da mağaza linkini elle ekleyebilir. Arayüz bunu böyle anlatıyor.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, str(e),
+            headers={"Retry-After": "30"}) from e
     except toplayici.MesgulHata as e:
         # 503 + Retry-After: geçici bir doluluk, kalıcı bir hata değil.
         # Kuyruğa almak yerine hızlı reddediyoruz — bekleyen istek FastAPI'nin

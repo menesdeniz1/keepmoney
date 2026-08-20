@@ -32,6 +32,8 @@ dizisidir; zayıfsa saldırgan istediği kullanıcı adına geçerli token üret
 
 ## 1. Yerelde ilk çalıştırma (~5 dakika)
 
+**Linux / macOS:**
+
 ```bash
 git clone https://github.com/menesdeniz1/keepmoney && cd keepmoney
 
@@ -42,6 +44,34 @@ cp .env.example .env          # JWT anahtarını içine yaz
 mkdir -p data                 # SQLite dosyası buraya
 alembic upgrade head          # şemayı kur
 ```
+
+**Windows (PowerShell):** komutlar AYNI DEĞİL. Gerçek bir kurulumda
+`python3`, `source` ve `cp` "tanınmıyor" hatası verdi — Windows'ta bunlar
+yok. Doğrusu:
+
+```powershell
+git clone https://github.com/menesdeniz1/keepmoney
+cd keepmoney
+
+py -3 -m venv .venv                    # `python3` değil, `py`
+.\.venv\Scripts\Activate.ps1          # `source` değil
+pip install -r requirements.txt
+
+Copy-Item .env.example .env            # `cp` değil
+New-Item -ItemType Directory -Force data | Out-Null
+alembic upgrade head
+```
+
+`Activate.ps1` "betik çalıştırma devre dışı" derse, o oturum için izin ver:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+Bundan sonraki tüm komutlarda `python` ve `pytest` doğrudan çalışır (sanal
+ortam etkinken). Çıktıyı dosyaya yönlendireceksen `>` yerine
+`| Out-File -Encoding utf8 rapor.txt` kullan — PowerShell'in varsayılan
+kodlaması Türkçe karakterleri bozar.
 
 İki terminal:
 
@@ -86,7 +116,7 @@ Dört ayrı katman var; hepsi CI'da koşuyor ([`ci.yml`](../.github/workflows/ci
 
 ```bash
 # Backend — ağ gerektirmez, ~1 dk
-pytest -q                                # 553 test
+pytest -q                                # 595 test
 
 # Arayüz
 cd arayuz && npx tsc -b && npx vitest run && npm run lint

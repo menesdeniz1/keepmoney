@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
 mkdir -p data && alembic upgrade head         # şemayı kur
-pytest                                        # 553 test
+pytest                                        # 595 test
 
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
@@ -137,7 +137,7 @@ keepmoney/
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
 betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
-tests/             553 test, hepsi yeşil
+tests/             595 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

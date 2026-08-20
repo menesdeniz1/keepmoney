@@ -1,5 +1,6 @@
 import { Plus, Search } from 'lucide-react'
 
+import { ApiHatasi } from '../api/istemci'
 import { useKaynakEkle, useKaynakOnerileri } from '../api/kancalar'
 
 /**
@@ -39,7 +40,15 @@ export default function KaynakOnerileri({ izlemeId }: { izlemeId: number }) {
 
       {oneriler.isError && (
         <p role="alert" className="mt-2 text-xs text-slate-500">
-          Arama şu an yapılamadı. Mağaza linkini elle de ekleyebilirsin.
+          {/*
+            Sunucunun söylediği sebep varsa ONU göster. Tek bir "arama
+            yapılamadı" metni, "ürün adı henüz okunmadı" gibi geçici ve
+            KULLANICININ ÇÖZEBİLECEĞİ durumları kalıcı arıza gibi
+            gösteriyordu — kullanıcı özelliğin bozuk olduğunu sanır.
+          */}
+          {oneriler.error instanceof ApiHatasi && oneriler.error.durum === 409
+            ? oneriler.error.message
+            : 'Arama şu an yapılamadı. Mağaza linkini elle de ekleyebilirsin.'}
         </p>
       )}
 

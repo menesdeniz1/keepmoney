@@ -1336,6 +1336,20 @@ def _izleme_kur(istemci, url="https://magaza.com/urun-a") -> tuple[dict, int]:
     return basliklar, y.json()["id"]
 
 
+def _ad_okundu(db) -> None:
+    """İlk taramanın ürün adını okumuş olduğunu taklit eder.
+
+    Link eklendiği anda `Product.ad` link kimliğidir ("B0BSLHZKB6") ve
+    `ad_gecici` doğrudur. Arama bu adla yapılamaz — testlerde `toplayici.ara`
+    taklit edildiği için bu koşul GÖRÜNMÜYORDU: 595 test yeşilken gerçek
+    kurulumda arama her zaman boş dönüyordu.
+    """
+    from keepmoney.models import Product
+
+    db.query(Product).update({Product.ad_gecici: False})
+    db.commit()
+
+
 def test_kaynak_onerileri_hicbir_sey_baglamaz(istemci, db, monkeypatch):
     """Arama SONUCU bir öneridir; veritabanına dokunmaz."""
     from keepmoney import toplayici
@@ -1345,6 +1359,7 @@ def test_kaynak_onerileri_hicbir_sey_baglamaz(istemci, db, monkeypatch):
             toplayici.Oneri(ad="Asus RTX 5070 Ti", url="https://akakce.com/x-fiyati,1.html")])
 
     basliklar, izleme_id = _izleme_kur(istemci)
+    _ad_okundu(db)
     once = db.query(Source).count()
 
     y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
@@ -1431,7 +1446,7 @@ def test_kaynak_ekleme_ssrf_kapisindan_gecer(istemci):
     assert y.status_code == 400
 
 
-def test_arama_mesgulse_503_ve_retry_after(istemci, monkeypatch):
+def test_arama_mesgulse_503_ve_retry_after(istemci, db, monkeypatch):
     """Geçici doluluk KALICI hata gibi görünmemeli: 503 + Retry-After.
 
     Kuyruğa almak yerine hızlı reddediyoruz — bekleyen istek FastAPI'nin iş
@@ -1445,7 +1460,67 @@ def test_arama_mesgulse_503_ve_retry_after(istemci, monkeypatch):
     monkeypatch.setattr(toplayici, "ara", mesgul)
 
     basliklar, izleme_id = _izleme_kur(istemci)
+    _ad_okundu(db)
     y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
                     headers=basliklar)
     assert y.status_code == 503
     assert y.headers["Retry-After"] == "5"
+
+
+def test_ad_okunmadan_arama_sebebiyle_reddedilir(istemci, db, monkeypatch):
+    """Boş liste yerine SEBEP.
+
+    Gerçek kurulumda yakalandı: link eklenir eklenmez "başka mağazalarda ara"
+    denince akakçe'de "B0BSLHZKB6" aranıyordu — ürün adı henüz okunmamıştı ve
+    sonuç HER ZAMAN boştu. Arayüz bunu "eşleşme bulunamadı" diye gösteriyordu,
+    yani kullanıcı özelliğin bozuk olduğunu sanıyordu. Testlerde
+    `toplayici.ara` taklit edildiği için koşul hiç görünmemişti.
+    """
+    from keepmoney import toplayici
+
+    def cagrilmamali(*a, **k):
+        pytest.fail("ad okunmadan toplayıcıya istek GİTMEMELİ")
+
+    monkeypatch.setattr(toplayici, "ara", cagrilmamali)
+
+    basliklar, izleme_id = _izleme_kur(istemci)      # ad_gecici = True
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=basliklar)
+    assert y.status_code == 409
+    assert "henüz okunmadı" in y.json()["detail"]
+
+
+def test_toplayiciya_ulasilamazsa_503_doner(istemci, db, monkeypatch):
+    """"Ulaşılamadı" ile "sonuç yok" ayrı cevaplar olmalı.
+
+    Boş liste döndüğünde arayüz "bu ürün için eşleşme bulunamadı" diyordu;
+    yani bir ağ hatası, ürünün hiçbir yerde satılmadığı gibi görünüyordu ve
+    kullanıcı mağaza linkini elle eklemeyi denemiyordu. Gerçek bir denemede
+    çekim katmanı 403 aldı, uç 200 + `[]` döndürdü.
+    """
+    from keepmoney import toplayici
+
+    def erisilemedi(*a, **k):
+        raise toplayici.ErisimHatasi("Toplayıcıya şu an ulaşılamıyor.")
+
+    monkeypatch.setattr(toplayici, "ara", erisilemedi)
+
+    basliklar, izleme_id = _izleme_kur(istemci)
+    _ad_okundu(db)
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=basliklar)
+    assert y.status_code == 503
+    assert y.headers["Retry-After"] == "30"
+
+
+def test_sonuc_yoksa_200_ve_bos_liste(istemci, db, monkeypatch):
+    """Karşı test: gerçekten eşleşme yoksa 200 + [] doğru cevaptır."""
+    from keepmoney import toplayici
+    monkeypatch.setattr(toplayici, "ara", lambda *a, **k: [])
+
+    basliklar, izleme_id = _izleme_kur(istemci)
+    _ad_okundu(db)
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=basliklar)
+    assert y.status_code == 200
+    assert y.json() == []
