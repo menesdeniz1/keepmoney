@@ -13,3 +13,9 @@ data/
 yedekler/
 *.dump
 statik/
+
+# Tanı aracının çıktıları ve kullanıcının kendi link listesi: yerel veri.
+# `linkler.txt` kişisel (kimin neyi izlediği), `hata_html/` ise megabaytlarca
+# kaydedilmiş sayfa — ikisi de depoya girmez.
+hata_html/
+linkler.txt
