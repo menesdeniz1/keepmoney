@@ -533,6 +533,25 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
             print("   ! `saticilar_secici` tutmuyor — koruma ölçütü devre dışı.")
 
     c = cikar(html, kural)
+
+    # FİYAT YOKSA KANIT GÖSTER: ürün kolonunun kendi metni.
+    #
+    # "Ürün tükenmiş" ile "fiyat JS ile gelmedi" ayrımı tam da bu metinde
+    # duruyor ve tahmin etmeye gerek yok. Gerçek bir vakada (Amazon'da bir
+    # monitör) araç şuraya kadar geliyordu: sayfa 1451 KB, başlık doğru,
+    # `#centerCol` VAR — ama yalnızca 1134 karakter. Buybox'lı normal bir
+    # sayfada orası binlerce karakterdir. Yani cevap o 1134 karakterin
+    # içindeydi ve araç onu göstermediği için karar verilemedi; "ürün satışta
+    # değil mi, yoksa bizim hatamız mı" sorusu açık kaldı.
+    #
+    # Stok kalıplarımız o metni tutmuyorsa eksik olan kalıptır ve eklenecek
+    # ifadeyi ancak metni GÖREREK bulabiliriz.
+    if c.fiyat is None and kapsam is not None:
+        metin = " ".join(kapsam.get_text(" ", strip=True).split())
+        print("\n── Ürün kolonunun metni (kanıt) ───────────────────────────")
+        print("   " + (f"{metin[:800]}…" if len(metin) > 800
+                       else metin or "(boş — buybox hiç render edilmemiş)"))
+
     print("\n── Sonuç ──────────────────────────────────────────────────")
     if c.stok_yok:
         print("   STOKTA YOK — sayfa sağlam, ürünün o an fiyatı yok.")

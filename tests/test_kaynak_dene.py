@@ -683,3 +683,47 @@ def test_basarili_satirda_katman_listesi_gurultu_yapmaz(capsys):
                            guven="secici", yontem="playwright",
                            denenenler=("requests", "playwright")))
     assert "denenen katmanlar" not in capsys.readouterr().out
+
+
+# ── Fiyat yoksa KANIT göster ────────────────────────────────────
+# Gerçek bir vakada araç tam şuraya kadar gelip duruyordu: sayfa 1451 KB,
+# başlık doğru, `#centerCol` VAR ama yalnızca 1134 karakter (buybox'lı normal
+# bir sayfada binlerce olur), tüm fiyat adayları sponsorlu kutu. Cevap o 1134
+# karakterin içindeydi — "ürün satışta değil" mi, "JS yüklenmedi" mi. Araç
+# metni göstermediği için karar verilemedi.
+
+AMAZON_TUKENMIS = """<html><head><title>MSI Monitör</title></head><body>
+<div id="centerCol"><h1 id="productTitle">MSI Monitör</h1>
+  <div id="availability">Bu ürün şu anda satın alınamıyor.</div></div>
+<div id="anonCarousel1">
+  <div id="sp_detail_B0G1MXRSZ4"><span class="a-price-whole">37.899,00 TL</span></div>
+</div></body></html>"""
+
+
+def test_incele_fiyat_yoksa_kapsam_metnini_basar(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-30.html"
+    dosya.write_text(AMAZON_TUKENMIS, encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "Ürün kolonunun metni" in cikti
+    assert "şu anda satın alınamıyor" in cikti
+
+
+def test_incele_fiyat_varken_kanit_bolumu_cikmaz(tmp_path, capsys):
+    """Fiyat okunduysa bu bölüm gürültüdür."""
+    dosya = tmp_path / "amazon.com.tr-31.html"
+    dosya.write_text(
+        AMAZON_KABUK.replace("<body>", '<body><div id="centerCol">gövde</div>'),
+        encoding="utf-8")
+    kd.incele(dosya)
+    assert "Ürün kolonunun metni" not in capsys.readouterr().out
+
+
+def test_incele_bos_kapsami_ayirt_eder(tmp_path, capsys):
+    """Boş `#centerCol`, dolu ama stok metni olmayandan FARKLI bir teşhis."""
+    dosya = tmp_path / "amazon.com.tr-32.html"
+    dosya.write_text(
+        '<html><head><title>X</title></head><body>'
+        '<div id="centerCol"></div></body></html>', encoding="utf-8")
+    kd.incele(dosya)
+    assert "buybox hiç render edilmemiş" in capsys.readouterr().out
