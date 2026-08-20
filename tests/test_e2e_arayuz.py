@@ -27,7 +27,7 @@ import pytest
 
 pytest.importorskip("playwright", reason="playwright isteğe bağlı bağımlılık")
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Page, expect, sync_playwright
 
 KOK = Path(__file__).resolve().parents[1]
 ARAYUZ_DIST = KOK / "arayuz" / "dist"
@@ -431,3 +431,138 @@ def test_api_404u_json_doner(sayfa, sunucu):
     yanit = sayfa.request.get(f"{sunucu}/api/boyle-bir-uc-yok")
     assert yanit.status == 404
     assert "application/json" in yanit.headers.get("content-type", "")
+
+
+# ── Çoklu kaynak: öneri → seçim → ekleme ─────────────────────────
+# Bu akış bugün eklendi ve yalnızca birim testleriyle doğrulanmıştı:
+# "JSX'te düğme var" ile "düğme çalışıyor" arasındaki farkı kapatan tek
+# yer burası. Toplayıcı ARAMASI sahteleniyor (dış siteye çıkmamak için) ama
+# EKLEME gerçek: POST → servis → veritabanı → yeniden çekim → DOM.
+
+def _detaya_git(s: Page, sunucu: str) -> None:
+    _kayit_ol(s, sunucu)
+    _urun_ekle(s)
+    s.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    s.locator("a[href^='/izleme/']").first.click()
+    s.wait_for_selector("text=Kaynaklar", timeout=15000)
+
+
+def test_kaynak_onerisi_secilince_gercekten_eklenir(sayfa, sunucu):
+    sayfa.route(
+        "**/kaynak-onerileri",
+        lambda rota: rota.fulfill(
+            status=200, content_type="application/json",
+            body='[{"ad":"Asus RTX 5070 Ti Prime 16GB",'
+                 '"url":"https://www.akakce.com/x-fiyati,1234567.html"}]'))
+
+    _detaya_git(sayfa, sunucu)
+
+    # Kaynak listesi arayüzde SATICI ADIYLA görünür (akakçe kuralında
+    # `satici: "Akakçe"`), host'la değil.
+    kaynak_baglantisi = sayfa.locator("a[href*='akakce.com']")
+
+    sayfa.get_by_role("button", name="Başka mağazalarda ara").click()
+    sayfa.wait_for_selector("text=Asus RTX 5070 Ti Prime 16GB", timeout=15000)
+
+    # Aday listelenmiş olması TEK BAŞINA hiçbir şeyi değiştirmemeli:
+    # görünen tek akakçe bağlantısı önerinin kendisi olmalı.
+    assert kaynak_baglantisi.count() == 1
+
+    sayfa.get_by_role(
+        "button", name="Asus RTX 5070 Ti Prime 16GB kaynağını ekle").click()
+    # Ekleme gerçek: POST → servis → veritabanı → yeniden çekim → DOM.
+    # `wait_for_function` KULLANILMIYOR: CSP `unsafe-eval`i engelliyor
+    # (doğru davranış) ve string olarak JS değerlendirilemiyor.
+    expect(kaynak_baglantisi).to_have_count(2, timeout=15000)
+    assert "Akakçe" in sayfa.content()
+    assert not sayfa.sunucu_hatalari                  # type: ignore[attr-defined]
+
+
+def test_arama_kendiliginden_calismaz(sayfa, sunucu):
+    """Dış siteye çıkan ve gerçek tarayıcı açabilen bir uç, sayfa her
+    açıldığında tetiklenmemeli — hem kullanıcıyı bekletir hem toplayıcıya
+    gereksiz yük bindirir."""
+    cagrildi = []
+    sayfa.route("**/kaynak-onerileri",
+                lambda rota: (cagrildi.append(1),
+                              rota.fulfill(status=200,
+                                           content_type="application/json",
+                                           body="[]"))[1])
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_timeout(1500)
+    assert cagrildi == []
+
+
+def test_eslesme_bulunamazsa_kullaniciya_soylenir(sayfa, sunucu):
+    sayfa.route("**/kaynak-onerileri",
+                lambda rota: rota.fulfill(status=200,
+                                          content_type="application/json",
+                                          body="[]"))
+    _detaya_git(sayfa, sunucu)
+    sayfa.get_by_role("button", name="Başka mağazalarda ara").click()
+    sayfa.wait_for_selector("text=eşleşme bulunamadı", timeout=15000)
+
+
+def test_arama_bozuksa_akis_kirilmaz(sayfa, sunucu):
+    """Arama bir KOLAYLIK, kritik yol değil: sayfa çalışmaya devam etmeli."""
+    sayfa.beklenen_5xx.add("kaynak-onerileri")       # type: ignore[attr-defined]
+    sayfa.route("**/kaynak-onerileri",
+                lambda rota: rota.fulfill(status=503, body="{}"))
+    _detaya_git(sayfa, sunucu)
+    sayfa.get_by_role("button", name="Başka mağazalarda ara").click()
+    sayfa.wait_for_selector("text=Arama şu an yapılamadı", timeout=15000)
+    assert sayfa.get_by_role("heading", name="Fiyat geçmişi").is_visible()
+
+
+# ── Pazar derinliği gösterimi ────────────────────────────────────
+# Koruma katmanının kullandığı sinyal kullanıcıya da gösteriliyor; amaç
+# kararın DENETLENEBİLİR olması. Burada API yanıtı değiştirilerek gerçek
+# derlenmiş paketin bu veriyi doğru yorumlayıp yorumlamadığı sınanıyor —
+# uyarı eşiği arayüzde ayrıca hesaplanıyor ve yanlış hesaplanırsa kullanıcı
+# ya boşuna korkar ya da gerçek tuzağı görmez.
+
+def _detay_yanitini_degistir(s: Page, **kaynak_alanlari):
+    """`/api/izlemeler/{id}` yanıtına pazar alanlarını enjekte eder."""
+    def islemci(rota):
+        yanit = rota.fetch()
+        veri = yanit.json()
+        for k in veri["urun"]["kaynaklar"]:
+            k.update(kaynak_alanlari)
+        rota.fulfill(response=yanit, json=veri)
+
+    # Yalnızca TEK izlemenin detayı; liste ucu (`/api/izlemeler`) hariç.
+    s.route(lambda u: "/api/izlemeler/" in u, islemci)
+
+
+def test_pazar_derinligi_gosteriliyor(sayfa, sunucu):
+    _detay_yanitini_degistir(sayfa, satici_sayisi=14, ikinci_fiyat=41500.0,
+                             son_fiyat=38999.0)
+    _detaya_git(sayfa, sunucu)
+    icerik = sayfa.content()
+    assert "14 satıcı" in icerik
+    assert "41.500" in icerik
+
+
+def test_aykiri_fiyat_uyarisi_gosteriliyor(sayfa, sunucu):
+    """En ucuz, ikinciden orantısız ucuzsa kullanıcı UYARILMALI: fiyat
+    geçmişi olmayan üründe elindeki tek işaret bu."""
+    _detay_yanitini_degistir(sayfa, satici_sayisi=9, ikinci_fiyat=52000.0,
+                             son_fiyat=4000.0)
+    _detaya_git(sayfa, sunucu)
+    assert "tek satıcı belirgin ucuz" in sayfa.content()
+
+
+def test_makul_farkta_uyari_cikmiyor(sayfa, sunucu):
+    """Yanlış pozitif kullanıcıyı uyarıya karşı duyarsızlaştırır."""
+    _detay_yanitini_degistir(sayfa, satici_sayisi=9, ikinci_fiyat=46000.0,
+                             son_fiyat=40000.0)
+    _detaya_git(sayfa, sunucu)
+    icerik = sayfa.content()
+    assert "9 satıcı" in icerik
+    assert "belirgin ucuz" not in icerik
+
+
+def test_pazar_verisi_yoksa_satir_cikmiyor(sayfa, sunucu):
+    """Toplayıcı olmayan üründe boş bir '🏪' satırı gürültüdür."""
+    _detaya_git(sayfa, sunucu)
+    assert "satıcı" not in sayfa.locator("section").last.inner_text()
