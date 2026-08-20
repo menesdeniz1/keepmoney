@@ -207,6 +207,32 @@ def test_olu_basliktan():
     assert olu_mu(sayfa("<p>x</p>", baslik="Sayfa bulunamadı")) is True
 
 
+def test_olu_yumusak_404():
+    """HTTP 200 dönen 404 sayfası.
+
+    Gerçek bir denemede vatanbilgisayar.com kaldırılmış bir ürüne 1 KB'lık
+    "404 - File or directory not found." başlıklı bir sayfa döndürdü — ama
+    HTTP 200 ile. Kaydedilen HTML'de HTTP kodu yok, yani tek işaret başlık.
+    Yakalanmazsa ölü link "fiyat okunamadı" diye raporlanıyor ve düzeltilecek
+    bir ayıklayıcı hatası sanılıyor.
+    """
+    html = sayfa("<h1>Server Error</h1>",
+                 baslik="404 - File or directory not found.")
+    assert olu_mu(html) is True
+
+
+def test_olu_normal_urun_sayfasini_isaretlemez():
+    """Yanlış pozitif pahalı: ölü sayılan ürün bir daha taranmaz.
+
+    "not found" kısa ve genel bir kalıp; bu yüzden yalnızca <title> içinde
+    aranıyor. Gövdede geçmesi (yorum, JS metni) ürünü öldürmemeli.
+    """
+    html = sayfa("<p>Aradığınız sayfa bulunamadı diyen bir yorum</p>"
+                 "<script>if(!el) throw new Error('not found')</script>",
+                 baslik="MSI 271QP QD-OLED Gaming Monitör")
+    assert olu_mu(html) is False
+
+
 # ---------- birleşik çıkarım ----------
 
 def test_cikar_hepsini_toplar():

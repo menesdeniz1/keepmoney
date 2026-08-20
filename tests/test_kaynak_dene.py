@@ -400,6 +400,95 @@ def test_incele_toplayici_olmayanda_pazar_bolumu_cikmaz(tmp_path, capsys):
     assert "Pazar derinliği" not in capsys.readouterr().out
 
 
+# ── Kapsam ve stok: sessiz devre dışı kalmayı görünür kıl ───────
+# `metin_alani` iki korumanın kapsamı: regex son çaresinin ve "stokta yok"
+# metin aramasının. Sayfada tutmazsa ikisi de sessizce kapanır. Amazon düzeni
+# A/B test ettiği için `#centerCol` bir gün kaybolabilir; o gün fiyat
+# okunamayan sayfa "ayıklayıcı bozuk" gibi görünür, oysa ürün tükenmiştir.
+
+
+def test_incele_metin_alanini_dogrular(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-10.html"
+    dosya.write_text(
+        AMAZON_KABUK.replace("<body>", '<body><div id="centerCol">gövde</div>'),
+        encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "#centerCol" in cikti and "var (" in cikti
+    assert "DEVRE DIŞI" not in cikti
+
+
+def test_incele_kirik_metin_alanini_uyarir(tmp_path, capsys):
+    """AMAZON_KABUK'ta `#centerCol` yok — kapsam kaybı söylenmeli."""
+    dosya = tmp_path / "amazon.com.tr-11.html"
+    dosya.write_text(AMAZON_KABUK, encoding="utf-8")
+    kd.incele(dosya)
+    assert "DEVRE DIŞI" in capsys.readouterr().out
+
+
+def test_incele_stok_beyanini_gosterir(tmp_path, capsys):
+    """"Fiyat okunamadı" ile "ürün tükendi" aynı görünür — ayrılmalı."""
+    dosya = tmp_path / "bilinmeyen.com-20.html"
+    dosya.write_text(
+        '<html><head><title>Ürün</title></head><body>'
+        '<link itemprop="availability" href="https://schema.org/OutOfStock">'
+        '</body></html>', encoding="utf-8")
+    kd.incele(dosya)
+    assert "STOKTA YOK" in capsys.readouterr().out
+
+
+# ── Öğüt listeyle çelişmemeli ───────────────────────────────────
+# Araç bir satır önce "bu kutulardan seçici YAZMA" deyip hemen ardından
+# "seçici yaz" diyordu. Okuyan kişi sponsorlu kutudan seçici yazar ve sistem
+# başka bir ürünün fiyatını bu ürüne kaydeder — hata sessizdir.
+
+
+def test_incele_hepsi_yabanciyken_secici_yazdirmaz(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-12.html"
+    dosya.write_text(AMAZON_SADECE_SPONSORLU, encoding="utf-8")
+    assert kd.incele(dosya) == 1
+    cikti = capsys.readouterr().out
+    assert "`fiyat_secici` yaz" not in cikti
+    assert "seçici YAZMA" in cikti
+
+
+def test_incele_render_aciksa_render_onermez(tmp_path, capsys):
+    """amazon.com.tr'de `render: true` zaten açık; öğüt bunu bilmeli."""
+    dosya = tmp_path / "amazon.com.tr-13.html"
+    dosya.write_text(AMAZON_SADECE_SPONSORLU, encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "`render: true` zaten açık" in cikti
+    assert "koyup tekrar" not in cikti
+
+
+def test_incele_fiyatsiz_sayfada_render_onerir(tmp_path, capsys):
+    """Hiç fiyat taşıyan eleman yoksa sorun seçici değil, JS'tir."""
+    dosya = tmp_path / "bilinmeyen.com-21.html"
+    dosya.write_text(
+        '<html><head><title>Ürün</title></head><body>'
+        '<div id="app"></div></body></html>', encoding="utf-8")
+    assert kd.incele(dosya) == 1
+    cikti = capsys.readouterr().out
+    assert "render: true" in cikti
+    assert "`fiyat_secici` yaz" not in cikti
+
+
+def test_incele_gecerli_aday_varken_secici_yazdirir(tmp_path, capsys):
+    """Karşı test: sayfada ürünün KENDİ fiyatı varsa öğüt eski öğüt olmalı."""
+    dosya = tmp_path / "amazon.com.tr-14.html"
+    dosya.write_text(
+        '<html><head><title>Ürün</title></head><body>'
+        # `priceBox`: aday listesine girer ama GENEL_SECICILER'e takılmaz,
+        # yani sayfada gerçek fiyat DURUYOR ve yine de okunamıyor — öğüdün
+        # "seçici yaz" demesi gereken tek durum tam olarak budur.
+        '<div id="urunFiyatKutusu"><div class="priceBox">2.499,00 TL</div></div>'
+        '</body></html>', encoding="utf-8")
+    assert kd.incele(dosya) == 1
+    cikti = capsys.readouterr().out
+    assert "`fiyat_secici` yaz" in cikti
+
+
 # ── Dosya adı güvenliği (Windows CI'da yakalandı) ────────────────
 
 @pytest.mark.parametrize(("domain", "yasak"), [
@@ -490,3 +579,41 @@ def test_toplayici_olmayanda_pazar_satiri_cikmaz(capsys):
     cikti = capsys.readouterr().out
     assert "🏪" not in cikti
     assert "OKUNAMADI" not in cikti
+
+
+# ── Seçicisi olan sitede regex = seçici KIRIK ───────────────────
+# "Okundu" görünen ama arıza olan durum: altı seçicinin altısı da tutmamış,
+# fiyat sayfadaki ilk TL kalıbından gelmiş. Gerçek bir koşuda aynı kulaklık
+# için Amazon'dan 9.999,23 okunurken akakçe 6.370 diyordu. Özet "TAMAM"
+# derse kimse bakmaz — sessiz başarı, sessiz hatadan beterdir.
+
+def test_secicisi_olan_sitede_regex_uyarilir(capsys):
+    kd._satir_yaz(kd.Sonuc(url="x", domain="amazon.com.tr", fiyat=9999.23,
+                           guven="regex"))
+    cikti = capsys.readouterr().out
+    assert "seçici tutmadı" in cikti
+
+
+def test_secicisiz_sitede_regex_kirik_secici_demez(capsys):
+    """Kural dosyası olmayan sitede regex beklenen davranış — arıza değil."""
+    kd._satir_yaz(kd.Sonuc(url="x", domain="bilinmeyen.com", fiyat=100.0,
+                           guven="regex"))
+    assert "seçici tutmadı" not in capsys.readouterr().out
+
+
+def test_rapor_zayif_okumayi_iki_gruba_ayirir(capsys):
+    """İki ayrı arıza, iki ayrı iş — tek öğüt yanlış iş gösteriyordu."""
+    kd._rapor([
+        kd.Sonuc(url="a", domain="amazon.com.tr", fiyat=1.0, guven="regex"),
+        kd.Sonuc(url="b", domain="bilinmeyen.com", fiyat=2.0, guven="regex"),
+    ])
+    cikti = capsys.readouterr().out
+    assert "seçicisi VAR ama tutmadı" in cikti and "amazon.com.tr" in cikti
+    assert "henüz yazılmamış" in cikti and "bilinmeyen.com" in cikti
+
+
+def test_rapor_site_satirinda_zayif_okuma_gorunur(capsys):
+    """Hepsi okundu ama hepsi regex: 'TAMAM' tek başına yanıltıcı."""
+    kd._rapor([kd.Sonuc(url="a", domain="amazon.com.tr", fiyat=1.0,
+                        guven="regex")])
+    assert "1 zayıf okuma" in capsys.readouterr().out

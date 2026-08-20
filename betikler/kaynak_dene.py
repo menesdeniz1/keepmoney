@@ -76,6 +76,7 @@ from keepmoney.ayikla import (
     engel_mi,
     olu_mu,
     pazar_ayikla,
+    stok_yok_mu,
 )
 from keepmoney.cekici import HttpCekici
 from keepmoney.fiyat import parse_tl, tl
@@ -259,6 +260,17 @@ def _satir_yaz(s: Sonuc) -> None:
     print(f" {isaret} {s.domain:<24} {deger:<28} {s.yontem:<12} "
           f"{s.sure_sn:5.1f}sn  {baslik}")
 
+    # Seçicisi OLAN bir sitede fiyatın regex'ten gelmesi "okundu" gibi
+    # görünür ama arızadır: altı seçicinin altısı da tutmamış demektir, yani
+    # sayfa düzeni değişmiş ve okunan sayı sayfadaki ilk TL kalıbı — taksit
+    # tutarı, kargo bedeli ya da başka bir satıcının fiyatı olabilir. Gerçek
+    # bir koşuda aynı kulaklık için Amazon'dan 9.999,23 okunurken akakçe
+    # 6.370 diyordu. Satırda tek bir "!" işareti bunu anlatmıyor.
+    if s.basarili and s.guven in ZAYIF_GUVEN and \
+            siteler.kural(s.domain).get("fiyat_secici"):
+        print("     ! seçici tutmadı, fiyat gövde regex'inden — sayfadaki "
+              "BAŞKA bir sayı olabilir; `--html-kaydet` ile incele")
+
     if s.pazar_var:
         parca = f"     🏪 {s.satici_sayisi} satıcı"
         if s.satici_adi:
@@ -291,7 +303,12 @@ def _rapor(sonuclar: list[Sonuc]) -> None:
         grup = [s for s in sonuclar if s.domain == domain]
         ok = sum(1 for s in grup if s.basarili)
         durum = "TAMAM" if ok == len(grup) else ("KISMİ" if ok else "KIRIK")
-        print(f"  {domain:<26} {ok}/{len(grup)}  {durum}")
+        # "TAMAM" yanıltıcı olabilir: hepsi okundu ama hepsi regex'ten
+        # geldiyse hiçbirinin doğru olduğu belli değildir. Sessiz başarı
+        # sessiz hatadan beter — özet satırında görünmeli.
+        zayif_grup = sum(1 for s in grup if s.basarili and s.guven in ZAYIF_GUVEN)
+        ek = f"   ({zayif_grup} zayıf okuma)" if zayif_grup else ""
+        print(f"  {domain:<26} {ok}/{len(grup)}  {durum}{ek}")
 
     guvenler = Counter(s.guven for s in basarili)
     if guvenler:
@@ -299,7 +316,21 @@ def _rapor(sonuclar: list[Sonuc]) -> None:
               + ", ".join(f"{g}={n}" for g, n in guvenler.most_common()))
     if zayif:
         print(f"UYARI: {len(zayif)} fiyat regex ile bulundu — sayfadaki BAŞKA "
-              "bir sayı olabilir. İlgili siteye `fiyat_secici` yaz.")
+              "bir sayı olabilir.")
+        # Bunlar İKİ AYRI arıza ve işleri de ayrı: seçicisi olmayan siteye
+        # seçici yazılır; seçicisi OLAN sitede regex'e düşmek seçicinin
+        # KIRILDIĞI anlamına gelir. İkincisi daha acil, çünkü sayfa düzeni
+        # değişmiştir ve bu sessizce yanlış fiyat kaydeder. Tek bir "fiyat
+        # seçici yaz" öğüdü, seçicisi zaten olan siteye yanlış iş gösteriyordu.
+        kirik = sorted({s.domain for s in zayif
+                        if siteler.kural(s.domain).get("fiyat_secici")})
+        secicisiz = sorted({s.domain for s in zayif
+                            if not siteler.kural(s.domain).get("fiyat_secici")})
+        if kirik:
+            print("  ! seçicisi VAR ama tutmadı (düzen değişmiş olabilir): "
+                  + ", ".join(kirik))
+        if secicisiz:
+            print("  · `fiyat_secici` henüz yazılmamış: " + ", ".join(secicisiz))
 
     kirik = [s for s in sonuclar if not s.basarili]
     if kirik:
@@ -368,6 +399,32 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
     else:
         print("2) Site seçicisi    : tanımsız")
 
+    # `metin_alani` TEK BAŞINA iki korumanın kapsamı: regex son çaresinin ve
+    # "stokta yok" serbest metin aramasının. Seçici sayfada tutmuyorsa ikisi de
+    # SESSİZCE devre dışı kalır — ve sessiz devre dışı kalma bu üründeki en
+    # pahalı hata sınıfı: fiyat okunamayan sayfa "ayıklayıcı bozuk" gibi
+    # görünür, oysa ürün tükenmiş olabilir. Amazon düzeni A/B test ediyor,
+    # yani `#centerCol` bir gün kaybolabilir; bunu ancak burada görürüz.
+    kapsam_secici = kural.get("metin_alani")
+    kapsam = corba.select_one(kapsam_secici) if kapsam_secici else None
+    if not kapsam_secici:
+        print("3) Metin alanı      : tanımsız — regex son çaresi TÜM sayfaya "
+              "bakar, stok metni hiç aranmaz")
+    elif kapsam is None:
+        print(f"3) Metin alanı      : {kapsam_secici}  → 0 eşleşme "
+              "(regex son çaresi ve stok metni DEVRE DIŞI)")
+    else:
+        uzunluk = len(kapsam.get_text(" ", strip=True))
+        print(f"3) Metin alanı      : {kapsam_secici}  → var ({uzunluk} karakter)")
+
+    # Stok kararı, "fiyat okunamadı" ile aynı görünen ama tamamen farklı bir
+    # durum: biri arıza, diğeri normal. Hangisi olduğunu araç söylemezse
+    # sağlam bir sayfa için boşuna seçici yazılır.
+    stok_yok = stok_yok_mu(html, kural)
+    print("4) Stok beyanı      : "
+          + ("STOKTA YOK — sitenin kendi beyanı" if stok_yok
+             else "stokta (ya da beyan bulunamadı)"))
+
     # Kapsayıcılar var mı ama içleri boş mu? Amazon gibi siteler düzeni
     # A/B test ediyor: id duruyor, fiyat başka bir kabuğa taşınıyor.
     print("\n── Fiyat taşıyan elemanlar (ilk 8) ────────────────────────")
@@ -417,9 +474,32 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
         return 1
     if c.fiyat is None:
         print("   Fiyat OKUNAMADI.")
-        print("   Yukarıdaki listede doğru fiyatı görüyorsan, onun `üst:`")
-        print("   sütunundaki id'yi kullanarak `fiyat_secici` yaz:")
-        print(f"   keepmoney/siteler/{domain.replace('.', '_')}.yaml")
+        # ÖĞÜT YUKARIDAKİ LİSTEYLE ÇELİŞMEMELİ. Araç bir satır önce "bu
+        # kutulardan seçici YAZMA" diye uyarıp hemen ardından "seçici yaz"
+        # diyordu. Okuyan kişi doğal olarak sponsorlu kutudan seçici yazar,
+        # sistem başka bir ürünün fiyatını bu ürüne kaydeder ve hata sessiz
+        # kalır: grafik çizilir, "dibe vurdu" uyarısı gider. Bu yüzden öğüt
+        # sayfanın gerçek durumuna göre ayrılıyor.
+        yaml_yolu = f"keepmoney/siteler/{domain.replace('.', '_')}.yaml"
+        if not yazilan or supheli == yazilan:
+            if not yazilan:
+                print("   Sayfada fiyat taşıyan HİÇBİR eleman yok.")
+            else:
+                print("   Sayfadaki fiyatların TAMAMI başka ürünlere ait; bu")
+                print("   kutulardan seçici YAZMA.")
+            if kural.get("render"):
+                print("   `render: true` zaten açık — sayfa gerçek tarayıcıyla")
+                print("   çekildi, yani eksik olan seçici değil. Geriye üç")
+                print("   ihtimal kalıyor: ürün satışta değil, sayfa bot")
+                print("   duvarının arkasında, ya da fiyat giriş/bölge")
+                print("   gerektiriyor. Linki tarayıcıda aç ve gözünle doğrula.")
+            else:
+                print(f"   Önce {yaml_yolu} içine `render: true` koyup tekrar")
+                print("   dene: fiyat büyük ihtimalle JS ile geliyor.")
+        else:
+            print("   Yukarıdaki listede doğru fiyatı görüyorsan, onun `üst:`")
+            print("   sütunundaki id'yi kullanarak `fiyat_secici` yaz:")
+            print(f"   {yaml_yolu}")
         return 1
     print(f"   {tl(c.fiyat)}  [{c.guven}]   {c.baslik or ''}")
     return 0

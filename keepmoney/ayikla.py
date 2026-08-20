@@ -52,9 +52,15 @@ ENGEL_YAPISAL = [
 ]
 
 # Kaldırılmış ürün sayfası işaretleri (HTTP 404/410'a ek olarak)
+# Bazı siteler kaldırılmış ürüne HTTP 200 ile 404 SAYFASI döndürüyor
+# ("soft 404"). O durumda tek işaret başlıktır. Gerçek bir denemede
+# vatanbilgisayar.com "404 - File or directory not found" başlıklı 1 KB'lık
+# bir sayfa döndürdü; İngilizce kalıbımız ("page not found") bunu
+# kapsamıyordu ve sayfa "fiyat okunamadı" diye raporlandı — yani düzeltilecek
+# bir ayıklayıcı hatası sanıldı, oysa link ölüydü.
 OLU_IZLERI = [
     "sayfa bulunamadı", "aradığınız sayfa", "ürün bulunamadı",
-    "page not found", "satışta değil", "yayından kaldırıl",
+    "page not found", "not found", "satışta değil", "yayından kaldırıl",
 ]
 
 # Stok tükenmiş ürün işaretleri.
