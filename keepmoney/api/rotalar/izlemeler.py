@@ -100,6 +100,13 @@ def kaynak_onerileri(izleme_id: int, k: Kullanici, db: DB):
     cekici = HttpCekici()
     try:
         return toplayici.ara(cekici, w.product.ad)
+    except toplayici.MesgulHata as e:
+        # 503 + Retry-After: geçici bir doluluk, kalıcı bir hata değil.
+        # Kuyruğa almak yerine hızlı reddediyoruz — bekleyen istek FastAPI'nin
+        # iş parçacığı havuzunu tutar ve yeterince birikirse TÜM API durur.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, str(e),
+            headers={"Retry-After": "5"}) from e
     finally:
         cekici.kapat()
 

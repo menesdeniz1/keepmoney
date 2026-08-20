@@ -45,9 +45,24 @@ MAKS_ONERI = 5
 
 # Tarayıcı motoru ~250 MB RAM yiyor. Arama kullanıcı isteğiyle tetiklendiği
 # için eşzamanlı çağrı sayısı SINIRLANMALI: on kullanıcı aynı anda arama
-# yaparsa API süreci belleği tüketip ölür ve TARAMA DA durur. Sıra beklemek,
-# çökmekten iyidir.
-_ARAMA_SLOTU = threading.Semaphore(2)
+# yaparsa API süreci belleği tüketip ölür ve TARAMA DA durur.
+MAKS_ES_ZAMANLI_ARAMA = 2
+_ARAMA_SLOTU = threading.Semaphore(MAKS_ES_ZAMANLI_ARAMA)
+
+# SLOT BEKLENMEZ, HIZLI REDDEDİLİR. Bu ayrım kritik ve ilk yazımda yanlıştı:
+# FastAPI senkron uçları sınırlı bir iş parçacığı havuzunda (varsayılan 40)
+# çalıştırıyor. Semaforda BEKLEMEK o iş parçacığını tutar; kırk kullanıcı aynı
+# anda "ara"ya basarsa otuz sekizi havuzu işgal eder ve TÜM API durur — panel
+# de, giriş de, sağlık kontrolü de. Yani ikincil bir kolaylık, ürünün
+# tamamını düşürebilirdi.
+#
+# Kısa bir tolerans var: bir arama ~1 sn sürüyor, hemen ardından gelen istek
+# birkaç yüz milisaniye bekleyip geçebilir. Aşan istek "meşgul" cevabı alır.
+SLOT_BEKLEME_SN = 0.5
+
+
+class MesgulHata(RuntimeError):
+    """Eşzamanlı arama sınırı doldu. Geçici — kullanıcı tekrar deneyebilir."""
 
 
 @dataclass(frozen=True)
@@ -68,7 +83,11 @@ def ara(cekici: Cekici, sorgu: str, limit: int = 3) -> list[Oneri]:
     if not sorgu:
         return []
 
-    with _ARAMA_SLOTU:
+    if not _ARAMA_SLOTU.acquire(timeout=SLOT_BEKLEME_SN):
+        logger.info("toplayici_arama_mesgul", sorgu=sorgu)
+        raise MesgulHata(
+            "Şu an çok fazla arama yapılıyor. Birkaç saniye sonra tekrar dene.")
+    try:
         try:
             # `render` ZORLANMIYOR: arama sonuç sayfasındaki bağlantılar sunucu
             # HTML'inde geliyor. Toplayıcı bot duvarı çıkarırsa çekim zinciri
@@ -78,6 +97,8 @@ def ara(cekici: Cekici, sorgu: str, limit: int = 3) -> list[Oneri]:
         except Exception as e:
             logger.warning("toplayici_arama_hatasi", sorgu=sorgu, hata=str(e))
             return []
+    finally:
+        _ARAMA_SLOTU.release()
 
     if not cekim.html:
         logger.info("toplayici_arama_bos", sorgu=sorgu, kod=cekim.http_kodu)

@@ -5,7 +5,7 @@
 Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
 
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. **533 backend + 18 arayüz testi**;
+> Docker ile üç süreç olarak ayağa kalkıyor. **553 backend + 18 arayüz testi**;
 > paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
 > ise **gerçek tarayıcıyla uçtan uca** koşuyor (31 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).

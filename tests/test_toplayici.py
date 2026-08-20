@@ -117,3 +117,72 @@ def test_cekici_patlarsa_bos_liste():
         def cek(self, url, kural=None):
             raise OSError("ağ yok")
     assert ara(_Patlayan(), "x") == []
+
+
+# ── Eşzamanlılık: kuyruğa girme, hızlı reddet ────────────────────
+# İlk yazımda semaforda BEKLENİYORDU ve bu ürünün tamamını düşürebilirdi:
+# FastAPI senkron uçları sınırlı bir iş parçacığı havuzunda çalışıyor
+# (varsayılan 40). Beklemek o parçacığı tutar; kırk kullanıcı aynı anda
+# "ara"ya basarsa havuz tükenir ve panel de, giriş de, sağlık kontrolü de
+# durur. İkincil bir kolaylık, kritik yolu kilitleyemez.
+
+def test_slot_dolunca_beklenmez_hizli_reddedilir(monkeypatch):
+    import threading
+    import time
+
+    from keepmoney import toplayici
+
+    monkeypatch.setattr(toplayici, "SLOT_BEKLEME_SN", 0.05)
+    monkeypatch.setattr(toplayici, "_ARAMA_SLOTU", threading.Semaphore(1))
+
+    class _Yavas:
+        def cek(self, url, kural=None):
+            time.sleep(0.6)
+            return Cekim(html=ARAMA_SAYFASI, http_kodu=200)
+
+    hatalar: list[Exception] = []
+    basladi = threading.Event()
+
+    def uzun():
+        basladi.set()
+        toplayici.ara(_Yavas(), "x")
+
+    t = threading.Thread(target=uzun)
+    t.start()
+    basladi.wait(timeout=2)
+    time.sleep(0.1)                       # ilk arama slotu almış olsun
+
+    basla = time.perf_counter()
+    try:
+        toplayici.ara(_Yavas(), "y")
+    except toplayici.MesgulHata as e:
+        hatalar.append(e)
+    gecen = time.perf_counter() - basla
+    t.join(timeout=5)
+
+    assert hatalar, "slot doluyken bekleyip geçmemeli"
+    assert gecen < 0.3, f"beklemede kaldı: {gecen:.2f} sn"
+
+
+def test_slot_bosaldiginda_yeniden_calisir():
+    """Reddetme KALICI olmamalı: sonraki istek normal çalışmalı."""
+    from keepmoney import toplayici
+
+    c = _SahteCekici(Cekim(html=ARAMA_SAYFASI, http_kodu=200))
+    for _ in range(3):
+        assert len(toplayici.ara(c, "x")) == 2
+
+
+def test_hata_durumunda_slot_birakilir():
+    """Sızdırılan slot, aramayı kalıcı olarak kilitlerdi."""
+    from keepmoney import toplayici
+
+    class _Patlayan:
+        def cek(self, url, kural=None):
+            raise OSError("ağ yok")
+
+    for _ in range(5):
+        assert toplayici.ara(_Patlayan(), "x") == []
+    # Slot sızmadıysa normal arama hâlâ çalışır.
+    c = _SahteCekici(Cekim(html=ARAMA_SAYFASI, http_kodu=200))
+    assert len(toplayici.ara(c, "x")) == 2

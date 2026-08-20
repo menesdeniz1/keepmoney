@@ -1429,3 +1429,23 @@ def test_kaynak_ekleme_ssrf_kapisindan_gecer(istemci):
                      json={"url": "http://169.254.169.254/latest/meta-data/"},
                      headers=basliklar)
     assert y.status_code == 400
+
+
+def test_arama_mesgulse_503_ve_retry_after(istemci, monkeypatch):
+    """Geçici doluluk KALICI hata gibi görünmemeli: 503 + Retry-After.
+
+    Kuyruğa almak yerine hızlı reddediyoruz — bekleyen istek FastAPI'nin iş
+    parçacığı havuzunu tutar ve yeterince birikirse TÜM API durur.
+    """
+    from keepmoney import toplayici
+
+    def mesgul(*a, **k):
+        raise toplayici.MesgulHata("Şu an çok fazla arama yapılıyor.")
+
+    monkeypatch.setattr(toplayici, "ara", mesgul)
+
+    basliklar, izleme_id = _izleme_kur(istemci)
+    y = istemci.get(f"/api/izlemeler/{izleme_id}/kaynak-onerileri",
+                    headers=basliklar)
+    assert y.status_code == 503
+    assert y.headers["Retry-After"] == "5"

@@ -705,3 +705,19 @@ Bu, ürünün en çok güvendiği anda en savunmasız olduğu yerdi: kullanıcı
 Yani yatay ölçekleme bir yapılandırma değişikliği değil, önce bu iki durumu süreç dışına taşımayı gerektiren bir iş. O gün gelene kadar tek süreç yeterli — ve bunu artık tahminle değil ölçümle biliyoruz.
 
 **Ölçümün sınırı:** tek makinede, TLS ve ağ gecikmesi olmadan. Bu sayılar sunucu tarafının üst sınırı, uçtan uca kullanıcı deneyimi değil.
+
+---
+
+## K55 — İkincil bir kolaylık, kritik yolu kilitleyemez
+
+**Yakalanan hata (kendi kodumda, gözden geçirmede):** toplayıcı aramasının eşzamanlılık sınırı semaforda BEKLEYEREK uygulanıyordu.
+
+FastAPI senkron uçları sınırlı bir iş parçacığı havuzunda çalıştırıyor (varsayılan 40). Semaforda beklemek o parçacığı TUTAR. Kırk kullanıcı aynı anda "Başka mağazalarda ara" düğmesine bassa otuz sekizi havuzu işgal eder ve **tüm API durur** — yalnızca arama değil; panel de, giriş de, sağlık kontrolü de. Yük dengeleyici sağlıksız görür, trafiği keser.
+
+Yani en ikincil özelliğin doluluğu, ürünün tamamını düşürebilirdi.
+
+**Karar: kuyruğa girme, hızlı reddet.** Slot 0,5 sn içinde alınamazsa `503 + Retry-After: 5`. Kısa tolerans bilinçli — bir arama ~1 sn sürüyor ve hemen ardından gelen istek birkaç yüz milisaniye bekleyip geçebiliyor; asıl engellenen şey KUYRUK.
+
+**Genel ilke:** paylaşılan bir kaynağı bekleyen her kod, o beklemenin neyi tuttuğunu bilmek zorundadır. İş parçacığı havuzunda bekleme, kuyruk değil kilittir.
+
+Testler üç şeyi ayrı ayrı koruyor: slot doluyken beklenmediği (süre ölçülerek), reddin KALICI olmadığı, ve hata durumunda slotun SIZDIRILMADIĞI — sızan bir slot aramayı kalıcı olarak kilitlerdi.
