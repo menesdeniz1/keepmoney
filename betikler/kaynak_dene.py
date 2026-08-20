@@ -138,6 +138,14 @@ except ImportError as _hata:
 # seçici yazılmalı — bu yüzden raporda ayrıca uyarı olarak gösteriliyor.
 ZAYIF_GUVEN = {"regex"}
 
+# Fiyat adayı taramasının üst sınırları. `MAKS_ADAY_TARAMA` yalnızca dev
+# sayfalarda işi bitirmek için; `GOSTERILEN_ADAY` ekranı boğmamak için.
+# İKİSİ AYRI: sayım TÜM adaylar üzerinden yapılıyor, ekrana yalnızca bir
+# kısmı yazılıyor. Eskiden tek sınır vardı ve hüküm de kesik listeye
+# dayanıyordu — bu yüzden "bu ürünün fiyatı sayfada yok" demek KANITSIZDI.
+MAKS_ADAY_TARAMA = 500
+GOSTERILEN_ADAY = 8
+
 # Sponsorlu / öneri kutusu izleri. Bu kapsayıcıların içindeki fiyat SAYFANIN
 # ÜRÜNÜNE AİT DEĞİLDİR — başka bir ürünün reklamıdır.
 #
@@ -494,31 +502,49 @@ def incele(yol: pathlib.Path, domain: str | None = None) -> int:
 
     # Kapsayıcılar var mı ama içleri boş mu? Amazon gibi siteler düzeni
     # A/B test ediyor: id duruyor, fiyat başka bir kabuğa taşınıyor.
-    print("\n── Fiyat taşıyan elemanlar (ilk 8) ────────────────────────")
+    # ÖNCE HEPSİNİ TOPLA, SONRA YAZ. Eskiden döngü 8'de kesiliyordu ve
+    # "TÜM fiyatlar sponsorlu" hükmü O KESİK LİSTE üzerinden veriliyordu.
+    # Amazon'da sponsorlu karusel DOM'da erken geldiği için sekiz yeri de o
+    # dolduruyor; ürünün KENDİ fiyatı dokuzuncu sırada olsa listede hiç
+    # görünmezdi ve araç yine de "bu ürünün fiyatı sayfada yok" diyordu.
+    # Yani eksik kanıttan kesin hüküm — düzeltmeye çalıştığım hatanın ta
+    # kendisi, kendi tanı aracımda.
+    print("\n── Fiyat taşıyan elemanlar ────────────────────────────────")
     adaylar = corba.select("[class*=price], [id*=price], [id*=Price], "
                            "[class*=fiyat], [data-price-amount]")
-    yazilan = supheli = 0
-    for el in adaylar:
-        metin = el.get_text(" ", strip=True)[:40]
-        if not parse_tl(metin):
+    bulunanlar: list[tuple[float, str, list[str], bool]] = []
+    for el in adaylar[:MAKS_ADAY_TARAMA]:
+        deger = parse_tl(el.get_text(" ", strip=True)[:40])
+        if not deger:
             continue
         kimlik = el.get("id") or ".".join(el.get("class") or []) or el.name
         ata = [a.get("id") for a in el.parents if a.get("id")][:2]
-        yabanci = _baska_urun_mu(kimlik, ata)
-        supheli += yabanci
-        print(f"   {parse_tl(metin):>12,.2f}  ←  {kimlik[:34]:<34} "
+        bulunanlar.append((deger, kimlik, ata, _baska_urun_mu(kimlik, ata)))
+
+    supheli = sum(1 for *_, yabanci in bulunanlar if yabanci)
+    kendi = len(bulunanlar) - supheli
+
+    # Yabancı OLMAYANLAR önce yazılır: aranan cevap onlar. Sponsorlu kutular
+    # listeyi doldurup gerçek fiyatı ekrandan itmesin.
+    sirali = sorted(bulunanlar, key=lambda s: s[3])
+    for deger, kimlik, ata, yabanci in sirali[:GOSTERILEN_ADAY]:
+        print(f"   {deger:>12,.2f}  ←  {kimlik[:34]:<34} "
               f"üst: {' < '.join(ata) or '—'}"
               + ("   ⚠ BAŞKA ÜRÜN" if yabanci else ""))
-        yazilan += 1
-        if yazilan >= 8:
-            break
+
+    yazilan = len(bulunanlar)
     if not yazilan:
         print("   (hiçbiri yok — fiyat büyük ihtimalle JS ile geliyor)")
-    elif supheli == yazilan:
-        print("\n   ⚠ Listedeki TÜM fiyatlar sponsorlu/öneri kutularından.")
-        print("     Bu ürünün KENDİ fiyatı sayfada yok: ya stokta değil ya da")
-        print("     JS ile geliyor. Bu kutulardan seçici YAZMA — sistem başka")
-        print("     bir ürünün fiyatını bu ürüne yazar ve kimse fark etmez.")
+    else:
+        if yazilan > GOSTERILEN_ADAY:
+            print(f"   … toplam {yazilan} aday "
+                  f"({kendi} bu ürüne ait olabilir, {supheli} yabancı kutuda)")
+        if supheli == yazilan:
+            print("\n   ⚠ Sayfadaki TÜM fiyatlar sponsorlu/öneri kutularından")
+            print(f"     ({yazilan} adayın {supheli}'i). Bu ürünün KENDİ fiyatı")
+            print("     sayfada yok: ya stokta değil ya da JS ile geliyor. Bu")
+            print("     kutulardan seçici YAZMA — sistem başka bir ürünün")
+            print("     fiyatını bu ürüne yazar ve kimse fark etmez.")
 
     # Toplayıcıda pazar derinliği de doğrulanmalı: bu seçiciler çalışmazsa
     # koruma katmanının "tek satıcı aykırı ucuz" ölçütü sessizce devre dışı

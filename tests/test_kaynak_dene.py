@@ -727,3 +727,47 @@ def test_incele_bos_kapsami_ayirt_eder(tmp_path, capsys):
         '<div id="centerCol"></div></body></html>', encoding="utf-8")
     kd.incele(dosya)
     assert "buybox hiç render edilmemiş" in capsys.readouterr().out
+
+
+# ── Hüküm TÜM adaylara dayanmalı, kesik listeye değil ───────────
+# Kendi tanı aracımdaki hata: döngü 8'de kesiliyor, "TÜM fiyatlar sponsorlu"
+# hükmü o kesik liste üzerinden veriliyordu. Amazon'da sponsorlu karusel DOM'da
+# erken geldiği için sekiz yeri de o doldurur; ürünün KENDİ fiyatı dokuzuncu
+# sırada olsa görünmez ve araç yine "bu ürünün fiyatı sayfada yok" derdi.
+# Eksik kanıttan kesin hüküm — düzeltmeye çalıştığım hatanın ta kendisi.
+
+def _sponsorlu_karusel(adet: int) -> str:
+    kutular = "".join(
+        f'<div id="sp_detail_B0{i:08d}">'
+        f'<span class="a-price-whole">{10 + i}.000,00 TL</span></div>'
+        for i in range(adet))
+    return f'<div id="anonCarousel1">{kutular}</div>'
+
+
+def test_gercek_fiyat_dokuzuncu_sirada_olsa_da_gorunur(tmp_path, capsys):
+    dosya = tmp_path / "amazon.com.tr-40.html"
+    dosya.write_text(
+        '<html><head><title>MSI Monitör</title></head><body>'
+        + _sponsorlu_karusel(12) +
+        '<div id="corePrice_desktop"><span class="a-price">25.999,00 TL</span>'
+        '</div></body></html>', encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    # Gerçek fiyat listenin BAŞINDA: sponsorlu kutular onu ekrandan itemiyor.
+    ilk_satir = next(s for s in cikti.splitlines() if "25,999.00" in s)
+    assert "BAŞKA ÜRÜN" not in ilk_satir
+    assert "TÜM fiyatlar sponsorlu" not in cikti      # hüküm de düzeldi
+    # 12 sponsorlu + gerçek fiyat (kapsayıcı ve iç eleman ayrı sayılır) = 14
+    assert "toplam 14 aday (2 bu ürüne ait olabilir, 12 yabancı kutuda)" in cikti
+
+
+def test_hepsi_yabanciysa_hukum_tum_sayiyla_verilir(tmp_path, capsys):
+    """Karşı test: gerçekten hepsi sponsorluysa uyarı DURMALI."""
+    dosya = tmp_path / "amazon.com.tr-41.html"
+    dosya.write_text(
+        '<html><head><title>MSI Monitör</title></head><body>'
+        + _sponsorlu_karusel(12) + '</body></html>', encoding="utf-8")
+    kd.incele(dosya)
+    cikti = capsys.readouterr().out
+    assert "TÜM fiyatlar sponsorlu" in cikti
+    assert "12 adayın 12'i" in cikti
