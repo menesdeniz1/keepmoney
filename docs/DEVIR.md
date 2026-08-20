@@ -207,9 +207,10 @@ dokunma.
 Bu makinede ölçüldü ve **K58 çalışmasından önce de vardı** (yeni testler hariç
 tutularak doğrulandı):
 
-- Dosyanın tamamı koşulunca **7-15 test** `Page.goto ... wait_until=
-  "networkidle"` ile 30 sn'de zaman aşımına uğruyor. Sayı koşumdan koşuma
-  değişiyor ve **makine yüküyle artıyor**: boştayken 7, paralel iş varken 15.
+- Dosyanın tamamı koşulunca **32 testin 15'i** `Page.goto ... wait_until=
+  "networkidle"` ile 30 sn'de zaman aşımına uğruyor (iki bağımsız koşum:
+  461 sn ve 461 sn, aynı 15 test). Daha erken bir koşumda 7'ydi — sayı
+  koşumdan koşuma oynuyor.
 - **Aynı testler tek başına koşunca 14 saniyede geçiyor.**
 - Hep dosyanın SONUNDAKİ testler düşüyor.
 
@@ -217,6 +218,12 @@ Yani hata testlerin kendisinde değil, **koşum boyunca biriken bir şeyde**:
 tek uvicorn süreci ve tek tarayıcı bütün dosya boyunca paylaşılıyor, veri
 birikiyor. Hipotez (doğrulanmadı): veri arttıkça arayüzün istekleri hiç
 susmuyor ve `networkidle` 500 ms'lik sessizliği bulamıyor.
+
+Kontrol deneyi yapıldı: `conftest.py` değişikliği (K59) kapatılıp dosya
+yeniden koşuldu — **15 kırık, 17 geçer, 460,8 sn**; değişiklik açıkken
+**15 kırık, 17 geçer, 461,4 sn**. Yani bu arıza K58/K59 çalışmasından
+bağımsız. (Zaten mekanizması da yok: `test_e2e_arayuz.py` hiçbir `keepmoney`
+modülü import etmiyor, sunucuyu alt süreç olarak açıyor.)
 
 CI'daki `uctan-uca` işi yeşil; sorun yerelde. Ama **yerelde kırmızı bir paket,
 "her değişiklikten sonra pytest" ritüelini işe yaramaz hale getirir** —
