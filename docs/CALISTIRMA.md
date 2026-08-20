@@ -86,7 +86,7 @@ Dört ayrı katman var; hepsi CI'da koşuyor ([`ci.yml`](../.github/workflows/ci
 
 ```bash
 # Backend — ağ gerektirmez, ~1 dk
-pytest -q                                # 533 test
+pytest -q                                # 553 test
 
 # Arayüz
 cd arayuz && npx tsc -b && npx vitest run && npm run lint
@@ -352,5 +352,15 @@ Bunlar bilinçli kararlar, eksik değil — ama bilmeden canlıya çıkma:
 - **Ortaklık (affiliate) etiketleri boş.** Programlara kaydolduktan sonra
   ilgili `siteler/*.yaml` dosyalarına yazılır. Kanonik URL'ye asla
   dokunulmaz — etiket yalnızca kullanıcı mağazaya giderken eklenir.
-- **Yük testi yapılmadı.** Kaç eşzamanlı kullanıcı kaldırdığı ölçülmedi.
-  İlk kullanıcılarla birlikte `keepmoney_http_sure_saniye` izlenmeli.
+- **Kapasite ölçüldü, tek süreçle sınırlı.** Panel 115 rps, ürün detayı
+  55 rps (tek uvicorn süreci, SQLite, 36.000 okuma). Uçların kendi maliyeti
+  5-8 ms; darboğaz süreç sayısı. Kendi ölçümün için:
+  `python betikler/yuk_testi.py --kullanici 50 --istek 2000 --es-zaman 32`
+
+  **`--workers` EKLEME.** Hız sınırı süreç belleğinde tutuluyor (dört süreç
+  = efektif limit dört katı) ve Prometheus kayıt defteri süreç başına
+  (`/metrics` zıplar). Yatay ölçekleme önce bu ikisini süreç dışına taşımayı
+  gerektirir — bkz. [MIMARI K54](MIMARI.md).
+
+  Asıl ölçek sınırı zaten API'de değil taramada: `render: true` siteler
+  istek başına ~8 sn ve ~250 MB tüketiyor.

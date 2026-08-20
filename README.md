@@ -7,13 +7,13 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 > Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
 > Docker ile üç süreç olarak ayağa kalkıyor. **533 backend + 18 arayüz testi**;
 > paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
-> ise **gerçek tarayıcıyla uçtan uca** koşuyor (23 senaryo).
+> ise **gerçek tarayıcıyla uçtan uca** koşuyor (31 senaryo).
 > Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
 > **Henüz canlıda çalışmadı** — site seçicileri gerçek sayfalara karşı
 > doğrulanmayı bekliyor ([`betikler/kaynak_dene.py`](betikler/kaynak_dene.py)
 > bunu tek komuta indiriyor).
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (53 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (54 karar kaydı)
 
 ---
 
@@ -60,7 +60,7 @@ pip install -r requirements.txt
 
 cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
 mkdir -p data && alembic upgrade head         # şemayı kur
-pytest                                        # 533 test
+pytest                                        # 553 test
 
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
@@ -137,7 +137,7 @@ keepmoney/
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
 betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
-tests/             533 test, hepsi yeşil
+tests/             553 test, hepsi yeşil
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework

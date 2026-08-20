@@ -679,3 +679,29 @@ Bu, ürünün en çok güvendiği anda en savunmasız olduğu yerdi: kullanıcı
 **Eşzamanlılık sınırlı (semafor=2).** Tarayıcı motoru ~250 MB yiyor ve arama kullanıcı isteğiyle tetikleniyor; on kişi aynı anda ararsa API süreci belleği tüketip ölür ve TARAMA DA durur. Sıra beklemek, çökmekten iyidir.
 
 **Kaynak ekleme geçici ürün YARATMIYOR.** İlk uygulama `kaynak_bul_veya_olustur` çağırıyordu; o fonksiyon adres yeniyse yanına bir `Product` da yaratıyor, sonra onu silmek gerekiyordu — ve `Product→Source` cascade'i yüzünden yeni kaynak da siliniyordu. Testte yakalandı. Kaynağı doğrudan mevcut ürüne bağlamak hem daha basit hem doğru.
+
+---
+
+## K54 — Kapasite ölçüldü: darboğaz API değil, tarama
+
+**Neden ölçüldü:** "kaç kullanıcı kaldırır" sorusu canlıya hazırlık raporunda "ölçülmedi" diye duruyordu. Ölçülmemiş kapasite, olmayan kapasitedir.
+
+**Kurgu:** 200 ürün, ürün başına 180 günlük geçmiş (36.000 okuma), tek uvicorn süreci, SQLite, ağ gecikmesi yok (`betikler/yuk_testi.py`).
+
+| Uç | Tek istek (p50) | 16 eşzamanlı |
+|---|---|---|
+| `GET /api/izlemeler` (panel) | 4,6 ms | 115 rps · p95 204 ms |
+| `GET /api/izlemeler/{id}` (grafik + analiz) | 7,5 ms | 55 rps · p95 414 ms |
+
+**Bulgu:** uçların KENDİ maliyeti düşük (5-8 ms). Eşzamanlılıkta görülen 279 ms'lik gecikme işin süresi değil, KUYRUKTA BEKLEME — tek süreç ve tek SQLite yazarı. Yani darboğaz kod değil, süreç sayısı.
+
+**Bunun anlamı:** panel günde birkaç kez açılan bir sayfa. 55 rps sürekli yük, günde milyonlarca isteğe karşılık gelir. Bu ürünün ölçek sınırı API tarafında DEĞİL — sınır tarama tarafında: her ürün günde birkaç kez çekiliyor, `render: true` siteler istek başına ~8 sn ve ~250 MB tüketiyor. Kapasite planlaması buraya yapılmalı, web katmanına değil.
+
+**Süreç sayısını artırmak ŞU AN GÜVENLİ DEĞİL** ve sebebi belgelenmeli, çünkü `--workers 4` yazmak cazip ve iki şeyi sessizce bozar:
+
+1. **Hız sınırı süreç belleğinde** (K24): dört süreç = dört ayrı sayaç = efektif limit dört katı. Giriş denemesi sınırı kâğıt üstünde kalır.
+2. **Prometheus kayıt defteri süreç başına**: `/metrics` hangi sürece düştüyse onun sayaçlarını döndürür; değerler istekten isteğe zıplar ve ölçüm yanıltıcı hale gelir.
+
+Yani yatay ölçekleme bir yapılandırma değişikliği değil, önce bu iki durumu süreç dışına taşımayı gerektiren bir iş. O gün gelene kadar tek süreç yeterli — ve bunu artık tahminle değil ölçümle biliyoruz.
+
+**Ölçümün sınırı:** tek makinede, TLS ve ağ gecikmesi olmadan. Bu sayılar sunucu tarafının üst sınırı, uçtan uca kullanıcı deneyimi değil.
