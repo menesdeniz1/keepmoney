@@ -179,3 +179,55 @@ jobs:
         run: npx vitest run
       - name: Derleme
         run: npm run build
+
+  # ÜRETİMİN GERÇEK ÇIKTISI BU İMAJ ve hiçbir iş onu denemiyordu. Dockerfile
+  # değişiklikleri yalnızca dağıtım anında sınanıyordu — yani hata, en kötü
+  # anda ortaya çıkıyordu. Somut örnek: `render: true` isteyen kurallar aylarca
+  # imajda Playwright olmadan çalıştı ve kimse fark etmedi.
+  #
+  # İmaj yalnızca DERLENMİYOR, ayağa da kaldırılıyor: derlenen ama açılmayan
+  # bir imaj "yeşil" görünürdü.
+  imaj:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: İmajı derle
+        run: docker build -t keepmoney:ci .
+
+      # Tarayıcı motoru imajın İÇİNDE mi? Zincir Playwright yokken sessizce
+      # `requests`e düşüyor, yani eksiklik hata vermiyor — sadece o siteler
+      # hiç okunmuyor. Bu yüzden varlığı AÇIKÇA doğrulanıyor.
+      - name: Tarayıcı motoru imajda mı
+        run: |
+          docker run --rm keepmoney:ci python -c "
+          from keepmoney.cekici import playwright_var_mi
+          assert playwright_var_mi(), 'Playwright imajda YOK'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              p.chromium.launch(headless=True).close()
+          print('chromium açıldı')
+          "
+
+      - name: Uygulama ayağa kalkıyor mu
+        run: |
+          docker run -d --name km \
+            -e KEEPMONEY_ORTAM=test \
+            -e KEEPMONEY_JWT_GIZLI_ANAHTAR="$KEEPMONEY_JWT_GIZLI_ANAHTAR" \
+            -e KEEPMONEY_VERITABANI_URL=sqlite:////tmp/km.sqlite \
+            -p 8000:8000 keepmoney:ci
+          for i in $(seq 30); do
+            curl -fsS http://localhost:8000/saglik && break || sleep 2
+          done
+          curl -fsS http://localhost:8000/saglik | grep -q ayakta
+
+      # Arayüz imaja kopyalanıyor mu? Bir dönem derleniyor ama SUNULMUYORDU —
+      # üretimde web panosu tamamen erişilemezdi ve testler bunu göremiyordu.
+      - name: Arayüz imajdan sunuluyor mu
+        run: |
+          curl -fsS http://localhost:8000/ | grep -qi "<div id=\"root\"" \
+            || (docker logs km && exit 1)
+
+      - name: Kapanış
+        if: always()
+        run: docker rm -f km || true

@@ -36,8 +36,17 @@ RUN pip install -r requirements.txt
 #
 # `--with-deps` sistem kütüphanelerini de kurar; onlarsız chromium slim
 # imajda açılmaz.
+#
+# PLAYWRIGHT_BROWSERS_PATH ŞART. Kurulum root olarak yapılıyor ve varsayılan
+# hedef `~/.cache/ms-playwright`, yani `/root/.cache/...`. Konteyner ise
+# `kmuser` olarak koşuyor ve `/root` dizinine erişemez: tarayıcı imajın
+# içinde DURUR ama çalışma zamanında BULUNAMAZ. Hata da net değildir —
+# çekim zinciri sessizce `requests`e düşer ve `render: true` siteler hiç
+# okunmaz. Herkesin okuyabildiği bir dizine kuruluyor.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN pip install --no-cache-dir playwright \
-    && playwright install --with-deps chromium
+    && playwright install --with-deps chromium \
+    && chmod -R a+rX /opt/pw-browsers
 
 COPY keepmoney/ ./keepmoney/
 COPY migrations/ ./migrations/
