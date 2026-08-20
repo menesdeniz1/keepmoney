@@ -16,6 +16,24 @@ os.environ.setdefault(
 # veritabanına yazılmasın diye var.
 os.environ.setdefault("KEEPMONEY_VERITABANI_URL", "sqlite:///./data/test.sqlite")
 
+# ── Geliştiricinin `.env` dosyası TESTLERE KARIŞMAZ ───────────────
+#
+# `Ayarlar` normalde `.env` okur. O dosya CI'da YOKTUR ama geliştiricinin
+# makinesinde vardır — yani aynı test paketi iki yerde farklı sonuç veriyordu.
+# Gerçek koşuda ölçüldü, iki test yerelde kırmızıydı:
+#   • test_uretimde_anahtarsiz_acilmaz — `monkeypatch.delenv` ile anahtarı
+#     siliyor, `.env` onu geri veriyor ve beklenen hata HİÇ oluşmuyor,
+#   • test_sistem_chromiumu_kullaniliyor — `.env`deki boş satır ayarı
+#     None yerine "" yapıyor.
+#
+# Asıl tehlike ters yönde: `.env`, kırık olması gereken bir testi YEŞİL
+# gösterebilir. "Her değişiklikten sonra pytest" ritüeli ancak sonuç makineye
+# bağlı değilse anlamlıdır. Ayarların tek kaynağı testlerde ortam
+# değişkenleri (yukarısı) ve `monkeypatch` olsun.
+from keepmoney.ayarlar import Ayarlar
+
+Ayarlar.model_config["env_file"] = None
+
 
 import pytest
 
