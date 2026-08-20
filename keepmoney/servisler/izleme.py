@@ -6,6 +6,7 @@ fonksiyonları Telegram botu da çağıracak — kural iki yerde yazılmasın di
 """
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from urllib.parse import urlparse, urlunparse
 
@@ -63,7 +64,8 @@ def url_normalize(ham: str) -> str:
         parca for parca in (p.query or "").split("&")
         if parca and parca.split("=")[0] not in COP_PARAMETRELER
     )
-    yol = _yolu_kirp(p.path).rstrip("/") or "/"
+    yol = _yolu_kirp(p.path)
+    yol = _kanonik_yol(host, yol).rstrip("/") or "/"
     return urlunparse(("https", host, yol, "", sorgu, ""))
 
 
@@ -74,6 +76,46 @@ def _yolu_kirp(yol: str) -> str:
         if parca.startswith(_YOL_KESICILER):
             return "/".join(parcalar[:i])
     return yol
+
+
+def _kanonik_yol(host: str, yol: str) -> str:
+    """Site kuralı ürünün KİMLİĞİNİ tanımlıyorsa yolu ona indirger.
+
+    NEDEN: bazı sitelerde aynı ürüne iki geçerli adresle gidilebiliyor ve
+    ikisi de "doğru" — aradaki fark yalnızca insan için konmuş bir metin:
+
+        /dp/B0BSLHZKB6                              ← kısa biçim
+        /MSI-271QP-QD-OLED-Gaming-Monitör/dp/B0BSLHZKB6
+
+    Amazon ikisini de aynı ürüne çözüyor ama BİZ farklı kanonik URL
+    üretiyorduk: aynı ürün iki ayrı `Source` satırına düşüyor, fiyat geçmişi
+    ikiye bölünüyor ve "90 günün dibi" yanlış hesaplanıyordu (K16 ihlali).
+
+    Kimlik kalıbı SİTE KURALINDA duruyor, burada değil: hangi yol parçasının
+    ürünü tanımladığı siteye özgü bir bilgidir ve `siteler/*.yaml` o bilginin
+    tek yeri. Kural tanımlı değilse yol olduğu gibi kalır.
+
+    `kanonik_yol_bicimi` isteğe bağlı. Verilmezse eşleşen parça olduğu gibi
+    kullanılır. Verildiğinde eşleşme ona GÖRE YENİDEN YAZILIR — çünkü bazı
+    sitelerde aynı kimliğe birden çok yol biçimi gidiyor ve "eşleşeni al"
+    yetmiyor:
+
+        /dp/B0BSLHZKB6           ┐
+        /gp/product/B0BSLHZKB6   ┘ ikisi de aynı ürün, farklı biçim
+
+    Şablon eşleşmesiz kalırsa yol korunur: yanlış bir kırpmayla iki farklı
+    ürünü birleştirmek, ayrı bırakmaktan çok daha pahalıdır (fiyat geçmişleri
+    karışır ve geri alınamaz).
+    """
+    kural = siteler.kural(host)
+    kalip = kural.get("kanonik_yol_kalibi")
+    if not kalip:
+        return yol
+    eslesme = re.search(kalip, yol)
+    if not eslesme:
+        return yol
+    bicim = kural.get("kanonik_yol_bicimi")
+    return eslesme.expand(bicim) if bicim else eslesme.group(0)
 
 
 def _urun_adi_uret(url: str) -> str:

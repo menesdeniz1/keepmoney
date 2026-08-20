@@ -92,3 +92,47 @@ def test_yol_ortasindaki_ref_sonrasi_tamamen_atilir():
     kanonik = url_normalize(
         "https://amazon.com.tr/x/dp/B01/ref=zg_bs/262-6227750-2475204")
     assert kanonik == "https://amazon.com.tr/x/dp/B01"
+
+
+# ── Aynı ürüne giden iki geçerli adres ──────────────────────────
+# Kullanıcının gerçek link listesinde yakalandı: aynı ASIN, iki farklı yol.
+# Amazon ikisini de aynı ürüne çözüyor; biz iki ayrı kayda düşürüyorduk.
+
+AMAZON_KISA = "https://www.amazon.com.tr/dp/B0BSLHZKB6?ref=ppx_yo2ov_dt_b_fed"
+AMAZON_SLUGLU = (
+    "https://www.amazon.com.tr/MSI-271QP-QD-OLED-Gaming-Monit%C3%B6r"
+    "/dp/B0BSLHZKB6")
+
+
+def test_slugsuz_ve_sluglu_adres_ayni_urun():
+    """Öndeki metin insan için; Amazon onu yok sayıyor. Biz de saymalıyız —
+    yoksa aynı ürün iki kayda düşer ve '90 günün dibi' yanlış hesaplanır."""
+    assert url_normalize(AMAZON_KISA) == url_normalize(AMAZON_SLUGLU)
+    assert url_normalize(AMAZON_KISA).endswith("/dp/B0BSLHZKB6")
+
+
+def test_gp_product_bicimi_de_ayni_kanonige_duser():
+    assert url_normalize("https://www.amazon.com.tr/gp/product/B0BSLHZKB6") \
+        == url_normalize(AMAZON_KISA)
+
+
+def test_farkli_asin_farkli_urun_kalir():
+    """Kırpma AŞIRIYA KAÇMAMALI: iki ürünü birleştirmek, ayırmaktan kötüdür —
+    fiyat geçmişleri karışır ve geri alınamaz."""
+    a = url_normalize("https://www.amazon.com.tr/x/dp/B0BSLHZKB6")
+    b = url_normalize("https://www.amazon.com.tr/x/dp/B09CD32DNH")
+    assert a != b
+
+
+def test_kanonik_kalibi_olmayan_site_etkilenmez():
+    """Kural tanımlı değilse yol OLDUĞU GİBİ kalmalı; başka sitelerde slug
+    ürünün kimliğinin parçası olabilir."""
+    url = "https://vatanbilgisayar.com/hyperx-cloud-iii-s-kulaklik.html"
+    assert url_normalize(url) == url
+
+
+def test_akakce_yolu_bozulmuyor():
+    """Toplayıcı linkleri kimliği ',<id>.html' ile taşıyor."""
+    url = ("https://www.akakce.com/monitor/en-ucuz-msi-mag-271qp-qd-oled"
+           "-fiyati,1077309366.html")
+    assert url_normalize(url).endswith("fiyati,1077309366.html")

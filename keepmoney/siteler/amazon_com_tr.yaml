@@ -32,3 +32,14 @@ notlar: "Bot koruması agresif; sık engel görülürse toplayıcı kaynağa yö
 # ürün adı diye okundu — fiyat doğruyken kullanıcı listede tanımadığı bir ad
 # görüyordu. Sessiz ama güveni doğrudan yıkan hata.
 baslik_secici: "#productTitle"
+
+# Ürünün KİMLİĞİ `/dp/<ASIN>`. Önündeki metin insan için konmuş bir etikettir
+# ve Amazon onu yok sayar; iki biçim de aynı ürüne gider:
+#     /dp/B0BSLHZKB6
+#     /MSI-271QP-QD-OLED-Gaming-Monitör/dp/B0BSLHZKB6
+# Biz ikisini farklı kanonik URL sayıyorduk: aynı ürün iki ayrı kayda düşüyor
+# ve fiyat geçmişi ikiye bölünüyordu. Gerçek bir link listesinde yakalandı.
+# `gp/product` da geçerli bir biçim ve aynı ürüne gider; bu yüzden eşleşen
+# parçayı almak yetmiyor, ASIN alınıp tek biçime yeniden yazılıyor.
+kanonik_yol_kalibi: "/(?:dp|gp/product)/([A-Z0-9]{10})"
+kanonik_yol_bicimi: "/dp/\\1"
