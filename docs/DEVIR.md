@@ -323,6 +323,12 @@ kuralının kendisi ayrıca test ediliyor — o satırın hiç doğrudan testi y
 uyarı testleri gündüz koştuğu için tesadüfen geçiyordu. Ders K59'un aynısı:
 **test sonucu ortamdan (makineden, saatten) miras almamalı.**
 
+**5.17 — Yerelde "ruff temiz", CI'da kırmızı.** `kurulum.py` shebang'li ama
+çalıştırma biti yoktu; ruff'ın EXE001 kuralı Windows'ta HİÇ uygulanmıyor
+(NTFS'te POSIX izin biti yok), Linux'ta uygulanıyor. Yani lint bile platforma
+göre farklı cevap veriyor. Depoya betik eklerken:
+`git update-index --chmod=+x <dosya>`.
+
 ---
 
 ## 6. Çalışma ritmi ve kurallar
