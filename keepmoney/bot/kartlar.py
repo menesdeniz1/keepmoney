@@ -72,8 +72,9 @@ YARDIM = (
     "/liste — takip ettiğin ürünler\n"
     "/durum — özet: kaç ürün, kaçı hedefte\n"
     "/yardim — bu mesaj\n\n"
-    "Ürün adı yazarsan o ürünün kartını getiririm; karttaki düğmelerle "
-    "hedefi değiştirebilir, susturabilir, takipten çıkarabilirsin."
+    "Ürün adı yazarsan o ürünün kartını getiririm. Karttaki düğmelerle:\n"
+    "🎯 hedefi değiştir (yüzdelik kısayol ya da elle yaz)\n"
+    "🔕 sustur  ·  ⏸ duraklat  ·  🗑 takipten çıkar"
 )
 
 
@@ -275,4 +276,54 @@ def eklendi_metni(izleme, hedef: float | None) -> str:
         satirlar.append(f"🎯 Hedef: {tl(hedef)}")
     satirlar.append("İlk fiyat birkaç dakika içinde okunacak; "
                     "hedefe düşünce haber vereceğim.")
+    return "\n".join(satirlar)
+
+
+# ── Elle hedef girişi (ForceReply akışı) ──────────────────────────
+#
+# Durum SÜREÇ BELLEĞİNDE tutulmuyor: hangi ürün olduğu, kullanıcının
+# yanıtladığı mesajın İÇİNDE duruyor. Bot yeniden başlasa bile akış bozulmaz.
+
+_HEDEF_ISTEK_IZI = re.compile(r"#(\d+)\b")
+
+
+def hedef_iste_metni(izleme_id: int) -> str:
+    """ForceReply ile gösterilen soru. `#<id>` izi ŞART: yanıtı hangi ürüne
+    yazacağımızı bu satırdan okuyoruz."""
+    return (f"✍️ Hedef fiyatı yaz  (#{izleme_id})\n\n"
+            "Sadece sayı: `45000`  ·  `45.000` de olur.")
+
+
+def hedef_isteginden_id(metin: str) -> int | None:
+    """ForceReply kaynağından izleme kimliğini çıkarır. Bulamazsa None."""
+    if "Hedef fiyatı yaz" not in metin:
+        return None
+    eslesme = _HEDEF_ISTEK_IZI.search(metin)
+    return int(eslesme.group(1)) if eslesme else None
+
+
+def sayi_coz(metin: str) -> float | None:
+    """"45.000,50" → 45000.5. Kullanıcı fiyatı SİTEDEKİ gibi yazar."""
+    ham = metin.strip().replace(" ", "").replace("₺", "").replace("TL", "")
+    if not ham:
+        return None
+    if "," in ham:
+        ham = ham.replace(".", "").replace(",", ".")
+    elif ham.count(".") == 1 and len(ham.rsplit(".", 1)[1]) == 3:
+        ham = ham.replace(".", "")          # binlik ayracı
+    try:
+        deger = float(ham)
+    except ValueError:
+        return None
+    return deger if deger > 0 else None
+
+
+def hedef_kondu_metni(izleme, hedef: float) -> str:
+    ad = _kirp(izleme.product.ad, 50) if izleme.product else "ürün"
+    fiyat = izleme.product.guncel_fiyat if izleme.product else None
+    satirlar = [f"🎯 *{ad}*", f"Hedef: {tl(hedef)}"]
+    if fiyat:
+        fark = fiyat - hedef
+        satirlar.append("Şu an HEDEFTE ✅" if fark <= 0
+                        else f"Şu an {tl(fiyat)} — {kisa_tl(fark)} kaldı")
     return "\n".join(satirlar)

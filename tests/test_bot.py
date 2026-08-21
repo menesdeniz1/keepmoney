@@ -379,3 +379,85 @@ def test_link_filtresi_gomulu_baglantiyi_de_yakalar(metin, eslesmeli):
 
     filtre = F.text.func(lambda t: bool(kartlar.LINK.search(t or ""))).resolve
     assert bool(filtre(SimpleNamespace(text=metin))) is eslesmeli
+
+
+# ── Ölü düğme koruması ────────────────────────────────────────────
+
+
+def test_her_dugmenin_handleri_var():
+    """Klavyeler `dr:` (Duraklat) ve `he:` (Elle yaz) üretiyordu ama bu iki
+    kodun HANDLER'I YOKTU: kullanıcı basıyor, Telegram dönen çarkı gösterip
+    susuyordu. "JSX'te düğme var" ile "düğme çalışıyor" arasındaki farkın bot
+    tarafındaki hâli.
+
+    Bu test iki listeyi karşılaştırıyor: klavyelerin ÜRETTİĞİ kodlar ve
+    dispatcher'ın KAYITLI olduğu kodlar. Yeni bir düğme eklenip handler'ı
+    unutulursa burası kırmızıya döner.
+    """
+    import pathlib
+    import re
+
+    kok = pathlib.Path(__file__).resolve().parents[1] / "keepmoney" / "bot"
+    uretilen = set(re.findall(r'callback_data": f"([a-z]+):',
+                              (kok / "kartlar.py").read_text(encoding="utf-8")))
+    islenen = set(re.findall(r'F\.data\.startswith\("([a-z]+):',
+                             (kok / "uygulama.py").read_text(encoding="utf-8")))
+
+    assert uretilen, "klavyelerde hiç callback bulunamadı — desen değişmiş olabilir"
+    eksik = uretilen - islenen
+    assert not eksik, f"handler'ı olmayan düğme kodları: {sorted(eksik)}"
+
+
+def test_duraklat_dugmesi_durumu_yansitir():
+    """Basınca metin değişmeli: 'Duraklat' ↔ 'Devam ettir'."""
+    aktifken = kartlar.urun_klavyesi(1, aktif=True)
+    duraklatilmisken = kartlar.urun_klavyesi(1, aktif=False)
+    def metinler(klavye):
+        return [d["text"] for satir in klavye for d in satir]
+
+    assert any("Duraklat" in t for t in metinler(aktifken))
+    assert any("Devam ettir" in t for t in metinler(duraklatilmisken))
+
+
+# ── Elle hedef girişi (ForceReply akışı) ──────────────────────────
+
+
+def test_hedef_istegi_urun_kimligini_tasir():
+    """Durum süreç belleğinde TUTULMUYOR: hangi ürün olduğu, kullanıcının
+    yanıtladığı mesajın içinde duruyor. Bot yeniden başlasa da akış bozulmaz."""
+    metin = kartlar.hedef_iste_metni(42)
+    assert kartlar.hedef_isteginden_id(metin) == 42
+
+
+def test_baska_mesaja_verilen_yanit_hedef_sayilmaz():
+    """Kullanıcı rastgele bir mesajı yanıtlarsa hedef yazılmamalı."""
+    assert kartlar.hedef_isteginden_id("merhaba #42") is None
+    assert kartlar.hedef_isteginden_id("") is None
+
+
+@pytest.mark.parametrize("metin, beklenen", [
+    ("45000", 45000.0),
+    ("45.000", 45000.0),
+    ("45.000,50", 45000.5),
+    ("45000,5", 45000.5),
+    (" 45000 ₺ ", 45000.0),
+    ("45000 TL", 45000.0),
+    ("bilmiyorum", None),
+    ("", None),
+    ("0", None),          # anlamsız hedef
+    ("-5", None),
+])
+def test_sayi_cozumu(metin, beklenen):
+    assert kartlar.sayi_coz(metin) == beklenen
+
+
+def test_hedef_kondu_metni_kalan_farki_soyler(db):
+    w = izleme(db, urun(db, "Ekran Kartı", fiyat=50000), hedef=45000)
+    metin = kartlar.hedef_kondu_metni(w, 45000)
+    assert "45.000,00" in metin
+    assert "kaldı" in metin
+
+
+def test_hedef_kondu_metni_hedefteyse_soyler(db):
+    w = izleme(db, urun(db, "Kulaklık", fiyat=4000), hedef=5000)
+    assert "HEDEFTE" in kartlar.hedef_kondu_metni(w, 5000)

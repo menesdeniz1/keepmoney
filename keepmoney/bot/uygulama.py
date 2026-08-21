@@ -9,12 +9,14 @@ FastAPI'ninkine benziyor ve v3 ile tip desteği güçlü. Sürdürülen, güncel
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import (
     CallbackQuery,
+    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -150,6 +152,93 @@ async def sustur(cb: CallbackQuery) -> None:
             await cb.answer("Bu ürün listende yok", show_alert=True)
             return
     await cb.answer(f"{gun} gün susturuldu")
+
+
+@dp.callback_query(F.data.startswith("dr:"))
+async def duraklat(cb: CallbackQuery) -> None:
+    """Duraklat / Devam ettir.
+
+    ÖLÜ DÜĞMEYDİ: klavye `dr:` üretiyordu ama karşılığında hiçbir handler
+    yoktu — kullanıcı basıyor, Telegram dönen çarkı gösterip susuyordu.
+    "JSX'te düğme var" ile "düğme çalışıyor" arasındaki farkın bot tarafındaki
+    hâli; klavye kodları ile handler'lar arasındaki boşluğu artık bir test
+    koruyor.
+    """
+    _, parcalar = kartlar.callback_coz(cb.data or "")
+    izleme_id = int(parcalar[0])
+    with SessionLocal() as db:
+        k = kullanici_svc.chat_id_ile(db, str(cb.message.chat.id))
+        if k is None:
+            await cb.answer("Hesabın bağlı değil", show_alert=True)
+            return
+        try:
+            w = izleme_svc.izleme_getir(db, k, izleme_id)
+            yeni = not bool(w.aktif)
+            izleme_svc.guncelle(db, k, izleme_id, aktif=yeni)
+            w = izleme_svc.izleme_getir(db, k, izleme_id)
+        except izleme_svc.IzlemeHatasi:
+            await cb.answer("Bu ürün listende yok", show_alert=True)
+            return
+        # Düğme metni durumu göstermeli: basınca "Duraklat" → "Devam ettir".
+        with contextlib.suppress(Exception):
+            await cb.message.edit_reply_markup(
+                reply_markup=_klavye(kartlar.urun_klavyesi(izleme_id, yeni)))
+    await cb.answer("Takip sürüyor" if yeni else "Duraklatıldı")
+
+
+@dp.callback_query(F.data.startswith("he:"))
+async def hedef_elle(cb: CallbackQuery) -> None:
+    """"✍️ Elle yaz" — hedefi kullanıcı yazsın.
+
+    ÖLÜ DÜĞMEYDİ (bkz. yukarısı). Yüzdelik kısayollar çoğu durumu çözüyor
+    ama "şu fiyatın altına insin" demek isteyen kullanıcının başka yolu yoktu.
+
+    DURUM TUTULMUYOR: aiogram FSM yerine Telegram'ın `ForceReply`si
+    kullanılıyor. Hangi ürün olduğu, kullanıcının YANITLADIĞI mesajın içinde
+    duruyor (`#<id>`) — yani bot yeniden başlasa da akış bozulmuyor. Süreç
+    belleğinde durum tutmak, worker/bot yeniden başladığında kullanıcıyı
+    yarım kalmış bir diyalogda bırakırdı.
+    """
+    _, parcalar = kartlar.callback_coz(cb.data or "")
+    izleme_id = int(parcalar[0])
+    await cb.message.answer(
+        kartlar.hedef_iste_metni(izleme_id),
+        parse_mode="Markdown",
+        reply_markup=ForceReply(input_field_placeholder="örn. 45000"))
+    await cb.answer()
+
+
+@dp.message(F.reply_to_message)
+async def hedef_yaniti(mesaj: Message) -> None:
+    """Kullanıcı `ForceReply` mesajına cevap verdi: hedefi yaz."""
+    kaynak = (mesaj.reply_to_message.text or "") if mesaj.reply_to_message else ""
+    izleme_id = kartlar.hedef_isteginden_id(kaynak)
+    if izleme_id is None:
+        # Başka bir mesaja verilmiş yanıt — arama gibi davran.
+        await serbest_metin(mesaj)
+        return
+
+    hedef = kartlar.sayi_coz(mesaj.text or "")
+    if hedef is None:
+        await mesaj.answer("Anlamadım. Sadece sayı yaz: `45000`",
+                           parse_mode="Markdown")
+        return
+
+    with SessionLocal() as db:
+        k = kullanici_svc.chat_id_ile(db, str(mesaj.chat.id))
+        if k is None:
+            await mesaj.answer(kartlar.karsilama(False), parse_mode="Markdown")
+            return
+        try:
+            izleme_svc.guncelle(db, k, izleme_id, hedef_fiyat=hedef)
+            w = izleme_svc.izleme_getir(db, k, izleme_id)
+        except izleme_svc.IzlemeHatasi:
+            await mesaj.answer("Bu ürün listende yok.")
+            return
+        await mesaj.answer(kartlar.hedef_kondu_metni(w, hedef),
+                           parse_mode="Markdown",
+                           reply_markup=_klavye(
+                               kartlar.urun_klavyesi(w.id, w.aktif)))
 
 
 @dp.callback_query(F.data.startswith("sl:"))
