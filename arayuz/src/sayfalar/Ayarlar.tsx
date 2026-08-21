@@ -116,11 +116,32 @@ export default function Ayarlar() {
               Telegram'a bağla
             </button>
             {baglanti && (
-              <p className="text-sm">
-                <a href={baglanti} target="_blank" rel="noopener noreferrer"
-                   className="text-blue-600 underline">Bu bağlantıya tıkla</a>
-                {' '}— 10 dakika geçerli. Chat ID kopyalaman gerekmiyor.
-              </p>
+              <div className="space-y-2 text-sm">
+                <p>
+                  <a href={baglanti} target="_blank" rel="noopener noreferrer"
+                     className="text-blue-600 underline">Bu bağlantıya tıkla</a>
+                  {' '}— 10 dakika geçerli. Chat ID kopyalaman gerekmiyor.
+                </p>
+                {/* YEDEK YOL — gerçek kullanımda gerekti.
+                    Telegram `?start=` yükünü YALNIZCA "Başlat" düğmesine
+                    basıldığında gönderiyor; botu daha önce başlatmış bir
+                    kullanıcıda o düğme çıkmıyor ve bağlantı sohbeti açıp
+                    hiçbir şey göndermiyor. Kullanıcı "buton çalışmıyor"
+                    diyor ama aslında mesaj hiç ulaşmamış oluyor.
+                    Aynı mesajı elle göndermek her durumda çalışıyor. */}
+                <details>
+                  <summary className="cursor-pointer text-slate-500 dark:text-slate-400">
+                    Bağlantı bir şey yapmıyorsa (botu daha önce başlattıysan)
+                  </summary>
+                  <p className="mt-2 text-slate-600 dark:text-slate-300">
+                    Aşağıdaki komutu kopyalayıp bot sohbetine yapıştır:
+                  </p>
+                  <code className="mt-1 block break-all rounded bg-slate-100 p-2
+                                   font-mono text-xs dark:bg-slate-800">
+                    /start {baglanti.split('start=')[1] ?? ''}
+                  </code>
+                </details>
+              </div>
             )}
             {hata && <p className="text-sm text-red-600">{hata}</p>}
           </div>
