@@ -582,3 +582,98 @@ def test_macos_servis_betigi_var_ve_lf():
     # Servisin varlık sebebi: çökerse kendi kendine kalkması.
     assert "KeepAlive" in metin
     assert "ThrottleInterval" in metin
+
+
+# ── Telegram token doğrulama ──────────────────────────────────────
+
+
+def test_token_yoksa_ne_yapilacagini_soyler(tmp_path, capsys):
+    """Token boşken bot süreci açılıp hata verip kapanıyor ve launchd onu
+    tekrar tekrar başlatıyor; kullanıcı yalnızca "bot cevap vermiyor" görür.
+    Bu komut sebebi tek satırda söylemeli."""
+    (tmp_path / ".env").write_text("KEEPMONEY_TELEGRAM_BOT_TOKEN=\n",
+                                   encoding="utf-8")
+    assert ku.komut_bot_dene(tmp_path) == 1
+    cikti = capsys.readouterr().out
+    assert "BOŞ" in cikti
+    assert "BotFather" in cikti
+
+
+def test_env_yoksa_calistirilabilir_hata(tmp_path):
+    with pytest.raises(ku.KurulumHatasi) as hata:
+        ku.komut_bot_dene(tmp_path)
+    assert hata.value.cozum
+
+
+def test_token_dogrulama_degeri_ekrana_basmaz(tmp_path, capsys, monkeypatch):
+    """Token bir paroladır: doğrulama çıktısında GÖRÜNMEMELİ — terminal
+    kaydı, ekran görüntüsü ve log dosyası hep sızma yoludur."""
+    gizli = "123456789:AAHgizli-token-degeri-xyz"
+    (tmp_path / ".env").write_text(
+        f"KEEPMONEY_TELEGRAM_BOT_TOKEN={gizli}\n"
+        "KEEPMONEY_TELEGRAM_BOT_ADI=deneme_bot\n", encoding="utf-8")
+
+    class SahteYanit:
+        status = 200
+
+        def read(self):
+            return b'{"ok":true,"result":{"username":"deneme_bot"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(ku.urllib.request, "urlopen",
+                        lambda *a, **k: SahteYanit())
+    assert ku.komut_bot_dene(tmp_path) == 0
+    cikti = capsys.readouterr().out
+    assert "deneme_bot" in cikti
+    assert gizli not in cikti
+
+
+def test_bot_adi_uyusmazsa_uyarir(tmp_path, capsys, monkeypatch):
+    """Deep-link `.env`teki ada göre kuruluyor; yanlışsa "Telegram'a bağla"
+    akışı SESSİZCE başka bir hesaba gider."""
+    (tmp_path / ".env").write_text(
+        "KEEPMONEY_TELEGRAM_BOT_TOKEN=123:ABC\n"
+        "KEEPMONEY_TELEGRAM_BOT_ADI=yanlis_ad\n", encoding="utf-8")
+
+    class SahteYanit:
+        status = 200
+
+        def read(self):
+            return b'{"ok":true,"result":{"username":"gercek_bot"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(ku.urllib.request, "urlopen",
+                        lambda *a, **k: SahteYanit())
+    assert ku.komut_bot_dene(tmp_path) == 1
+    cikti = capsys.readouterr().out
+    assert "yanlis_ad" in cikti and "gercek_bot" in cikti
+
+
+def test_token_yokken_bot_sureci_acilmaz(tmp_path):
+    """Token yokken bot açılsaydı hata verip kapanır ve kullanıcıya "bir şey
+    bozuk" gibi görünürdü."""
+    (tmp_path / ".env").write_text("KEEPMONEY_TELEGRAM_BOT_TOKEN=\n",
+                                   encoding="utf-8")
+    assert ku._telegram_tokeni_var(tmp_path) is False
+
+
+def test_token_varsa_bot_sureci_acilir(tmp_path):
+    """Eskiden bot HİÇ açılmıyordu: token yazılıyor ama uyarılar telefona
+    düşmüyordu — web'de birikiyorlardı."""
+    (tmp_path / ".env").write_text("KEEPMONEY_TELEGRAM_BOT_TOKEN=123:ABC\n",
+                                   encoding="utf-8")
+    assert ku._telegram_tokeni_var(tmp_path) is True
+
+
+def test_env_yokken_bot_sorulmaz(tmp_path):
+    assert ku._telegram_tokeni_var(tmp_path) is False

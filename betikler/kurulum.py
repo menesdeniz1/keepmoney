@@ -784,6 +784,17 @@ def komut_dogrula(kok: pathlib.Path = KOK) -> int:
     return 0 if tamam else 1
 
 
+def _telegram_tokeni_var(kok: pathlib.Path) -> bool:
+    """`.env`te token tanımlı mı. Değer OKUNMAZ, yalnızca varlığı sorulur."""
+    env = kok / ".env"
+    if not env.is_file():
+        return False
+    with contextlib.suppress(OSError, UnicodeDecodeError):
+        satirlar = env.read_text(encoding="utf-8").splitlines()
+        return bool(env_degeri(satirlar, "KEEPMONEY_TELEGRAM_BOT_TOKEN"))
+    return False
+
+
 def komut_basla(kok: pathlib.Path = KOK) -> int:
     # `basla.bat` bunu zaten kontrol ediyor; betik elle çağrılırsa (ya da
     # `.venv` sonradan silinirse) çıplak FileNotFoundError yığın izi yerine
@@ -817,6 +828,19 @@ def komut_basla(kok: pathlib.Path = KOK) -> int:
                  "--host", API_HOST, "--port", str(API_PORT)]),
         ("tarayici", [str(py), "-m", "keepmoney.zamanlayici"]),
     ]
+
+    # Telegram botu YALNIZCA token varsa açılır.
+    #
+    # Eskiden hiç açılmıyordu: kullanıcı token'ı `.env`e yazıyor, `basla`
+    # diyor ve bot sessizce çalışmıyordu — uyarılar web'de birikiyor ama
+    # telefona düşmüyordu. Tersi de yanlış olurdu: token yokken bot süreci
+    # açılır, hata verip kapanır ve pencere kullanıcıya "bir şey bozuk" diye
+    # görünürdü. Bu yüzden koşullu.
+    if _telegram_tokeni_var(kok):
+        surecler.append(("bot", [str(py), "-m", "keepmoney.bot"]))
+    else:
+        print("Telegram token'ı yok → bot açılmıyor "
+              "(.env'e yazıp tekrar başlat).")
     # AYRI PENCERE: logları görebilmek için. Ayrıca yeni konsol, bu süreç
     # kapandığında çocukların hayatta kalmasını sağlıyor — `basla.bat`
     # penceresi kapanınca API ölmemeli.
@@ -884,6 +908,57 @@ def komut_dur(kok: pathlib.Path = KOK) -> int:
     return 0
 
 
+def komut_bot_dene(kok: pathlib.Path = KOK) -> int:
+    """`.env`teki Telegram token'ının GEÇERLİ olup olmadığını sorar.
+
+    NEDEN VAR: token yanlış ya da iptal edilmişse bot süreci açılır, hata
+    verir, kapanır ve launchd/`basla` onu tekrar tekrar başlatır — kullanıcı
+    yalnızca "bot cevap vermiyor" görür. Sebebi öğrenmenin yolu log dosyasını
+    açmaktır; bu komut aynı cevabı tek satırda veriyor.
+
+    TOKEN EKRANA BASILMAZ. Doğrulama Telegram'ın `getMe` ucuyla yapılıyor;
+    dönen tek bilgi botun kullanıcı adı.
+    """
+    env = kok / ".env"
+    if not env.is_file():
+        raise KurulumHatasi(".env yok.", "kur.bat")
+
+    satirlar = env.read_text(encoding="utf-8").splitlines()
+    token = env_degeri(satirlar, "KEEPMONEY_TELEGRAM_BOT_TOKEN")
+    ad = env_degeri(satirlar, "KEEPMONEY_TELEGRAM_BOT_ADI") or ""
+
+    if not token:
+        print("Telegram token'ı .env içinde BOŞ.")
+        print("BotFather'dan alıp KEEPMONEY_TELEGRAM_BOT_TOKEN satırına yaz.")
+        return 1
+
+    try:
+        with urllib.request.urlopen(
+                f"https://api.telegram.org/bot{token}/getMe", timeout=15) as y:
+            veri = json.loads(y.read().decode("utf-8"))
+    except urllib.error.HTTPError as hata:
+        if hata.code == 401:
+            print("Token GEÇERSİZ (Telegram 401 dedi).")
+            print("İptal edilmiş olabilir — BotFather'da /token ile yenisini al.")
+            return 1
+        print(f"Telegram'a sorulamadı: HTTP {hata.code}")
+        return 1
+    except Exception as hata:                      # ağ yoksa da anlaşılır olsun
+        print(f"Telegram'a ulaşılamadı: {hata}")
+        return 1
+
+    bot = (veri.get("result") or {}).get("username", "?")
+    print(f"Token GEÇERLİ · bot: @{bot}")
+    if ad and ad.lstrip("@").lower() != bot.lower():
+        # Deep-link bu ada göre kuruluyor; yanlışsa "Telegram'a bağla"
+        # akışı SESSİZCE başka bir hesaba gider.
+        print(f"UYARI: .env'deki KEEPMONEY_TELEGRAM_BOT_ADI '{ad}' ama gerçek "
+              f"ad '{bot}'.")
+        print("       Bağlama bağlantısı yanlış hesaba gider; düzelt.")
+        return 1
+    return 0
+
+
 def komut_anahtar() -> int:
     print(anahtar_uret())
     return 0
@@ -900,7 +975,8 @@ def main(argv: list[str] | None = None) -> int:
             ("dogrula", "ortam eksiksiz mi — çıkış kodu 0/1"),
             ("basla", "API ve tarama worker'ını başlat, tarayıcıyı aç"),
             ("dur", "başlatılan süreçleri kapat"),
-            ("anahtar", "yeni JWT imza anahtarı üret ve bas")):
+            ("anahtar", "yeni JWT imza anahtarı üret ve bas"),
+            ("bot-dene", "Telegram token'ı geçerli mi (değeri basmaz)")):
         altlar.add_parser(ad, help=yardim)
 
     secim = ayristirici.parse_args(argv)
@@ -913,6 +989,8 @@ def main(argv: list[str] | None = None) -> int:
             return komut_basla()
         if secim.komut == "dur":
             return komut_dur()
+        if secim.komut == "bot-dene":
+            return komut_bot_dene()
         return komut_anahtar()
     except KurulumHatasi as hata:
         print(f"\nHATA: {hata}", file=sys.stderr)
