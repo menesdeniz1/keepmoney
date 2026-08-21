@@ -908,6 +908,76 @@ def komut_dur(kok: pathlib.Path = KOK) -> int:
     return 0
 
 
+def komut_durum(kok: pathlib.Path = KOK) -> int:
+    """Sistem ne durumda: süreçler, tarama ilerlemesi, site site okuma.
+
+    NEDEN VAR: kurulumdan sonra ekranda ürünlerin çoğu "bilinmiyor" yazıyor
+    ve bu iki BAMBAŞKA şey olabilir — (a) worker henüz sıraya gelmedi,
+    (b) o site bot duvarı yüzünden hiç okunamıyor. İkisi ekranda aynı
+    görünüyor; ayrımı yapmadan kullanıcı ya boşuna bekler ya da çalışan bir
+    sistemi bozuk sanır.
+
+    Aynı siteye iki istek arasında en az 25 sn bekleniyor (throttle) — yani
+    ilk tur DAKİKALAR sürer. Bu bir yavaşlık değil, IP yasaklanmasın diye
+    konmuş bilinçli bir sınır.
+    """
+    from sqlalchemy import text
+
+    from keepmoney.db import SessionLocal
+
+    kayit = kayit_oku(kok)
+    print("SÜREÇLER")
+    if not kayit:
+        print("  kayıt yok — basla.bat ile başlatılmamış görünüyor")
+    else:
+        for s in kayit.get("surecler", []):
+            yasiyor = surec_yasiyor_mu(int(s.get("pid", 0)), s.get("imaj", ""))
+            print(f"  {s.get('ad','?'):10s} {'ÇALIŞIYOR' if yasiyor else 'KAPALI'}"
+                  f"  (pid {s.get('pid')})")
+    print(f"  api ucu    {'CEVAP VERİYOR' if saglik_yanit_verdi_mi() else 'CEVAP YOK'}")
+
+    try:
+        return _tarama_ozeti(SessionLocal, text)
+    except Exception as hata:                  # şema yoksa çıplak iz basmayalım
+        print(f"\nVeritabanı okunamadı: {hata}")
+        print(f'ÇÖZÜM: "{venv_python(kok)}" -m alembic upgrade head')
+        return 1
+
+
+def _tarama_ozeti(SessionLocal, text) -> int:
+    with SessionLocal() as db:
+        satir = db.execute(text(
+            "SELECT COUNT(*), SUM(CASE WHEN guncel_fiyat IS NOT NULL THEN 1 ELSE 0 END)"
+            " FROM products")).one()
+        toplam, okunan = satir[0], satir[1] or 0
+        print()
+        print(f"TARAMA: {okunan}/{toplam} üründe fiyat var")
+        print()
+        print("SİTE BAZINDA (okunan / toplam)")
+        for host, ok, hepsi, engelli in db.execute(text(
+                "SELECT host,"
+                " SUM(CASE WHEN son_fiyat IS NOT NULL THEN 1 ELSE 0 END),"
+                " COUNT(*),"
+                " SUM(CASE WHEN durum IN ('ENGELLI','BOT') THEN 1 ELSE 0 END)"
+                " FROM sources GROUP BY host ORDER BY COUNT(*) DESC")):
+            not_ = ""
+            if engelli:
+                not_ = "  ← bot duvarı: akakçe kaynağı bağla"
+            elif not ok:
+                not_ = "  ← sırası gelmedi"
+            print(f"  {host:24s} {ok or 0}/{hepsi}{not_}")
+
+        bekleyen = db.execute(text(
+            "SELECT COUNT(*) FROM sources WHERE durum='BEKLEMEDE'")).scalar()
+        if bekleyen:
+            # Aynı hosta 25 sn aralık + bot duvarlı sitelerde tam merdiven.
+            print()
+            print(f"{bekleyen} kaynak henüz hiç denenmedi. Aynı siteye 25 sn "
+                  "aralık kuralı yüzünden ilk tur dakikalar sürer; worker "
+                  "penceresi açık kaldığı sürece ilerler.")
+    return 0
+
+
 def komut_bot_dene(kok: pathlib.Path = KOK) -> int:
     """`.env`teki Telegram token'ının GEÇERLİ olup olmadığını sorar.
 
@@ -976,7 +1046,8 @@ def main(argv: list[str] | None = None) -> int:
             ("basla", "API ve tarama worker'ını başlat, tarayıcıyı aç"),
             ("dur", "başlatılan süreçleri kapat"),
             ("anahtar", "yeni JWT imza anahtarı üret ve bas"),
-            ("bot-dene", "Telegram token'ı geçerli mi (değeri basmaz)")):
+            ("bot-dene", "Telegram token'ı geçerli mi (değeri basmaz)"),
+            ("durum", "süreçler + tarama ilerlemesi + site site okuma")):
         altlar.add_parser(ad, help=yardim)
 
     secim = ayristirici.parse_args(argv)
@@ -991,6 +1062,8 @@ def main(argv: list[str] | None = None) -> int:
             return komut_dur()
         if secim.komut == "bot-dene":
             return komut_bot_dene()
+        if secim.komut == "durum":
+            return komut_durum()
         return komut_anahtar()
     except KurulumHatasi as hata:
         print(f"\nHATA: {hata}", file=sys.stderr)

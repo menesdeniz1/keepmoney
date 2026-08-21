@@ -677,3 +677,17 @@ def test_token_varsa_bot_sureci_acilir(tmp_path):
 
 def test_env_yokken_bot_sorulmaz(tmp_path):
     assert ku._telegram_tokeni_var(tmp_path) is False
+
+
+def test_durum_komutu_calisir(tmp_path, capsys):
+    """`durum` ekranda "çoğu bilinmiyor" görüldüğünde iki BAMBAŞKA durumu
+    ayırt etmek için var: (a) sırası gelmedi, (b) bot duvarı. İkisi arayüzde
+    aynı görünüyor ve ayrım yapılmadan kullanıcı ya boşuna bekler ya da
+    çalışan sistemi bozuk sanar."""
+    kod = ku.komut_durum(tmp_path)
+    cikti = capsys.readouterr().out
+    assert "SÜREÇLER" in cikti
+    # Şema kurulu değilse çıplak SQLAlchemy izi yerine çalıştırılabilir
+    # bir çözüm basmalı — testte veritabanı boş.
+    assert "TARAMA:" in cikti or "alembic upgrade head" in cikti
+    assert kod in (0, 1)
