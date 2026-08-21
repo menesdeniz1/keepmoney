@@ -16,6 +16,28 @@ os.environ.setdefault(
 # veritabanına yazılmasın diye var.
 os.environ.setdefault("KEEPMONEY_VERITABANI_URL", "sqlite:///./data/test.sqlite")
 
+# ── TESTLER GERÇEK VERİTABANINA ASLA DOKUNAMAZ ────────────────────
+#
+# Yukarıdaki `setdefault` bir SAVUNMA DEĞİL, yalnızca varsayılan: ortamda
+# `KEEPMONEY_VERITABANI_URL` zaten tanımlıysa (kabuk, CI, IDE ya da yanlış
+# yazılmış bir betik) testler O adresi kullanır. `motor` fikstürü her testte
+# `drop_all` + `create_all` çağırıyor — yani yanlış adres, kullanıcının
+# fiyat geçmişinin SİLİNMESİ demektir. Bu geri alınamaz: kod yeniden
+# yazılır, iki yıllık fiyat hafızası yazılamaz.
+#
+# Gerçek bir oturumda geliştirme veritabanındaki izleme kayıtları kayboldu
+# ve sebebi kesin olarak saptanamadı; olasılıklardan biri tam da buydu.
+# "Muhtemelen o değildi" yeterli bir güvence değil — kapı kapatılıyor.
+_ADRES = os.environ["KEEPMONEY_VERITABANI_URL"]
+_YASAK = ("keepmoney.sqlite", "keepmoney.db")
+if any(y in _ADRES for y in _YASAK):
+    raise RuntimeError(
+        f"Testler GERÇEK veritabanına yönlendirilmiş: {_ADRES}\n"
+        "Her test `drop_all` çağırıyor; bu koşum fiyat geçmişini silerdi.\n"
+        "KEEPMONEY_VERITABANI_URL'i temizle ya da test adresi ver:\n"
+        "  set KEEPMONEY_VERITABANI_URL=            (Windows)\n"
+        "  unset KEEPMONEY_VERITABANI_URL           (macOS/Linux)")
+
 # ── Geliştiricinin `.env` dosyası TESTLERE KARIŞMAZ ───────────────
 #
 # `Ayarlar` normalde `.env` okur. O dosya CI'da YOKTUR ama geliştiricinin

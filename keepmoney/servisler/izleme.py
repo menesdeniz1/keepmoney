@@ -70,12 +70,39 @@ def url_normalize(ham: str) -> str:
     """
     p = urlparse(ham.strip())
     host = (p.netloc or "").lower().removeprefix("www.")
+    yol = _yolu_kirp(p.path)
+    yol, kimlik_yolda = _kanonik_yol(host, yol)
+    yol = yol.rstrip("/") or "/"
+
+    if kimlik_yolda:
+        # KİMLİK YOLDA İSE SORGU DİZESİ TÜMÜYLE ATILIR.
+        #
+        # Çöp parametre listesi bir KARA LİSTEDİR ve her zaman geriden gelir:
+        # gerçek link listesinde Amazon'un `crid`, `qid`, `sr`, `dib_tag`,
+        # `ie`, `adgrpid`, `sprefix`, `__mk_tr_TR` … parametreleri listede
+        # yoktu ve aynı ASIN ÜÇ ayrı kanonik URL üretiyordu:
+        #     /dp/B0DVGVZZYY
+        #     /dp/B0DVGVZZYY?ie=UTF8
+        #     /dp/B0DVGVZZYY?crid=…&keywords=…&qid=…&sr=1-2
+        # Yani aynı ürün üç kez taranıyor ve fiyat geçmişi üçe bölünüyordu —
+        # K16'nın tam ihlali. Listeyi uzatmak çözüm değil: Amazon yenisini
+        # eklemeye devam eder.
+        #
+        # Kural şu: site kuralı ürünün kimliğini yolda tanımlıyorsa
+        # (`kanonik_yol_kalibi`), sorgu dizesi TANIM GEREĞİ kimliğin parçası
+        # değildir. Bu yüzden burada beyaz liste/kara liste tartışması yok.
+        #
+        # Kimliği tanımlanmamış sitelerde sorgu KORUNUR — çünkü orada bir
+        # parametre gerçekten ürünü belirleyebilir: Shopify'da `variant`
+        # ayrı bir üründür, idefix'te `vendorId` ayrı bir satıcıdır. Onları
+        # atmak iki AYRI ürünü birleştirirdi; bölmekten beter, çünkü yanlış
+        # fiyat doğru ürünün geçmişine yazılır.
+        return urlunparse(("https", host, yol, "", "", ""))
+
     sorgu = "&".join(
         parca for parca in (p.query or "").split("&")
         if parca and parca.split("=")[0] not in COP_PARAMETRELER
     )
-    yol = _yolu_kirp(p.path)
-    yol = _kanonik_yol(host, yol).rstrip("/") or "/"
     return urlunparse(("https", host, yol, "", sorgu, ""))
 
 
@@ -88,8 +115,12 @@ def _yolu_kirp(yol: str) -> str:
     return yol
 
 
-def _kanonik_yol(host: str, yol: str) -> str:
+def _kanonik_yol(host: str, yol: str) -> tuple[str, bool]:
     """Site kuralı ürünün KİMLİĞİNİ tanımlıyorsa yolu ona indirger.
+
+    Döner: (yol, kimlik_yolda). İkinci değer, çağıranın sorgu dizesini
+    atıp atmayacağına karar vermesi için: kimlik yolda tanımlıysa sorgu
+    tanım gereği kimliğin parçası değildir (bkz. `url_normalize`).
 
     NEDEN: bazı sitelerde aynı ürüne iki geçerli adresle gidilebiliyor ve
     ikisi de "doğru" — aradaki fark yalnızca insan için konmuş bir metin:
@@ -120,12 +151,15 @@ def _kanonik_yol(host: str, yol: str) -> str:
     kural = siteler.kural(host)
     kalip = kural.get("kanonik_yol_kalibi")
     if not kalip:
-        return yol
+        return yol, False
     eslesme = re.search(kalip, yol)
     if not eslesme:
-        return yol
+        # Şablon tutmadı: yol korunur ve kimlik BELİRLENMEMİŞ sayılır.
+        # Yanlış bir kırpmayla iki farklı ürünü birleştirmek, ayrı
+        # bırakmaktan çok daha pahalıdır.
+        return yol, False
     bicim = kural.get("kanonik_yol_bicimi")
-    return eslesme.expand(bicim) if bicim else eslesme.group(0)
+    return (eslesme.expand(bicim) if bicim else eslesme.group(0)), True
 
 
 def _urun_adi_uret(url: str) -> str:

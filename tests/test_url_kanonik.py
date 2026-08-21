@@ -175,3 +175,59 @@ def test_diger_reklam_tiklama_kimlikleri_de_atilir(parametre):
     """Aynı sınıftan olan hepsi birden eklendi; biri unutulursa sessizce böler."""
     url = f"https://magaza.com/urun-x?{parametre}=abc123XYZ"
     assert url_normalize(url) == "https://magaza.com/urun-x"
+
+
+# ── Kimlik yolda ise sorgu dizesi tümüyle atılır ──────────────────
+#
+# GERÇEK LİNK LİSTESİNDE YAKALANDI: çöp parametre listesi bir KARA LİSTE ve
+# her zaman geriden geliyor. Amazon'un arama/oturum parametreleri listede
+# yoktu ve aynı ASIN ÜÇ ayrı kanonik URL üretiyordu — yani aynı ürün üç kez
+# taranıp fiyat geçmişi üçe bölünüyordu (K16 ihlali).
+
+
+def test_ayni_asin_farkli_arama_parametreleriyle_tek_urun():
+    """Üç biçim de aynı kanonik URL'ye düşmeli."""
+    bicimler = [
+        "https://www.amazon.com.tr/dp/B0DVGVZZYY",
+        "https://www.amazon.com.tr/dp/B0DVGVZZYY?ie=UTF8",
+        "https://www.amazon.com.tr/dp/B0DVGVZZYY?tag=akakcetr-21&linkCode=ogi&th=1",
+        # Arama sonucundan gelen hâli: bu parametrelerin HİÇBİRİ çöp
+        # listesinde yoktu.
+        ("https://www.amazon.com.tr/Prime-PRIME-RTX5070TI/dp/B0DVGVZZYY/ref=sr_1_2"
+         "?__mk_tr_TR=ÅMÅŽÕÑ&crid=160AGU6GVP7IV&dib_tag=se&keywords=Asus"
+         "&qid=1784717962&s=computers&sprefix=asus&sr=1-2&th=1"),
+    ]
+    kanonikler = {url_normalize(u) for u in bicimler}
+    assert kanonikler == {"https://amazon.com.tr/dp/B0DVGVZZYY"}
+
+
+def test_gp_product_ve_dp_arama_parametreleriyle_de_birlesir():
+    a = url_normalize(
+        "https://www.amazon.com.tr/gp/product/B0B7CMZ3QH/ref=sw_img_1?smid=&th=1")
+    b = url_normalize(
+        "https://www.amazon.com.tr/WD_BLACK-SN850X/dp/B0B7CMZ3QH/ref=sr_1_1"
+        "?adgrpid=121291478378&dib_tag=se&keywords=wd+black&qid=1783204141&sr=8-1")
+    assert a == b == "https://amazon.com.tr/dp/B0B7CMZ3QH"
+
+
+def test_kimlik_tanimsiz_sitede_sorgu_KORUNUR():
+    """Kural yoksa sorgu atılmaz: orada bir parametre gerçekten ürünü
+    belirleyebilir. Shopify'da `variant` AYRI bir üründür; atmak iki ayrı
+    ürünü birleştirirdi — bölmekten beter."""
+    assert url_normalize(
+        "https://wraithesports.com/products/vxe-r1?srsltid=ABC&variant=475"
+    ) == "https://wraithesports.com/products/vxe-r1?variant=475"
+
+
+def test_kimlik_tanimsiz_sitede_saticiya_dokunulmaz():
+    """idefix'te `vendorId` satıcıyı belirtiyor: farklı satıcı = farklı fiyat."""
+    assert url_normalize(
+        "https://www.idefix.com/asus-p-6313910?vendorId=20207&utm_source=akakce"
+    ) == "https://idefix.com/asus-p-6313910?vendorId=20207"
+
+
+def test_kalip_tutmayan_amazon_yolunda_sorgu_korunur():
+    """Şablon eşleşmezse kimlik BELİRLENMEMİŞTİR; sorguyu atmak, farklı iki
+    sayfayı yanlışlıkla birleştirme riski taşır."""
+    sonuc = url_normalize("https://www.amazon.com.tr/s?k=ekran+karti")
+    assert "k=ekran+karti" in sonuc
