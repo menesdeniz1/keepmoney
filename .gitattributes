@@ -9,7 +9,9 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
-# Shell betikleri tersi: CRLF olursa `#!/usr/bin/env bash` satırı bozulur ve
-# "bad interpreter" hatası verir (yedekle.sh, geri-yukle.sh üretimde crontab
-# üzerinden çalışıyor).
+# Shell betikleri tersi: CRLF olursa shebang satırı bozulur ve "bad
+# interpreter" hatası verir. `.command` macOS'ta çift tıklanan betiktir —
+# Windows'ta yazılıp Mac'te açılacağı için bu satır olmazsa kurulum ilk
+# adımda patlar.
 *.sh text eol=lf
+*.command text eol=lf

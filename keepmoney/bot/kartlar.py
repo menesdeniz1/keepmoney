@@ -10,6 +10,8 @@ kısa eylem kodları kullanılır ("h:12:45000" gibi), okunaklı isimler değil.
 """
 from __future__ import annotations
 
+import re
+
 from ..analiz import Baglam
 from ..fiyat import kisa_tl, tl
 
@@ -64,18 +66,22 @@ def baglama_basarisiz() -> str:
 
 YARDIM = (
     "🤖 *KeepMoney*\n\n"
+    "*Ürün eklemek:* linki buraya yapıştır.\n"
+    "Hedef de vermek istersen linkten sonra yaz:\n"
+    "`https://... 45000`\n\n"
     "/liste — takip ettiğin ürünler\n"
     "/durum — özet: kaç ürün, kaçı hedefte\n"
     "/yardim — bu mesaj\n\n"
-    "Ürün eklemek için siteye link yapıştırman yeterli; buradan da "
-    "hedeflerini değiştirip bildirimleri susturabilirsin."
+    "Ürün adı yazarsan o ürünün kartını getiririm; karttaki düğmelerle "
+    "hedefi değiştirebilir, susturabilir, takipten çıkarabilirsin."
 )
 
 
 def liste_metni(izlemeler: list) -> str:
     """Takip listesi. Hedefte olanlar önce — kullanıcı önce fırsatı görsün."""
     if not izlemeler:
-        return "Henüz takip ettiğin ürün yok. Siteden bir link ekleyerek başla."
+        return ("Henüz takip ettiğin ürün yok. Bir ürün linkini buraya "
+                "yapıştırarak başla.")
 
     def sira(w):
         f, h = (w.product.guncel_fiyat if w.product else None), w.hedef_fiyat
@@ -217,3 +223,56 @@ def callback_coz(veri: str) -> tuple[str, list[str]]:
     """'hs:12:45000' → ('hs', ['12', '45000'])"""
     parcalar = veri.split(":")
     return parcalar[0], parcalar[1:]
+
+
+# ── Link ile ekleme ───────────────────────────────────────────────
+
+# Mesajdaki ilk http(s) adresi. Telegram linkleri metnin içine gömüyor
+# ("şuna bak https://... fiyatı düştü"), bu yüzden mesajın tamamını URL
+# saymak yerine ayıklıyoruz.
+LINK = re.compile(r"https?://\S+")
+
+# Linkten SONRA yazılan sayı hedef fiyat sayılır: "<link> 45000".
+# Türkçe yazımı da kabul eder ("45.000" ve "45000,50"), çünkü kullanıcı
+# fiyatı sitedeki gibi yazar.
+_HEDEF = re.compile(r"(?:^|\s)(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:[.,]\d+)?)\s*$")
+
+
+def link_ve_hedef(metin: str) -> tuple[str, float | None]:
+    """Bot mesajından (url, hedef_fiyat) ayıklar. Hedef yoksa None.
+
+    Hedefin ZORUNLU OLMAMASI bilinçli: telefonda link yapıştırmak tek
+    hareket olmalı. Hedef sonradan karttaki düğmelerden konabiliyor.
+    """
+    eslesme = LINK.search(metin)
+    url = eslesme.group(0) if eslesme else metin.strip()
+
+    kalan = metin[eslesme.end():] if eslesme else ""
+    sayi = _HEDEF.search(kalan)
+    if not sayi:
+        return url, None
+
+    ham = sayi.group(1)
+    # "45.000,50" → "45000.50";  "45.000" → "45000";  "45000,5" → "45000.5"
+    if "," in ham:
+        ham = ham.replace(".", "").replace(",", ".")
+    elif ham.count(".") >= 1 and len(ham.rsplit(".", 1)[1]) == 3:
+        ham = ham.replace(".", "")     # binlik ayracı
+    try:
+        hedef = float(ham)
+    except ValueError:
+        return url, None
+    return url, (hedef if hedef > 0 else None)
+
+
+def eklendi_metni(izleme, hedef: float | None) -> str:
+    """Ekleme onayı. Fiyat HENÜZ YOK: ürünü ekleyen istek sayfayı çekmez,
+    tarama worker'ı çeker (K56). Bunu açıkça söylemek, kullanıcının "fiyat
+    neden görünmüyor" diye ürünü bozuk sanmasını engelliyor."""
+    ad = _kirp(izleme.product.ad, 60) if izleme.product else "ürün"
+    satirlar = [f"✅ Takibe alındı: *{ad}*"]
+    if hedef:
+        satirlar.append(f"🎯 Hedef: {tl(hedef)}")
+    satirlar.append("İlk fiyat birkaç dakika içinde okunacak; "
+                    "hedefe düşünce haber vereceğim.")
+    return "\n".join(satirlar)

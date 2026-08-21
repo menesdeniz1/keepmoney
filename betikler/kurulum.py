@@ -103,9 +103,22 @@ EN_AZ_PYTHON = (3, 12)
 ANAHTAR_BAYT = 48
 ANAHTAR_ADI = "KEEPMONEY_JWT_GIZLI_ANAHTAR"
 
-API_HOST = "127.0.0.1"
+# Dinlenecek adres. VARSAYILAN 127.0.0.1 = YALNIZCA bu bilgisayar.
+#
+# Ev ağındaki telefondan bakmak için `KEEPMONEY_DINLEME=0.0.0.0` verilir.
+# Bu bilinçli olarak ORTAM DEĞİŞKENİ, varsayılan değil: 0.0.0.0 demek
+# "aynı ağdaki HERKES erişebilir" demektir. Ev ağında kabul edilebilir,
+# ama kafede/otelde/ortak Wi-Fi'da değildir — ve hız sınırı vekil arkasında
+# olmayı varsaydığı için (bkz. docs/MIMARI.md K24) doğrudan internete
+# açılmamalıdır.
+VARSAYILAN_HOST = "127.0.0.1"
+API_HOST = os.environ.get("KEEPMONEY_DINLEME", "").strip() or VARSAYILAN_HOST
+
+# Sağlık yoklaması HER ZAMAN yerel arayüzden yapılır: 0.0.0.0 bir hedef
+# adres değil, "tüm arayüzler" demektir; ona bağlanmak platforma göre
+# çalışmayabilir.
 API_PORT = 8000
-SAGLIK_URL = f"http://{API_HOST}:{API_PORT}/saglik"
+SAGLIK_URL = f"http://127.0.0.1:{API_PORT}/saglik"
 ACILACAK_ADRES = f"http://localhost:{API_PORT}"
 
 # API'nin ayağa kalkması için tanınan süre. Soğuk başlangıç (import zinciri +
@@ -643,7 +656,7 @@ def surec_oldur(pid: int) -> bool:
 # ── Ağ ────────────────────────────────────────────────────────────
 
 
-def port_bos_mu(port: int = API_PORT, host: str = API_HOST) -> bool:
+def port_bos_mu(port: int = API_PORT, host: str = "127.0.0.1") -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1.0)
         return s.connect_ex((host, port)) != 0

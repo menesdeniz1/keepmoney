@@ -168,6 +168,55 @@ async def sil(cb: CallbackQuery) -> None:
     await cb.answer("Takipten çıkarıldı")
 
 
+# Filtre ile ayıklayıcı AYNI deseni kullanır (`kartlar.LINK`).
+#
+# Burada `F.text.regexp(...)` VARDI ve ölçüldü: aiogram onu `re.match` ile
+# uyguluyor, yani deseni metnin BAŞINA sabitliyor. "şuna bak https://… fiyatı
+# düştü" gibi cümle içine gömülü linkler — Telegram'da en yaygın biçim —
+# handler'a hiç ulaşmıyor, arama handler'ına düşüp "ürün bulamadım" cevabı
+# alıyordu. `func` ile `search` kullanılıyor.
+@dp.message(F.text.func(lambda t: bool(kartlar.LINK.search(t or ""))))
+async def link_ekle(mesaj: Message) -> None:
+    """Bota LİNK yapıştırınca ürünü takibe alır.
+
+    NEDEN VAR: bot komutları ürünü listeliyor, hedefini değiştiriyor,
+    susturuyor ve siliyordu — ama EKLEYEMİYORDU; yardım metni "siteye link
+    yapıştır" diyordu. Yani telefondayken (asıl kullanım biçimi bu) yeni bir
+    ürün eklemek için bilgisayara gitmek gerekiyordu. Öncül projede (`tracker`)
+    bu vardı ve porta taşınmamıştı.
+
+    İŞ KURALI BURADA YOK: aynı `izleme_svc.ekle` çağrılıyor — yani kota,
+    kanonik URL birleştirme, SSRF koruması ve "zaten izliyorsun" kontrolü
+    web ile BİREBİR aynı (K13). İkinci bir ekleme yolu yazmak, iki farklı
+    davranış demek olurdu.
+
+    Hedef fiyat isteğe bağlı: linkten sonra bir sayı yazılırsa hedef olur
+    ("<link> 45000"). Yazılmazsa ürün hedefsiz eklenir, hedef sonra
+    karttaki düğmelerden konur.
+    """
+    with SessionLocal() as db:
+        k = kullanici_svc.chat_id_ile(db, str(mesaj.chat.id))
+        if k is None:
+            await mesaj.answer(kartlar.karsilama(False), parse_mode="Markdown")
+            return
+
+        url, hedef = kartlar.link_ve_hedef(mesaj.text or "")
+        try:
+            w = izleme_svc.ekle(db, k, url, hedef_fiyat=hedef)
+        except izleme_svc.KotaDoldu as e:
+            await mesaj.answer(f"⚠️ {e}")
+            return
+        except izleme_svc.IzlemeHatasi as e:
+            # "Zaten izliyorsun" ve "iç ağ adresi izlenemez" gibi ANLAMLI
+            # sebepler; kullanıcıya olduğu gibi söylenir.
+            await mesaj.answer(f"⚠️ {e}")
+            return
+
+        await mesaj.answer(kartlar.eklendi_metni(w, hedef), parse_mode="Markdown",
+                           reply_markup=_klavye(
+                               kartlar.urun_klavyesi(w.id, w.aktif)))
+
+
 @dp.message(F.text)
 async def serbest_metin(mesaj: Message) -> None:
     """Komut olmayan mesaj: ürün adıyla arama."""

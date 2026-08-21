@@ -522,3 +522,63 @@ def test_venv_yokken_basla_calistirilabilir_hata(tmp_path):
     with pytest.raises(ku.KurulumHatasi) as hata:
         ku.komut_basla(tmp_path)
     assert "kur.bat" in hata.value.cozum
+
+
+# ── macOS betikleri (.command) ────────────────────────────────────
+#
+# `.bat` tarafındaki değişmezlerin macOS karşılığı. Bu dosyalar Windows'ta
+# yazılıp Mac'te çalıştırılacak; buradaki üç kural da o yolculukta bozulan
+# şeyleri koruyor.
+
+COMMANDLAR = ("kur.command", "basla.command", "dur.command")
+
+
+def _kabuk_metni(ad: str) -> str:
+    return (KOK / ad).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("ad", COMMANDLAR)
+def test_command_dosyalari_var(ad):
+    assert (KOK / ad).is_file()
+
+
+@pytest.mark.parametrize("ad", COMMANDLAR)
+def test_command_shebang_ile_basliyor(ad):
+    """Finder'dan çift tıklanınca hangi yorumlayıcıyla koşacağını söyleyen
+    tek şey bu satır."""
+    assert _kabuk_metni(ad).startswith("#!/bin/bash")
+
+
+@pytest.mark.parametrize("ad", COMMANDLAR)
+def test_command_kendi_klasorune_gecer(ad):
+    """Finder'dan çift tıklanan betik EV DİZİNİNDE başlar, betiğin
+    klasöründe değil — `.bat` tarafındaki `cd /d "%~dp0"` ile aynı tuzak."""
+    satirlar = [s.strip() for s in _kabuk_metni(ad).splitlines()
+                if s.strip() and not s.strip().startswith("#")]
+    assert any(s.startswith('cd "$(dirname "$0")"') for s in satirlar[:3]), \
+        "ilk çalışan satırlar arasında kendi klasörüne geçiş yok"
+
+
+@pytest.mark.parametrize("ad", COMMANDLAR)
+def test_command_lf_ile_saklanir(ad):
+    """CRLF olursa macOS shebang'i okuyamaz: "bad interpreter: /bin/bash^M".
+    `.gitattributes` bunu zorluyor; burada depodaki HÂLİ doğrulanıyor."""
+    assert b"\r\n" not in (KOK / ad).read_bytes()
+
+
+@pytest.mark.parametrize("ad", ("basla.command", "dur.command"))
+def test_command_venv_pythonunu_dogrudan_cagirir(ad):
+    """Sanal ortam etkinleştirilmez — `.bat` tarafındaki kuralın aynısı."""
+    metin = _kabuk_metni(ad)
+    assert ".venv/bin/python" in metin
+    assert "activate" not in metin.lower()
+
+
+def test_macos_servis_betigi_var_ve_lf():
+    yol = KOK / "betikler" / "macos" / "kur-servis.sh"
+    assert yol.is_file()
+    assert b"\r\n" not in yol.read_bytes()
+    metin = yol.read_text(encoding="utf-8")
+    # Servisin varlık sebebi: çökerse kendi kendine kalkması.
+    assert "KeepAlive" in metin
+    assert "ThrottleInterval" in metin

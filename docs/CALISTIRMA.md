@@ -70,6 +70,53 @@ Ortamın durumunu tek başına sormak istersen:
  + arayüz             statik/index.html
 ```
 
+### macOS: çift tıkla + 7/24 servis
+
+Aynı üç dosyanın macOS karşılığı: **`kur.command`**, **`basla.command`**,
+**`dur.command`**. İlk seferde Finder "izin verilmedi" derse Terminal'de:
+
+```bash
+chmod +x kur.command basla.command dur.command betikler/macos/kur-servis.sh
+```
+
+**Mac'i kişisel sunucu yapmak (7/24):**
+
+```bash
+./betikler/macos/kur-servis.sh          # kur ve başlat
+./betikler/macos/kur-servis.sh --durum  # çalışıyor mu
+./betikler/macos/kur-servis.sh --kaldir # durdur ve kaldır
+```
+
+Bu betik `launchd` ile dört iş kurar: `api`, `tarayici`, `bot` (token
+varsa) ve her gece 03:30'da **yedek**. Servisler açılışta kalkar ve
+**çökerse kendiliğinden yeniden başlar** (`KeepAlive`). Loglar
+`data/loglar/` altında.
+
+> **Docker neden değil:** 8 GB'lık bir M1'de Docker Desktop tek başına
+> ~2 GB yiyor; üstüne chromium (istek başına ~250 MB) eklenince makine
+> sürünür. Tek kullanıcıda SQLite zaten yeterli ve yedeği tek dosya.
+> `compose.yaml` duruyor — çok kullanıcılı/sunucu kurulumu için hâlâ
+> doğru yol o.
+
+> ### ⚠️ Mac uyursa tarama DURUR
+>
+> Sistem Ayarları → Kilit Ekranı → "Ekran kapalıyken uyut" = **Asla**,
+> ya da `sudo pmset -a sleep 0 disksleep 0`. Kapak kapalıyken çalışması
+> için güç kablosu takılı olmalı.
+
+**Telefondan bakmak (aynı Wi-Fi):** `.env` içine
+
+```bash
+KEEPMONEY_DINLEME=0.0.0.0
+```
+
+yaz, servisi yeniden kur. `basla.command` çalışırken Mac'in adresini
+ekrana basar (`http://192.168.x.x:8000`). Telefondan o adrese gir.
+
+> `0.0.0.0` **aynı ağdaki herkes erişebilir** demektir. Ev ağında sorun
+> değil; ortak Wi-Fi'da (kafe, otel, yurt) kullanma. Doğrudan internete
+> **açma** — hız sınırı ters vekil arkasında olmayı varsayıyor (K24).
+
 Aşağısı **elle kurulum**: Linux/macOS için, ve Windows'ta bir adım
 patladığında ne olduğunu görmek için.
 

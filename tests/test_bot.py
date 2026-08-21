@@ -302,3 +302,80 @@ def test_pazar_verisi_yoksa_satir_hic_cikmaz():
     """Toplayıcı olmayan üründe boş bir '🏪' satırı gürültüdür."""
     urun = _SahteUrun([_SahteKaynak()])
     assert "🏪" not in kartlar.urun_karti(_SahteIzleme(urun), None, "yorum")
+
+
+# ── Link ile ürün ekleme (telefondan asıl kullanım) ───────────────
+#
+# Bot ürünü listeliyor, hedefini değiştiriyor, susturuyor ve siliyordu ama
+# EKLEYEMİYORDU: telefondayken yeni ürün için bilgisayara gitmek gerekiyordu.
+
+
+@pytest.mark.parametrize("metin, beklenen_url, beklenen_hedef", [
+    ("https://magaza.com/urun", "https://magaza.com/urun", None),
+    ("https://magaza.com/urun 45000", "https://magaza.com/urun", 45000.0),
+    # Kullanıcı fiyatı SİTEDEKİ GİBİ yazar: binlik nokta, kuruş virgül.
+    ("https://magaza.com/urun 45.000", "https://magaza.com/urun", 45000.0),
+    ("https://magaza.com/urun 45.000,50", "https://magaza.com/urun", 45000.5),
+    ("https://magaza.com/urun 45000,50", "https://magaza.com/urun", 45000.5),
+    # Telegram linki cümlenin içine gömüyor.
+    ("şuna bak https://magaza.com/urun fiyatı düştü", "https://magaza.com/urun", None),
+    # Takip parametreleri korunur: kanonik URL'yi `izleme_svc` üretiyor.
+    ("https://magaza.com/u?utm_source=x", "https://magaza.com/u?utm_source=x", None),
+])
+def test_link_ve_hedef_ayiklanir(metin, beklenen_url, beklenen_hedef):
+    url, hedef = kartlar.link_ve_hedef(metin)
+    assert url == beklenen_url
+    assert hedef == beklenen_hedef
+
+
+def test_sifir_hedef_yok_sayilir():
+    """`gt=0` doğrulaması serviste var; bot da anlamsız değeri hiç göndermesin."""
+    _, hedef = kartlar.link_ve_hedef("https://magaza.com/urun 0")
+    assert hedef is None
+
+
+def test_eklendi_metni_fiyatin_sonra_gelecegini_soyler(db):
+    """Ürünü ekleyen istek sayfayı ÇEKMEZ (K56); bunu söylemezsek kullanıcı
+    fiyat görünmeyince ürünü bozuk sanar."""
+    w = izleme(db, urun(db, "Ekran Kartı"), hedef=45000)
+    metin = kartlar.eklendi_metni(w, 45000)
+    assert "Takibe alındı" in metin
+    assert "Ekran Kartı" in metin
+    assert "45.000,00" in metin
+    assert "birkaç dakika" in metin
+
+
+def test_eklendi_metni_hedefsiz_de_calisir(db):
+    w = izleme(db, urun(db, "Kulaklık"))
+    metin = kartlar.eklendi_metni(w, None)
+    assert "Takibe alındı" in metin
+    assert "Hedef" not in metin
+
+
+def test_yardim_link_yapistirmayi_anlatir():
+    """Yardım metni "siteye link yapıştır" diyordu — bot ekleyemediği için
+    doğruydu. Artık ekleyebiliyor; metin de onu söylemeli."""
+    assert "linki buraya yapıştır" in kartlar.YARDIM
+
+
+@pytest.mark.parametrize("metin, eslesmeli", [
+    ("https://magaza.com/u", True),
+    ("şuna bak https://magaza.com/u fiyatı düştü", True),   # cümle içinde
+    ("bak:\nhttps://magaza.com/u", True),                   # ikinci satırda
+    ("ekran kartı", False),                                 # arama olmalı
+    ("/liste", False),                                      # komut olmalı
+])
+def test_link_filtresi_gomulu_baglantiyi_de_yakalar(metin, eslesmeli):
+    """Handler filtresi ile ayıklayıcı AYNI deseni kullanmalı.
+
+    Önce `F.text.regexp(...)` kullanılıyordu ve ÖLÇÜLDÜ: aiogram onu
+    `re.match` ile uyguluyor, yani deseni metnin başına sabitliyor. Cümle
+    içine gömülü link — Telegram'da en yaygın biçim — handler'a hiç
+    ulaşmıyor, arama handler'ına düşüp "ürün bulamadım" cevabı alıyordu.
+    """
+    from types import SimpleNamespace
+
+    from aiogram import F
+
+    filtre = F.text.func(lambda t: bool(kartlar.LINK.search(t or ""))).resolve
+    assert bool(filtre(SimpleNamespace(text=metin))) is eslesmeli
