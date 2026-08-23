@@ -159,7 +159,25 @@ olmayan üründeki **tek uyarı işaretidir** (K52).
 > onay kutularıyla açıyor — çoklu seç, tek kaydet, atlananlar sebebiyle
 > bildiriliyor. Kullanıcının tespitiydi: arayüz soruyu ters soruyordu.
 
-### 4.1 ⭐ Worker'ı günlerce çalıştır — asıl bilinmeyen
+### 4.1 ⭐ Worker'ı günlerce çalıştır — KISMEN ÖLÇÜLDÜ
+
+**İlk gerçek koşu yapıldı (20-23 Ağustos, ~6 saat açık).** Ölçülenler:
+
+- 51 okuma, 21 üründe geçmiş, veritabanı **144 KB** — büyüme sorun değil
+- 4 üründe fiyat değişti; en büyüğü 26.999 → 45.499 (yükseliş)
+- **0 uyarı üretildi ve bu DOĞRU.** HyperX'te %7,2 düşüş oldu ama
+  `worker.py:467` dip uyarısı için `gun_sayisi >= 7` şart koşuyor; düşüş 2.
+  günde gerçekleşti. Sistem 4 günlük veriyle "rekor" demeyi reddetti (K57).
+- Kaynak durumları: 20 OK · 6 ENGELLI · 3 STOKTA_YOK · 6 BEKLEMEDE
+
+**Ortaya çıkan gerçek eksik:** kullanıcı bir hafta boyunca sessizlik görüyor
+ve bunun kural mı arıza mı olduğunu ayırt edemiyor. Arayüz "geçmiş
+biriktiriliyor, N/7 gün" demeli — bkz. `docs/BACKLOG.md` A7.
+
+**Hâlâ ölçülmemiş:** haftalar süren davranış, grafiklerin dolması, yanlış
+"dibe vurdu" uyarısı çıkıp çıkmadığı, `basarisiz` sayısının zamanla artışı.
+Worker açık kalmaya devam etmeli.
+
 
 Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.bat`
 çift tıkla API'yi ve worker'ı açıyor. Birkaç gün açık bırak, sonra bak:
@@ -169,7 +187,10 @@ Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.b
 - `tarama_turu` log satırlarında `basarisiz` sayısı zamanla artıyor mu
 - Veritabanı boyutu
 
-### 4.2 Arayüz — Keepa refleksleri (`docs/ARAYUZ-PLANI.md`)
+### 4.2 Arayüz — Keepa refleksleri
+
+Plan `docs/ARAYUZ-PLANI.md`, **task listesi `docs/BACKLOG.md`**
+(34 task / 8 epik / ~11 gün, dosya ve kabul ölçütü seviyesinde).
 
 Uygulama tohumlanmış kopyada gerçek tarayıcıyla açılıp yedi ekranı incelendi,
 Keepa'nın özellikleri araştırıldı. **En büyük kusur ölçüldü:** analiz motoru
