@@ -76,11 +76,17 @@ export default function SetUyeSecici({
                     dark:border-slate-700">
       {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}
 
+      {/* ÜÇ AYRI DURUM, üçü de "liste boş"a benziyor ama sebepleri farklı:
+          takip listesi hiç yok / hepsi zaten üye / arama eledi. Hepsine aynı
+          cümleyi yazmak, ilk kez set kuran kullanıcıya "tüm ürünlerin zaten
+          bu sette" demek olurdu — hiç ürünü yokken (K56). */}
       {!isLoading && adaylar.length === 0 && (
         <p className="text-sm text-slate-500">
-          {arama
-            ? 'Bu aramaya uyan, sette olmayan ürün yok.'
-            : 'Takip listendeki tüm ürünler zaten bu sette.'}
+          {(izlemeler?.length ?? 0) === 0
+            ? 'Takip listen boş — önce panelden ürün ekle.'
+            : arama
+              ? 'Bu aramaya uyan, sette olmayan ürün yok.'
+              : 'Takip listendeki tüm ürünler zaten bu sette.'}
         </p>
       )}
 
