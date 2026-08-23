@@ -178,9 +178,7 @@ biriktiriliyor, N/7 gün" demeli — bkz. `docs/BACKLOG.md` A7.
 "dibe vurdu" uyarısı çıkıp çıkmadığı, `basarisiz` sayısının zamanla artışı.
 Worker açık kalmaya devam etmeli.
 
-
-Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.bat`
-çift tıkla API'yi ve worker'ı açıyor. Birkaç gün açık bırak, sonra bak:
+`basla.bat` çift tıkla API'yi ve worker'ı açıyor. Açık bıraktıkça şunlara bak:
 
 - Fiyat geçmişi grafikleri oluşuyor mu
 - Uyarılar mantıklı mı — özellikle **yanlış "dibe vurdu" uyarısı** var mı
