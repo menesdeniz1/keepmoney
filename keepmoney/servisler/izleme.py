@@ -274,7 +274,7 @@ def izlemeler(db: Session, kullanici: User) -> list[Watch]:
     JOIN, satır çoğaltmadan kaçınmak için gereksiz; iki sorguyla biter.
     """
     return (db.query(Watch)
-            .options(selectinload(Watch.product))
+            .options(selectinload(Watch.product), selectinload(Watch.setler))
             .filter(Watch.user_id == kullanici.id)
             .order_by(Watch.created_at.desc())
             .all())
@@ -284,7 +284,8 @@ def izleme_getir(db: Session, kullanici: User, izleme_id: int) -> Watch:
     # Kaynaklar da yüklenir: detay ucu her kaynağın çıkış linkini üretiyor,
     # tembel bırakılırsa kaynak başına ayrı sorgu açılır.
     w = (db.query(Watch)
-         .options(selectinload(Watch.product).selectinload(Product.sources))
+         .options(selectinload(Watch.product).selectinload(Product.sources),
+                  selectinload(Watch.setler))
          .filter(Watch.id == izleme_id, Watch.user_id == kullanici.id)
          .one_or_none())
     if w is None:
@@ -316,7 +317,7 @@ def _izleyen_sayaci(db: Session, urun_id: int, delta: int) -> None:
 
 def ekle(db: Session, kullanici: User, url: str,
          hedef_fiyat: float | None = None, acil_fiyat: float | None = None,
-         set_id: int | None = None) -> Watch:
+         set_idler: list[int] | None = None) -> Watch:
     limit = ayarlar().kullanici_basina_izleme_limiti
     mevcut = db.query(Watch).filter(Watch.user_id == kullanici.id).count()
     if mevcut >= limit:
@@ -333,11 +334,11 @@ def ekle(db: Session, kullanici: User, url: str,
     if var_olan is not None:
         raise IzlemeHatasi("Bu ürünü zaten izliyorsun")
 
-    if set_id is not None:
-        _set_dogrula(db, kullanici, set_id)
+    setler = [_set_dogrula(db, kullanici, sid) for sid in (set_idler or [])]
 
     w = Watch(user_id=kullanici.id, product_id=kaynak.product_id,
-              hedef_fiyat=hedef_fiyat, acil_fiyat=acil_fiyat, set_id=set_id)
+              hedef_fiyat=hedef_fiyat, acil_fiyat=acil_fiyat)
+    w.setler = setler
     db.add(w)
 
     _izleyen_sayaci(db, kaynak.product_id, +1)
@@ -358,13 +359,13 @@ def ekle(db: Session, kullanici: User, url: str,
 # Kullanıcının PATCH ile değiştirebileceği alanların TAM listesi.
 # Kuralların gerekçesi için bkz. `ortak.alanlari_uygula`.
 GUNCELLENEBILIR = frozenset({
-    "hedef_fiyat", "acil_fiyat", "aktif", "kilitli", "kilitli_fiyat", "set_id",
+    "hedef_fiyat", "acil_fiyat", "aktif", "kilitli", "kilitli_fiyat",
 })
 
 # Bunlara açıkça `null` gönderilmesi "değeri SİL" demektir.
 # `aktif`/`kilitli` burada YOK: onlar boolean, null'un anlamı yok.
 TEMIZLENEBILIR = frozenset({
-    "hedef_fiyat", "acil_fiyat", "kilitli_fiyat", "set_id",
+    "hedef_fiyat", "acil_fiyat", "kilitli_fiyat",
 })
 
 
@@ -384,8 +385,13 @@ def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
         w.sustur_bitis = (utc_simdi() + timedelta(days=sustur_gun)
                           if sustur_gun > 0 else None)
 
-    if alanlar.get("set_id") is not None:
-        _set_dogrula(db, kullanici, alanlar["set_id"])
+    # `set_idler` bir sütun değil, üyelik tablosunun tamamını değiştiren bir
+    # komut — bu yüzden `alanlari_uygula`ya girmiyor. PATCH semantiği:
+    # anahtarın VARLIĞI "üyelikleri şu listeye eşitle" demek; boş liste
+    # "hiçbir sette olmasın" demek (silme değil, tanım).
+    if "set_idler" in alanlar:
+        istenen = alanlar.pop("set_idler") or []
+        w.setler = [_set_dogrula(db, kullanici, sid) for sid in istenen]
 
     eski_hedef = w.hedef_fiyat
     alanlari_uygula(w, alanlar, GUNCELLENEBILIR, TEMIZLENEBILIR, IzlemeHatasi)

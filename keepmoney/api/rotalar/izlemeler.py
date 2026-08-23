@@ -27,7 +27,7 @@ def ekle(istek: semalar.IzlemeEkleIstegi, k: Kullanici, db: DB):
     """
     try:
         return svc.ekle(db, k, str(istek.url), istek.hedef_fiyat,
-                        istek.acil_fiyat, istek.set_id)
+                        istek.acil_fiyat, istek.set_idler)
     except svc.KotaDoldu as e:
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(e)) from e
     except svc.IzlemeHatasi as e:
@@ -50,7 +50,7 @@ def detay(izleme_id: int, k: Kullanici, db: DB):
         "kilitli": w.kilitli,
         "kilitli_fiyat": w.kilitli_fiyat,
         "sustur_bitis": w.sustur_bitis,
-        "set_id": w.set_id,
+        "set_idler": [s.id for s in w.setler],
         "urun": urun_svc.detay(db, w.product),
     }
 

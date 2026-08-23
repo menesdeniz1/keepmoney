@@ -31,6 +31,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Table,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -216,6 +217,30 @@ class DomainHealth(Base):
 
 # ───────────────────────── KİŞİSEL KATMAN ─────────────────────────
 
+# İzleme ↔ set: ÇOKTAN ÇOKA.
+#
+# Başta `Watch.set_id` tek bir sütundu ve bir ürün yalnızca TEK sete
+# girebiliyordu. Bu belgelenmiş bir karar değildi — en basit hâli önce
+# yazılmış, sonra dokunulmamıştı. Oysa gerçek kullanımda aynı ekran kartı
+# hem "PC Toplama" hem "Kara Cuma" listesinde olabilir; kullanıcıyı ikisinden
+# birini seçmeye zorlamak modelin eksikliğiydi.
+#
+# İki tarafta da ON DELETE CASCADE: izleme ya da set silinince üyelik satırı
+# kendiliğinden gider. Uygulama katmanına bırakılsaydı, silme yollarından
+# birinde unutulunca öksüz satır kalırdı (SQLite'ta da yabancı anahtarlar
+# açık — bkz. db.py).
+set_uyeleri = Table(
+    "set_uyeleri",
+    Base.metadata,
+    Column("watch_id", Integer,
+           ForeignKey("watches.id", ondelete="CASCADE"),
+           primary_key=True),
+    Column("set_id", Integer,
+           ForeignKey("watch_sets.id", ondelete="CASCADE"),
+           primary_key=True),
+)
+
+
 class WatchSet(Base):
     """Bütçeli koleksiyon ("PC Toplama", "Kombin"). Ürün üstü kavram:
     parçalar tek tek hedefte olmasa bile TOPLAM bütçenin altına inince
@@ -231,7 +256,8 @@ class WatchSet(Base):
     created_at = Column(DateTime, default=utc_simdi)
 
     user = relationship("User", back_populates="sets")
-    watches = relationship("Watch", back_populates="set")
+    watches = relationship("Watch", secondary=set_uyeleri,
+                           back_populates="setler")
 
 
 class Watch(Base):
@@ -241,7 +267,6 @@ class Watch(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    set_id = Column(Integer, ForeignKey("watch_sets.id"), nullable=True)
 
     hedef_fiyat = Column(Float, nullable=True)
     # İkinci eşik: altına inince cooldown beklemez, sessiz saati deler.
@@ -261,7 +286,18 @@ class Watch(Base):
 
     user = relationship("User", back_populates="watches")
     product = relationship("Product", back_populates="watches")
-    set = relationship("WatchSet", back_populates="watches")
+    # Bir izleme BİRDEN ÇOK sette olabilir (bkz. `set_uyeleri`).
+    setler = relationship("WatchSet", secondary=set_uyeleri,
+                          back_populates="watches")
+
+    @property
+    def set_idler(self) -> list[int]:
+        """API yanıtının okuduğu düz kimlik listesi.
+
+        Şema (`IzlemeYaniti`) ORM nesnesinden doğruluyor; ilişkiyi orada
+        kimliğe çevirmek her rotada tekrar edilen bir dönüşüm olurdu.
+        """
+        return [s.id for s in self.setler]
     # İzleme silinince uyarı SİLİNMEZ, yalnızca bağı kopar (aşağıya bak).
     # passive_deletes: bağı veritabanı koparır, ORM satırları belleğe çekmez.
     alerts = relationship("Alert", back_populates="watch", passive_deletes=True)

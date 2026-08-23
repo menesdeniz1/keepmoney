@@ -123,7 +123,7 @@ def test_set_butcesi_ve_uyeler(db):
         p = Product(ad=ad, guncel_fiyat=fiyat)
         db.add(p)
         db.commit()
-        db.add(Watch(user_id=u.id, product_id=p.id, set_id=ws.id))
+        db.add(Watch(user_id=u.id, product_id=p.id, setler=[ws]))
         toplam += fiyat
     db.commit()
     db.refresh(ws)

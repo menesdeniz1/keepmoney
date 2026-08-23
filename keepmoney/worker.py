@@ -501,14 +501,27 @@ class Tarayici:
         return False
 
     def _set_uyarisi(self, w: Watch, simdi: datetime) -> int:
-        """Setin TOPLAMI bütçenin altına indi mi?
+        """İzlemenin ÜYESİ OLDUĞU setlerin toplamı bütçenin altına indi mi?
 
-        Ürünün en ayırt edici özelliği: parçalar tek tek hedefte olmasa bile
-        toplam fırsatı yakalanır. Tüm üyelerin fiyatı bilinmiyorsa toplam
-        eksik olacağı için sessiz kalınır — yanlış "hedefte!" demektense.
+        Bir izleme BİRDEN ÇOK sette olabilir (bkz. models.set_uyeleri) ve her
+        set kendi bütçesini ayrı takip eder — "PC Toplama" 150.000'in altına
+        inerken "Kara Cuma" 200.000'i aşıyor olabilir. Bu yüzden setler tek
+        tek değerlendiriliyor ve ikisi de hedefteyse İKİ uyarı gider: farklı
+        bütçelerin tutması ayrı bilgidir.
+
+        Bekleme sayacı (`son_bildirim_ts`) SETİN üstünde duruyor, izlemenin
+        değil — yani aynı set, farklı ürünleri üzerinden tekrar tekrar
+        bildirim yollamıyor.
         """
-        s = w.set
-        if s is None or not s.hedef_butce:
+        return sum(self._tek_set_uyarisi(w, s, simdi) for s in w.setler)
+
+    def _tek_set_uyarisi(self, w: Watch, s, simdi: datetime) -> int:
+        """Tek bir set için: toplam bütçenin altında mı, uyarı gitmeli mi?
+
+        Tüm üyelerin fiyatı bilinmiyorsa toplam eksik olacağı için sessiz
+        kalınır — yanlış "hedefte!" demektense.
+        """
+        if not s.hedef_butce:
             return 0
         if s.son_bildirim_ts and simdi - s.son_bildirim_ts < timedelta(
                 minutes=HATIRLATMA_DK):

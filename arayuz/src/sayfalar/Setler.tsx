@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react'
 
-import { useSetGuncelle, useSetOlustur, useSetSil, useSetler } from '../api/kancalar'
+import {
+  useSetGuncelle, useSetOlustur, useSetSil, useSetUyeCikar, useSetler,
+} from '../api/kancalar'
 import Onay from '../bilesenler/Onay'
+import SetUyeSecici from '../bilesenler/SetUyeSecici'
 import { tl } from '../yardimcilar/bicim'
 
 export default function Setler() {
@@ -16,6 +19,10 @@ export default function Setler() {
   const [silinecek, setSilinecek] = useState<{ id: number; ad: string } | null>(null)
   const [duzenlenen, setDuzenlenen] = useState<number | null>(null)
   const [yeniButce, setYeniButce] = useState('')
+  // Hangi setin içi açık ve hangisine ürün ekleniyor.
+  const [acikSet, setAcikSet] = useState<number | null>(null)
+  const [eklenenSet, setEklenenSet] = useState<number | null>(null)
+  const uyeCikar = useSetUyeCikar()
 
   return (
     <div className="space-y-6">
@@ -76,6 +83,8 @@ export default function Setler() {
       <div className="space-y-3">
         {setler?.map((s) => {
           const oran = s.hedef_butce ? Math.min(100, (s.toplam / s.hedef_butce) * 100) : 0
+          const acik = acikSet === s.id
+          const eklemeAcik = eklenenSet === s.id
           return (
             <div key={s.id}
                  className="rounded-lg border border-slate-200 bg-white p-4
@@ -89,9 +98,10 @@ export default function Setler() {
                   </p>
                   {s.uye_sayisi === 0 && (
                     <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                      Boş. Bir ürünün{' '}
+                      Boş. Aşağıdaki <strong>Ürün ekle</strong> ile takip
+                      listenden seç, ya da bir ürünün{' '}
                       <Link to="/" className="underline">detay sayfasından</Link>{' '}
-                      bu sete ekleyebilirsin.
+                      ekle.
                     </p>
                   )}
                 </div>
@@ -156,7 +166,26 @@ export default function Setler() {
                   </button>
                 </form>
               ) : (
-                <div className="mt-3 flex gap-4">
+                <div className="mt-3 flex flex-wrap gap-4">
+                  <button
+                    onClick={() => setAcikSet(acik ? null : s.id)}
+                    aria-expanded={acik}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500
+                               hover:underline"
+                  >
+                    {acik ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    İçindekiler ({s.uye_sayisi})
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAcikSet(s.id)
+                      setEklenenSet(eklemeAcik ? null : s.id)
+                    }}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500
+                               hover:underline"
+                  >
+                    <Plus size={13} /> Ürün ekle
+                  </button>
                   <button
                     onClick={() => {
                       setDuzenlenen(s.id)
@@ -175,6 +204,48 @@ export default function Setler() {
                     <Trash2 size={13} /> Seti sil (ürünler silinmez)
                   </button>
                 </div>
+              )}
+
+              {acik && s.uyeler.length > 0 && (
+                <ul className="mt-3 divide-y divide-slate-100 border-t
+                               border-slate-100 pt-1 dark:divide-slate-800
+                               dark:border-slate-800">
+                  {s.uyeler.map((u) => (
+                    <li key={u.izleme_id}
+                        className="flex items-center gap-2 py-1.5 text-sm">
+                      <Link to={`/izleme/${u.izleme_id}`}
+                            className="flex-1 truncate hover:underline">
+                        {u.ad}
+                      </Link>
+                      {u.kilitli && (
+                        <span className="text-xs text-slate-400">kilitli</span>
+                      )}
+                      <span className="font-mono text-xs">
+                        {u.fiyat != null
+                          ? tl(u.fiyat)
+                          : <span className="text-amber-600">fiyat yok</span>}
+                      </span>
+                      <button
+                        onClick={() =>
+                          uyeCikar.mutate({ setId: s.id, izlemeId: u.izleme_id })
+                        }
+                        title="Setten çıkar (ürün silinmez)"
+                        aria-label={`${u.ad} setten çıkar`}
+                        className="rounded p-1 text-slate-400 hover:text-red-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {eklemeAcik && (
+                <SetUyeSecici
+                  setId={s.id}
+                  mevcutUyeIdler={s.uyeler.map((u) => u.izleme_id)}
+                  onKapat={() => setEklenenSet(null)}
+                />
               )}
             </div>
           )

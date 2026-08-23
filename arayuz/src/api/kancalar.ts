@@ -187,6 +187,31 @@ export function useSetSil() {
   })
 }
 
+export function useSetUyeEkle() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ setId, idler }: { setId: number; idler: number[] }) =>
+      api.setUyeEkle(setId, idler),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: anahtar.setler })
+      // İzleme listesi de tazelenir: kartlarda üyelik rozeti gösteriliyor.
+      void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
+    },
+  })
+}
+
+export function useSetUyeCikar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ setId, izlemeId }: { setId: number; izlemeId: number }) =>
+      api.setUyeCikar(setId, izlemeId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: anahtar.setler })
+      void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
+    },
+  })
+}
+
 export function useUyariOkundu() {
   const qc = useQueryClient()
   return useMutation({

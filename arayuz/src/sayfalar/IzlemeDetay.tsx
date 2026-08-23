@@ -168,30 +168,41 @@ export default function IzlemeDetay() {
         <h2 className="mb-2 text-sm font-medium">Set</h2>
         {setler && setler.length > 0 ? (
           <>
-            <label htmlFor="set-secimi" className="sr-only">
-              Bu ürünün ait olduğu set
-            </label>
-            <select
-              id="set-secimi"
-              value={izleme.set_id ?? ''}
-              disabled={guncelle.isPending}
-              onChange={(e) =>
-                guncelle.mutate({
-                  set_id: e.target.value ? Number(e.target.value) : null,
-                })
-              }
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm
-                         disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950"
-            >
-              <option value="">Sete dahil değil</option>
-              {setler.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.ad}
-                </option>
-              ))}
-            </select>
+            {/* Açılır liste DEĞİL, onay kutuları: bir ürün BİRDEN ÇOK sette
+                olabilir. Tek seçimli `select` bunu ifade edemezdi ve zaten
+                modeli de o kısıtlıyordu (`Watch.set_id`). */}
+            <fieldset disabled={guncelle.isPending} className="space-y-1">
+              <legend className="sr-only">Bu ürünün ait olduğu setler</legend>
+              {setler.map((s) => {
+                const uye = izleme.set_idler.includes(s.id)
+                return (
+                  <label key={s.id}
+                         className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={uye}
+                      onChange={() =>
+                        guncelle.mutate({
+                          set_idler: uye
+                            ? izleme.set_idler.filter((x) => x !== s.id)
+                            : [...izleme.set_idler, s.id],
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700"
+                    />
+                    <span>{s.ad}</span>
+                    {s.hedef_butce != null && (
+                      <span className="text-xs text-slate-500">
+                        · bütçe {tl(s.hedef_butce)}
+                      </span>
+                    )}
+                  </label>
+                )
+              })}
+            </fieldset>
             <p className="mt-2 text-xs text-slate-500">
-              Sete eklenen ürünler toplam bütçe hedefine dahil olur.
+              Sete eklenen ürünler toplam bütçe hedefine dahil olur. Aynı ürün
+              birden çok sette olabilir.
             </p>
           </>
         ) : (

@@ -164,7 +164,8 @@ class IzlemeEkleIstegi(BaseModel):
     url: HttpUrl
     hedef_fiyat: float | None = Field(default=None, gt=0)
     acil_fiyat: float | None = Field(default=None, gt=0)
-    set_id: int | None = None
+    # Bir ürün BİRDEN ÇOK sette olabilir (bkz. models.set_uyeleri).
+    set_idler: list[int] | None = None
 
 
 class IzlemeGuncelleIstegi(BaseModel):
@@ -173,7 +174,9 @@ class IzlemeGuncelleIstegi(BaseModel):
     aktif: bool | None = None
     kilitli: bool | None = None
     kilitli_fiyat: float | None = Field(default=None, ge=0)
-    set_id: int | None = None
+    # PATCH semantiği: anahtarın VARLIĞI "üyelikleri şu listeye eşitle"
+    # demek. Boş liste "hiçbir sette olmasın" — silme değil, tanım.
+    set_idler: list[int] | None = None
     sustur_gun: int | None = Field(default=None, ge=0, le=365)
 
 
@@ -189,7 +192,7 @@ class IzlemeYaniti(BaseModel):
     kilitli: bool
     kilitli_fiyat: float | None = None
     sustur_bitis: datetime | None = None
-    set_id: int | None = None
+    set_idler: list[int] = Field(default_factory=list)
     urun: UrunOzet = Field(validation_alias=AliasChoices("urun", "product"))
 
 
@@ -206,6 +209,22 @@ class SetIstegi(BaseModel):
     sablon: str | None = None
 
 
+class UyelikIstegi(BaseModel):
+    """Sete toplu ürün ekleme. Üst sınır var: sınırsız liste, tek istekte
+    binlerce satır yazma girişimine açık kapı bırakır."""
+    izleme_idler: list[int] = Field(min_length=1, max_length=200)
+
+
+class UyelikSonucu(BaseModel):
+    """Kısmi başarı sonucu.
+
+    `atlandi` yalnızca sayı değil SEBEP taşır ("zaten_uye" / "bulunamadi"):
+    kullanıcı hangi ürünün neden alınmadığını görmeden düzeltemez (K56).
+    """
+    eklendi: list[int]
+    atlandi: list[dict]
+
+
 class SetGuncelleIstegi(BaseModel):
     """Kısmi güncelleme — TÜM alanlar isteğe bağlı.
 
@@ -216,6 +235,14 @@ class SetGuncelleIstegi(BaseModel):
     ad: str | None = Field(default=None, min_length=1, max_length=60)
     hedef_butce: float | None = Field(default=None, gt=0)
     sablon: str | None = None
+
+
+class SetUyesi(BaseModel):
+    """Setin içindeki bir ürün — listede göstermeye yetecek kadarı."""
+    izleme_id: int
+    ad: str
+    fiyat: float | None = None
+    kilitli: bool = False
 
 
 class SetYaniti(BaseModel):
@@ -229,6 +256,11 @@ class SetYaniti(BaseModel):
     eksik_uye: int = 0
     hedefte: bool = False
     uye_sayisi: int = 0
+    # ÜYELER DE DÖNER: set kartı yalnızca "3 ürün" yazıyordu, içinde ne
+    # olduğu hiç görünmüyordu — bütçe takibi yapılan bir listede neyin
+    # toplandığını göstermemek eksikti. Ek sorgu maliyeti YOK: üyeler
+    # `_UYELERLE` ile zaten yükleniyor.
+    uyeler: list[SetUyesi] = Field(default_factory=list)
 
 
 # ─────────────────────────── Uyarı ───────────────────────────

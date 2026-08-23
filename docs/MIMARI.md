@@ -997,3 +997,60 @@ ağaç bakımı bedava değil.
 **Genel ilke:** indeks tahminle değil **plana bakarak** eklenir; ve eklenen
 her indeksin yazma tarafında bir bedeli olduğu için, kapsanan bir indeks
 bırakılmaz.
+
+## K64 — Bir ürün BİRDEN ÇOK sete girebilir
+
+`Watch.set_id` tek bir sete işaret ediyordu. Bu belgelenmiş bir karar değildi
+— en basit hâli önce yazılmış, sonra dokunulmamıştı. Kullanıcı fark etti:
+aynı ekran kartı hem "PC Toplama" hem "Kara Cuma" listesinde olabilir; birini
+seçmeye zorlamak modelin eksikliğiydi, kullanıcının hatası değil.
+
+**Karar:** `set_uyeleri` ara tablosu (`watch_id`, `set_id`), her iki yönde de
+`ON DELETE CASCADE`. `Watch.setler` ⇄ `WatchSet.watches`.
+
+**Uyarı tarafında tek hassas nokta:** bekleme süresi (cooldown) SETİN
+üzerinde durur, izlemenin değil. Bir izleme iki sette olduğunda her set
+kendi bütçesine göre ayrı ayrı değerlendirilir; birinin uyarı üretmesi
+diğerini susturmaz (`worker.py::_set_uyarisi` → `_tek_set_uyarisi`).
+
+**Geri alma kayıpsız DEĞİL** ve bu bilinçli: çoklu üyelik tek sütuna sığmaz,
+downgrade izleme başına en küçük `set_id`yi yazar. Göç dosyasında yazılı.
+
+## K65 — Toplu işlem "ya hep ya hiç" değildir; atlananlar SEBEBİYLE bildirilir
+
+Sete çoklu ürün ekleme ilk hâlinde tek bir geçersiz kalemde tüm isteği
+reddediyordu. Kullanıcının itirazı doğruydu: sekiz ürün işaretlersin, biri
+başka bir sekmede silinmiştir diye SEKİZİ birden kaybeder ve seçimi baştan
+yaparsın. "Bir minik problem tüm sistemi bağlıyor."
+
+**Ayrım:** atomiklik, yarım kalması TUTARSIZ BİR DURUM bırakan işlemler
+içindir (para transferi, çift yazımlı kayıt). Set üyelikleri birbirinden
+bağımsız; yarım kalmış bir set bozuk değil, yalnızca eksik bir listedir.
+
+**Karar:** `uyeleri_ekle()` her kalemi tek tek işler ve
+`{"eklendi": [...], "atlandi": [{"id": .., "sebep": ..}]}` döner. Sebep
+alanı K56'nın devamı: "bir şeyler oldu" demek yerine hangi ürünün neden
+alınmadığını söylemek. `zaten_uye` hata sayılmaz — sonuç istenen sonuçtur.
+
+Var olmayan izleme ile BAŞKASININ izlemesi aynı cevabı alır
+(`bulunamadi`): ayrım yapmak, id taramasıyla başkasının listesini
+yoklamaya yarar.
+
+## K66 — Arayüz soruyu kullanıcının sorduğu yönde sormalı
+
+Sete ürün eklemenin tek yolu her ürünün detay sayfasına ayrı ayrı gidip
+oradan set seçmekti — 8 parçalık bir PC için 8 sayfa. İşlev "vardı", ama
+kullanılabilir değildi.
+
+Kök sebep veri modelinin ekrana olduğu gibi yansıtılmasıydı: üyelik
+`Watch` üzerinde durduğu için form da `Watch` üzerinde açılmıştı. Oysa
+kullanıcı set kurarken **"bu sete hangi ürünler girer"** diye düşünüyor,
+"bu ürün hangi sete gider" diye değil.
+
+**Karar:** her iki yön de var, ama asıl akış setin içinde: setin kartında
+üyeler listelenir (ad + fiyat + çıkar) ve "Ürün ekle" takip listesini onay
+kutularıyla açar — çoklu seç, tek kaydet. Ürün detayındaki set kutuları
+ikincil kolaylık olarak kalır.
+
+Set üyeleri API yanıtına eklendi; **ek sorgu maliyeti yok**, üyeler
+`selectinload` ile zaten yükleniyordu (bkz. `servisler/setler.py::_UYELERLE`).

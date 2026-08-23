@@ -54,13 +54,14 @@ tek tek geri getirildi (bkz. §5).
 
 ### Kod ve testler
 
-- **716 test yeşil** — uçtan uca arayüz dosyası DAHİL (32 senaryo,
-  gerçek tarayıcı + gerçek sunucu). Tam paket 142 sn.
+- **792 test yeşil** — uçtan uca arayüz dosyası DAHİL (34 senaryo,
+  gerçek tarayıcı + gerçek sunucu). Tam paket 161 sn.
 - **CI 7 iş**: `test`, `windows`, `postgres`, `tarayici-motoru`,
   `uctan-uca`, `arayuz`, `imaj` (Docker imajı derlenip container ayağa
   kaldırılıyor, chromium ve arayüz doğrulanıyor)
-- **63 mimari karar** belgeli (`MIMARI.md`)
-- Son commit: `fb2870f`
+- **66 mimari karar** belgeli (`MIMARI.md`)
+- Göçler artık GERÇEK VERİYLE test ediliyor (`tests/test_gocler.py`) —
+  `alembic check` şemayı doğrular, veriyi değil (§5.19)
 
 ### Gerçek linklerle okuma oranı
 
@@ -152,6 +153,11 @@ olmayan üründeki **tek uyarı işaretidir** (K52).
 > + `betikler/kurulum.py` + 66 test (K58). Ölçüldü: kurulum baştan sona
 > çalıştırıldı, uygulama açıldı, `dur.bat` ikisini de kapattı. Liste bir
 > kaydı — worker'ı günlerce çalıştırmayı bekleten şey tam da buydu.
+>
+> **Set arayüzü YENİDEN KURULDU (K64-K66):** ürün artık birden çok sette
+> olabilir; set kartı içindekileri gösteriyor ve "Ürün ekle" takip listesini
+> onay kutularıyla açıyor — çoklu seç, tek kaydet, atlananlar sebebiyle
+> bildiriliyor. Kullanıcının tespitiydi: arayüz soruyu ters soruyordu.
 
 ### 4.1 ⭐ Worker'ı günlerce çalıştır — asıl bilinmeyen
 
@@ -330,6 +336,36 @@ paket **15 kırık / 461 sn → 32 geçer / 63 sn**.
 Ders: **bir alt sürecin çıktısını boruya bağlıyorsan ya oku ya dosyaya
 yönlendir.** Okunmayan boru, sessiz bir kilitlenme mekanizmasıdır. Bir de
 şu: hata mesajının gösterdiği yer, arızanın olduğu yer değildir.
+
+**5.19 — Göç "başarılı" göründü, taşınan veri silinmişti.** `Watch.set_id` →
+`set_uyeleri` göçünün ilk hâli ara tabloyu kurup satırları yazıyor, SONRA
+sütunu düşürüyordu. SQLite sütun düşürmeyi desteklemediği için Alembic o
+adımda `watches` tablosunu DROP edip yeniden kuruyor; yabancı anahtarlar açık
+olduğundan (bkz. `db.py`) `set_uyeleri` üzerindeki ON DELETE CASCADE
+tetiklendi ve **yeni taşınan satırlar sessizce silindi**. Göç hatasız
+tamamlandı, `alembic check` temiz dedi, üyelikler gitti. Aynı tuzak
+`downgrade`de de vardı ve ancak `tests/test_gocler.py` yazılınca yakalandı.
+
+Doğru sıra: **oku → şemayı değiştir → yaz.** Veri hiçbir anda silinebilecek
+bir tabloda beklemesin. Ve: `alembic check` yalnızca "şema modelle uyuşuyor
+mu" der; **verinin taşındığını ancak gerçek veriyle koşan bir test söyler.**
+
+**5.20 — Yeşil test, yanlış sebepten yeşil olabilir.** Setin eksik üyesini
+sınayan test iki üyeli bir set kurduğunu sanıyordu; SQLAlchemy'nin autoflush
+uyarısı incelenince görüldü ki test, set BOŞ kalsa da aynen geçerdi (boş set
+hedefte sayılmaz, uyarı yine çıkmaz). Ölçüldü: üyelikler aslında yazılıyordu,
+yani uyarı yanlış alarmdı — ama test kendi önkoşulunu doğrulamadığı için bunu
+söyleyemiyordu. Testler artık kurulumun gerçekten kurulduğunu da iddia ediyor
+(`assert len(s.watches) == 2`). **Bir testin geçmesi, ölçmek istediği şeyi
+ölçtüğü anlamına gelmez.**
+
+**5.21 — `wait_for_function` uygulamanın CSP'sine takılır.** Playwright dizge
+alan `wait_for_function`u sayfada `eval` ile koşuyor; uygulamanın
+`script-src 'self'` politikası buna izin vermiyor. Bu bir kısıt değil,
+korumanın çalıştığının kanıtı — beklemeyi `expect(locator).to_have_count(...)`
+ile yap. Ayrıca **kontrollü onay kutularında `check()` değil `click()`**
+kullan: işaret ancak sunucu cevabı gelip sorgu tazelenince döndüğü için
+`check()` "durumu değişmedi" diye patlar.
 
 ---
 

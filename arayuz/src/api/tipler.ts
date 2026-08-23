@@ -110,12 +110,20 @@ export interface Izleme {
   kilitli: boolean
   kilitli_fiyat: number | null
   sustur_bitis: string | null
-  set_id: number | null
+  // Bir ürün BİRDEN ÇOK sette olabilir.
+  set_idler: number[]
   urun: UrunOzet
 }
 
 export interface IzlemeDetay extends Omit<Izleme, 'urun'> {
   urun: UrunDetay
+}
+
+export interface SetUyesi {
+  izleme_id: number
+  ad: string
+  fiyat: number | null
+  kilitli: boolean
 }
 
 export interface KmSet {
@@ -126,6 +134,15 @@ export interface KmSet {
   eksik_uye: number
   hedefte: boolean
   uye_sayisi: number
+  uyeler: SetUyesi[]
+}
+
+/** Toplu üyelik sonucu — KISMİ BAŞARI taşır: eklenenler ve sebepleriyle
+ *  atlananlar. "Bir şeyler oldu" demek yerine hangi ürünün neden alınmadığı
+ *  söylenir. */
+export interface UyelikSonucu {
+  eklendi: number[]
+  atlandi: { id: number; sebep: string }[]
 }
 
 export interface Uyari {
@@ -142,7 +159,7 @@ export interface IzlemeEkleGirdi {
   url: string
   hedef_fiyat?: number | null
   acil_fiyat?: number | null
-  set_id?: number | null
+  set_idler?: number[] | null
 }
 
 export interface IzlemeGuncelleGirdi {
@@ -151,6 +168,6 @@ export interface IzlemeGuncelleGirdi {
   aktif?: boolean
   kilitli?: boolean
   kilitli_fiyat?: number | null
-  set_id?: number | null
+  set_idler?: number[] | null
   sustur_gun?: number | null
 }

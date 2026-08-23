@@ -295,7 +295,7 @@ def test_set_olustur_ve_toplam(istemci, db):
 
     for n, fiyat in enumerate([30000, 60000]):
         i = istemci.post("/api/izlemeler", headers=b, json={
-            "url": f"https://magaza.com/{n}", "set_id": s["id"]}).json()["id"]
+            "url": f"https://magaza.com/{n}", "set_idler": [s["id"]]}).json()["id"]
         w = db.query(Watch).filter(Watch.id == i).one()
         w.product.guncel_fiyat = fiyat
     db.commit()
@@ -329,9 +329,9 @@ def test_eksik_uyeli_set_hedefte_demez(istemci, db):
     s = istemci.post("/api/setler", headers=b,
                      json={"ad": "Set", "hedef_butce": 100000}).json()
     i = istemci.post("/api/izlemeler", headers=b, json={
-        "url": "https://magaza.com/a", "set_id": s["id"]}).json()["id"]
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]}).json()["id"]
     istemci.post("/api/izlemeler", headers=b, json={
-        "url": "https://magaza.com/b", "set_id": s["id"]})
+        "url": "https://magaza.com/b", "set_idler": [s["id"]]})
 
     w = db.query(Watch).filter(Watch.id == i).one()
     w.product.guncel_fiyat = 1000
@@ -346,11 +346,12 @@ def test_set_silinince_uyeler_silinmez(istemci, db):
     b = kayit_ol(istemci)
     s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
     istemci.post("/api/izlemeler", headers=b, json={
-        "url": "https://magaza.com/a", "set_id": s["id"]})
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]})
 
     assert istemci.delete(f"/api/setler/{s['id']}", headers=b).status_code == 204
     assert db.query(Watch).count() == 1
-    assert db.query(Watch).one().set_id is None
+    # Üyelik satırı gider (ON DELETE CASCADE), izlemenin kendisi kalır.
+    assert db.query(Watch).one().setler == []
 
 
 def test_baskasinin_setine_urun_eklenemez(istemci):
@@ -358,7 +359,7 @@ def test_baskasinin_setine_urun_eklenemez(istemci):
     c = kayit_ol(istemci, "c@ornek.com")
     s = istemci.post("/api/setler", headers=a, json={"ad": "Gizli"}).json()
     y = istemci.post("/api/izlemeler", headers=c, json={
-        "url": "https://magaza.com/a", "set_id": s["id"]})
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]})
     assert y.status_code == 400
 
 
@@ -621,12 +622,13 @@ def test_acil_fiyat_ve_set_de_temizlenebilir(istemci):
                           json={"ad": "PC"}).json()["id"]
     i = istemci.post("/api/izlemeler", headers=b, json={
         "url": "https://magaza.com/a", "acil_fiyat": 100,
-        "set_id": set_id}).json()["id"]
+        "set_idler": [set_id]}).json()["id"]
 
+    # Boş liste = "hiçbir sette olmasın" (silme değil, tanım).
     y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
-                      json={"acil_fiyat": None, "set_id": None})
+                      json={"acil_fiyat": None, "set_idler": []})
     assert y.json()["acil_fiyat"] is None
-    assert y.json()["set_id"] is None
+    assert y.json()["set_idler"] == []
 
 
 def test_dokunulmayan_alan_korunur(istemci):
@@ -915,7 +917,7 @@ def test_set_listesi_n_arti_bir_yapmaz(istemci, db):
                          json={"ad": f"S{n}"}).json()["id"]
         for m in range(3):
             istemci.post("/api/izlemeler", headers=b, json={
-                "url": f"https://magaza.com/s{n}-u{m}", "set_id": s})
+                "url": f"https://magaza.com/s{n}-u{m}", "set_idler": [s]})
 
     sorgular: list[str] = []
     motor = db.get_bind()
@@ -1542,3 +1544,146 @@ def test_sonuc_yoksa_200_ve_bos_liste(istemci, db, monkeypatch):
                     headers=basliklar)
     assert y.status_code == 200
     assert y.json() == []
+
+
+# ─────────────── sete toplu ürün ekleme (kısmi başarı) ───────────────
+
+
+def test_sete_toplu_urun_eklenir(istemci):
+    """Setin İÇİNDEN çoklu seçimle ekleme — asıl kullanım biçimi.
+
+    Eskiden ürün eklemek için her ürünün detay sayfasına tek tek gidip
+    açılır listeden set seçmek gerekiyordu: 8 parçalık bir PC için 8 ayrı
+    sayfa. Kullanıcı seti düşünürken "bu sete hangi ürünler girer" diye
+    sorar, "bu ürün hangi sete gider" diye değil.
+    """
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    idler = [
+        istemci.post("/api/izlemeler", headers=b,
+                     json={"url": f"https://magaza.com/u{n}"}).json()["id"]
+        for n in range(3)
+    ]
+
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                     json={"izleme_idler": idler})
+
+    assert y.status_code == 200
+    assert sorted(y.json()["eklendi"]) == sorted(idler)
+    assert y.json()["atlandi"] == []
+    assert istemci.get(f"/api/setler/{s['id']}",
+                       headers=b).json()["uye_sayisi"] == 3
+
+
+def test_toplu_ekleme_kismi_basariya_izin_verir(istemci):
+    """YA HEP YA HİÇ DEĞİL: geçerli olanlar eklenir, atlananlar SEBEBİYLE
+    bildirilir. Aksi hâlde sekiz seçimden biri bayat diye sekizi birden
+    kaybolurdu."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    gecerli = istemci.post("/api/izlemeler", headers=b,
+                           json={"url": "https://magaza.com/a"}).json()["id"]
+
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                     json={"izleme_idler": [gecerli, 999999]})
+
+    assert y.status_code == 200
+    assert y.json()["eklendi"] == [gecerli]
+    assert y.json()["atlandi"] == [{"id": 999999, "sebep": "bulunamadi"}]
+
+
+def test_zaten_uye_olan_hata_degil(istemci):
+    """Sonuç aynı olduğu için sessizce atlanır ama SEBEBİ bildirilir."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                 json={"izleme_idler": [i]})
+
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                     json={"izleme_idler": [i]})
+
+    assert y.json()["eklendi"] == []
+    assert y.json()["atlandi"] == [{"id": i, "sebep": "zaten_uye"}]
+    assert istemci.get(f"/api/setler/{s['id']}",
+                       headers=b).json()["uye_sayisi"] == 1
+
+
+def test_baskasinin_izlemesi_sete_eklenemez(istemci):
+    """Var olup olmadığını sızdırmamalı: başkasının kaydı da 'bulunamadi'."""
+    a = kayit_ol(istemci, "a@ornek.com")
+    c = kayit_ol(istemci, "c@ornek.com")
+    s = istemci.post("/api/setler", headers=a, json={"ad": "PC"}).json()
+    baskasinin = istemci.post("/api/izlemeler", headers=c,
+                              json={"url": "https://magaza.com/x"}).json()["id"]
+
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=a,
+                     json={"izleme_idler": [baskasinin]})
+
+    assert y.json()["eklendi"] == []
+    assert y.json()["atlandi"] == [{"id": baskasinin, "sebep": "bulunamadi"}]
+
+
+def test_baskasinin_setine_toplu_ekleme_kapali(istemci):
+    a = kayit_ol(istemci, "a@ornek.com")
+    c = kayit_ol(istemci, "c@ornek.com")
+    s = istemci.post("/api/setler", headers=a, json={"ad": "Gizli"}).json()
+    i = istemci.post("/api/izlemeler", headers=c,
+                     json={"url": "https://magaza.com/x"}).json()["id"]
+
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=c,
+                     json={"izleme_idler": [i]})
+    assert y.status_code == 404
+
+
+def test_setten_cikarma_izlemeyi_silmez(istemci, db):
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                 json={"izleme_idler": [i]})
+
+    y = istemci.delete(f"/api/setler/{s['id']}/uyeler/{i}", headers=b)
+
+    assert y.status_code == 204
+    assert db.query(Watch).count() == 1          # izleme DURUYOR
+    assert istemci.get(f"/api/setler/{s['id']}",
+                       headers=b).json()["uye_sayisi"] == 0
+
+
+def test_sette_olmayan_urunu_cikarmak_404(istemci):
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    assert istemci.delete(f"/api/setler/{s['id']}/uyeler/{i}",
+                          headers=b).status_code == 404
+
+
+def test_ayni_urun_iki_sette_olabilir(istemci):
+    """Asıl kazanım: tek `set_id` sütunu bunu imkânsız kılıyordu."""
+    b = kayit_ol(istemci)
+    s1 = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    s2 = istemci.post("/api/setler", headers=b, json={"ad": "Kara Cuma"}).json()
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    istemci.post(f"/api/setler/{s1['id']}/uyeler", headers=b,
+                 json={"izleme_idler": [i]})
+    istemci.post(f"/api/setler/{s2['id']}/uyeler", headers=b,
+                 json={"izleme_idler": [i]})
+
+    detay = istemci.get(f"/api/izlemeler/{i}", headers=b).json()
+    assert sorted(detay["set_idler"]) == sorted([s1["id"], s2["id"]])
+
+
+def test_bos_uyelik_listesi_reddedilir(istemci):
+    """Anlamsız istek şemada durur — sunucuya iş yaptırmadan."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "PC"}).json()
+    y = istemci.post(f"/api/setler/{s['id']}/uyeler", headers=b,
+                     json={"izleme_idler": []})
+    assert y.status_code == 422

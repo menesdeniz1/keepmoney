@@ -19,6 +19,7 @@ import type {
   Kullanici,
   SetGuncelleGirdi,
   Uyari,
+  UyelikSonucu,
 } from './tipler'
 
 const TABAN = '/api'
@@ -168,6 +169,15 @@ export const api = {
     istek<KmSet>(`/setler/${id}`, { method: 'PATCH', gövde: girdi }),
 
   setSil: (id: number) => istek<void>(`/setler/${id}`, { method: 'DELETE' }),
+
+  /** Sete toplu ürün ekler. Sunucu KISMİ BAŞARI döndürür: eklenenler ve
+   *  sebepleriyle atlananlar. */
+  setUyeEkle: (setId: number, izleme_idler: number[]) =>
+    istek<UyelikSonucu>(`/setler/${setId}/uyeler`,
+      { method: 'POST', gövde: { izleme_idler } }),
+
+  setUyeCikar: (setId: number, izlemeId: number) =>
+    istek<void>(`/setler/${setId}/uyeler/${izlemeId}`, { method: 'DELETE' }),
 
   // ── Uyarı ─────────────────────────────────────────────────────
   uyarilar: (sadeceOkunmamis = false, offset = 0, limit = 50) =>

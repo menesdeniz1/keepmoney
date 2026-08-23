@@ -318,13 +318,21 @@ def test_takipten_cikarma_onay_ister(sayfa, sunucu):
 
 # ── Set akışı (ürünün ayırt edici özelliği) ──────────────────────
 
-def test_set_kur_urun_ata_butce_duzenle(sayfa, sunucu):
-    """Sete ÜRÜN EKLEME arayüzü hiç yoktu: set kurulabiliyor ama içine bir
-    şey konulamıyordu — yani ürünün en ayırt edici özelliği (toplam bütçe
-    takibi) kullanıcı tarafından hiç erişilemiyordu."""
+def test_setin_icinden_coklu_urun_eklenir(sayfa, sunucu):
+    """Ürün eklemenin TEK yolu her ürünün detay sayfasına ayrı ayrı gitmekti:
+    8 parçalık bir PC için 8 sayfa. Kullanıcı set kurarken "bu sete hangi
+    ürünler girer" diye düşünüyor; arayüz soruyu ters soruyordu.
+
+    Bu test asıl akışı sürüyor: setin içinden listeden işaretle → tek kaydet.
+    """
     _kayit_ol(sayfa, sunucu)
-    _urun_ekle(sayfa, hedef="")
+    _urun_ekle(sayfa, url="https://www.example.com/urun/ekran-karti", hedef="")
     sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/islemci", hedef="")
+    # `wait_for_function` BURADA KULLANILAMAZ: uygulamanın CSP'si `unsafe-eval`
+    # vermiyor, Playwright dizgeyi sayfada eval edemiyor. Bu bir kısıt değil,
+    # korumanın çalıştığının kanıtı — beklemeyi locator ile yapıyoruz.
+    expect(sayfa.locator("a[href^='/izleme/']")).to_have_count(2, timeout=15000)
 
     sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
     sayfa.locator("#set-adi").fill("PC Toplama")
@@ -333,18 +341,85 @@ def test_set_kur_urun_ata_butce_duzenle(sayfa, sunucu):
     sayfa.wait_for_selector("text=PC Toplama", timeout=15000)
     assert "Boş." in sayfa.content()                 # boş set uyarısı
 
-    sayfa.goto(sunucu, wait_until="networkidle")
-    sayfa.locator("a[href^='/izleme/']").first.click()
-    sayfa.wait_for_selector("#set-secimi", timeout=15000)
-    sayfa.select_option("#set-secimi", label="PC Toplama")
+    sayfa.get_by_role("button", name="Ürün ekle").click()
+    kutular = sayfa.locator("input[type=checkbox]")
+    expect(kutular).to_have_count(2, timeout=15000)
+    # İKİSİ BİRDEN tek kaydetmeyle — çoklu seçimin bütün amacı bu.
+    kutular.nth(0).check()
+    kutular.nth(1).check()
+    sayfa.get_by_role("button", name="Ekle (2)").click()
 
-    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
-    sayfa.wait_for_selector("text=1 ürün", timeout=15000)
+    sayfa.wait_for_selector("text=2 ürün eklendi", timeout=15000)
+    sayfa.get_by_role("button", name="Kapat").click()
+    sayfa.wait_for_selector("text=2 ürün", timeout=15000)
 
     sayfa.get_by_role("button", name="Bütçeyi düzenle").click()
     sayfa.locator("input[id^='butce-']").fill("70000")
     sayfa.get_by_role("button", name="Kaydet").click()
     sayfa.wait_for_selector("text=70.000", timeout=15000)
+
+
+def test_setin_icindekiler_gorunur_ve_cikarilabilir(sayfa, sunucu):
+    """Set kartı yalnızca "1 ürün" yazıyordu — neyin toplandığı hiç
+    görünmüyordu. Bütçe takibi yapılan bir listede bu eksikti."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.locator("#set-adi").fill("Kombin")
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector("text=Kombin", timeout=15000)
+
+    sayfa.get_by_role("button", name="Ürün ekle").click()
+    sayfa.wait_for_selector("input[type=checkbox]", timeout=15000)
+    sayfa.locator("input[type=checkbox]").first.check()
+    sayfa.get_by_role("button", name="Ekle (1)").click()
+    sayfa.wait_for_selector("text=1 ürün eklendi", timeout=15000)
+    sayfa.get_by_role("button", name="Kapat").click()
+
+    # "Ürün ekle" seti zaten açıyor: eklenen şeyi görmeden kapanması, az önce
+    # ne olduğunu gizlerdi. Bu yüzden liste doğrudan görünür olmalı — ürünün
+    # ADIYLA, sadece sayısıyla değil.
+    sayfa.wait_for_selector("ul a[href^='/izleme/']", timeout=15000)
+    assert sayfa.get_by_role("button", name="İçindekiler (1)").is_visible()
+
+    sayfa.locator("button[aria-label*='setten çıkar']").first.click()
+    sayfa.wait_for_selector("text=Boş.", timeout=15000)
+    # ÜRÜN SİLİNMEZ: yalnızca gruplamadan çıkar.
+    sayfa.goto(sunucu, wait_until="networkidle")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+
+def test_ayni_urun_iki_sette_olabilir(sayfa, sunucu):
+    """Bir ürün tek sete sıkışıyordu (`Watch.set_id`). Gerçekte aynı ekran
+    kartı hem "PC Toplama" hem "Kara Cuma" listesinde olabilir."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    for ad in ("PC Toplama", "Kara Cuma"):
+        sayfa.locator("#set-adi").fill(ad)
+        sayfa.get_by_role("button", name="Set kur").click()
+        sayfa.wait_for_selector(f"text={ad}", timeout=15000)
+
+    sayfa.goto(sunucu, wait_until="networkidle")
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("legend", timeout=15000)
+    # `check()` DEĞİL `click()`: bu kutular kontrollü — işaret ancak sunucu
+    # cevabı gelip sorgu tazelenince dönüyor. `check()` anlık değişim bekleyip
+    # "durumu değişmedi" diye patlıyordu; yanlış olan test, arayüz değil.
+    kutular = sayfa.locator("fieldset input[type=checkbox]")
+    kutular.nth(0).click()
+    expect(kutular.nth(0)).to_be_checked(timeout=15000)
+    kutular.nth(1).click()
+    expect(kutular.nth(1)).to_be_checked(timeout=15000)
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.wait_for_selector("text=1 ürün", timeout=15000)
+    # İKİ set de aynı ürünü saymalı — eski modelde biri boş kalırdı.
+    assert sayfa.get_by_text("1 ürün").count() == 2
 
 
 def test_set_silme_onay_ister(sayfa, sunucu):

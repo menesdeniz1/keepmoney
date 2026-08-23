@@ -66,9 +66,14 @@ def guncelle(db: Session, kullanici: User, set_id: int, **alanlar) -> WatchSet:
 
 
 def sil(db: Session, kullanici: User, set_id: int) -> None:
-    """Seti siler; ÜYELER SİLİNMEZ, sadece gruplamadan çıkar."""
+    """Seti siler; ÜYELER SİLİNMEZ, sadece gruplamadan çıkar.
+
+    Üyelik satırlarını veritabanı temizliyor (`set_uyeleri` üzerinde
+    ON DELETE CASCADE). Eskiden burada elle `set_id = NULL` yazılıyordu;
+    çoktan çoka modelde o sütun yok ve temizliği tek yerde (şemada) tutmak,
+    yeni bir silme yolu eklendiğinde unutulmasını engelliyor.
+    """
     s = getir(db, kullanici, set_id)
-    db.query(Watch).filter(Watch.set_id == s.id).update({"set_id": None})
     db.delete(s)
     db.commit()
 
@@ -107,4 +112,69 @@ def ozet(db: Session, s: WatchSet) -> dict:
         "uye_sayisi": len(uyeler),
         "hedefte": bool(s.hedef_butce and uyeler and eksik == 0
                         and toplam <= s.hedef_butce),
+        "uyeler": [
+            {
+                "izleme_id": w.id,
+                "ad": w.product.ad if w.product else "?",
+                # Kilitli üyede kilitli fiyat gösterilir: toplam da onu
+                # kullanıyor, ekranda başka bir sayı görmek kafa karıştırırdı.
+                "fiyat": (w.kilitli_fiyat if w.kilitli
+                          else (w.product.guncel_fiyat if w.product else None)),
+                "kilitli": bool(w.kilitli),
+            }
+            for w in uyeler
+        ],
     }
+
+
+def uyeleri_ekle(db: Session, kullanici: User, set_id: int,
+                 izleme_idler: list[int]) -> dict:
+    """Seçilen izlemeleri sete ekler. Döner: {"eklendi": [...], "atlandi": [...]}.
+
+    YA HEP YA HİÇ DEĞİL — bilinçli. Üyelikler birbirinden bağımsız; yarım
+    kalmış bir set "bozuk" bir durum değil, yalnızca eksik bir listedir.
+    Buna karşılık hepsini reddetmek gerçekten zarar verir: kullanıcı sekiz
+    ürün işaretler, biri başka bir sekmede silinmiş diye SEKİZİ birden
+    kaybeder ve seçimi baştan yapar.
+
+    Bu yüzden her kalem tek tek işlenir ve atlananlar SEBEBİYLE bildirilir —
+    "bir şeyler oldu" demek yerine hangi ürünün neden alınmadığını söylemek
+    (K56: boş/eksik cevabın tek ve anlaşılır bir anlamı olmalı).
+
+    Zaten üye olan ürün hata değildir: sonuç aynı olduğu için sessizce
+    atlanır ve `zaten_uye` olarak bildirilir.
+    """
+    s = getir(db, kullanici, set_id)
+    mevcut = {w.id for w in s.watches}
+
+    eklendi: list[int] = []
+    atlandi: list[dict] = []
+
+    for izleme_id in izleme_idler:
+        if izleme_id in mevcut:
+            atlandi.append({"id": izleme_id, "sebep": "zaten_uye"})
+            continue
+        w = (db.query(Watch)
+             .filter(Watch.id == izleme_id, Watch.user_id == kullanici.id)
+             .one_or_none())
+        if w is None:
+            # Başkasının izlemesi ya da silinmiş kayıt — ikisi de aynı cevabı
+            # almalı: var olup olmadığını sızdırmak, listeyi taramaya yarar.
+            atlandi.append({"id": izleme_id, "sebep": "bulunamadi"})
+            continue
+        s.watches.append(w)
+        eklendi.append(izleme_id)
+
+    db.commit()
+    return {"eklendi": eklendi, "atlandi": atlandi}
+
+
+def uye_cikar(db: Session, kullanici: User, set_id: int, izleme_id: int) -> bool:
+    """Ürünü setten çıkarır. İZLEME SİLİNMEZ — yalnızca gruplamadan çıkar."""
+    s = getir(db, kullanici, set_id)
+    for w in list(s.watches):
+        if w.id == izleme_id:
+            s.watches.remove(w)
+            db.commit()
+            return True
+    return False

@@ -288,7 +288,7 @@ def test_set_toplami_butcenin_altina_inince_uyarir(db):
         db.add(p)
         db.commit()
         db.add(Source(product_id=p.id, url=f"https://m.com/{ad}", host="m.com"))
-        db.add(Watch(user_id=u.id, product_id=p.id, set_id=s.id))
+        db.add(Watch(user_id=u.id, product_id=p.id, setler=[s]))
         db.commit()
         urunler.append((p, fiyat))
 
@@ -316,9 +316,20 @@ def test_eksik_uyeli_set_uyari_uretmez(db):
     db.add_all([p1, p2])
     db.commit()
     db.add(Source(product_id=p1.id, url="https://m.com/cpu", host="m.com"))
-    db.add_all([Watch(user_id=u.id, product_id=p1.id, set_id=s.id),
-                Watch(user_id=u.id, product_id=p2.id, set_id=s.id)])
+    # Üyelik ÖNCE değil SONRA kuruluyor: `setler=[s]` iki nesneyi birden
+    # `add_all` ederken, ikincisi işlenirken `s.watches` tembel yüklemesi
+    # autoflush tetikliyor ve SQLAlchemy "add operation won't proceed" diye
+    # uyarıyordu. Ölçüldü — üyelikler yine de yazılıyor, yani uyarı yanlış
+    # alarm; ama gürültü gerçek bir uyarıyı gizler.
+    w1 = Watch(user_id=u.id, product_id=p1.id)
+    w2 = Watch(user_id=u.id, product_id=p2.id)
+    db.add_all([w1, w2])
     db.commit()
+    s.watches.extend([w1, w2])
+    db.commit()
+    # TESTİN KENDİ ÖNKOŞULU: set boş kalsaydı uyarı yine çıkmazdı (boş set
+    # hedefte sayılmaz) ve test doğru sebepten değil, yanlış sebepten geçerdi.
+    assert len(s.watches) == 2
 
     t = Tarayici(db, SahteCekici({"https://m.com/cpu": urun_sayfasi("30000")}), HostThrottle(min_gap=0))
     t.urun_tara(p1)
@@ -719,3 +730,104 @@ def test_sessiz_saatte_acil_esigi_deler(db, monkeypatch):
 
     uyari = db.query(Alert).filter(Alert.tur == "HEDEF").one()
     assert "ACİL" in uyari.baslik
+
+
+# ---------- çoklu set üyeliği ----------
+
+
+def test_ayni_urun_iki_sette_iki_ayri_uyari_uretir(db):
+    """Bir ürün birden çok sette olabilir ve HER SET kendi bütçesini ayrı
+    takip eder.
+
+    Eskiden `Watch.set_id` tek sütundu: kullanıcı aynı ekran kartını hem
+    "PC Toplama" hem "Kara Cuma" listesine koyamıyordu. İkisi de bütçe altına
+    inerse İKİ uyarı gitmeli — farklı bütçelerin tutması ayrı bilgidir.
+    """
+    from keepmoney.models import WatchSet
+
+    u = db.query(User).first()
+    if u is None:
+        u = User(email="a@x.com", password_hash="x")
+        db.add(u)
+        db.commit()
+
+    s1 = WatchSet(user_id=u.id, ad="PC Toplama", hedef_butce=50000)
+    s2 = WatchSet(user_id=u.id, ad="Kara Cuma", hedef_butce=60000)
+    db.add_all([s1, s2])
+    db.commit()
+
+    p = Product(ad="Ekran Kartı", izleyen_sayisi=1)
+    db.add(p)
+    db.commit()
+    db.add(Source(product_id=p.id, url="https://m.com/gpu", host="m.com"))
+    db.add(Watch(user_id=u.id, product_id=p.id, setler=[s1, s2]))
+    db.commit()
+
+    t = Tarayici(db, SahteCekici({"https://m.com/gpu": urun_sayfasi("45000")}),
+                 HostThrottle(min_gap=0))
+    t.urun_tara(p)
+
+    uyarilar = db.query(Alert).filter(Alert.tur == "SET_HEDEF").all()
+    basliklar = " | ".join(a.baslik for a in uyarilar)
+    assert len(uyarilar) == 2, f"iki set için iki uyarı bekleniyordu: {basliklar}"
+    assert "PC Toplama" in basliklar
+    assert "Kara Cuma" in basliklar
+
+
+def test_butcesi_asan_set_icin_uyari_gitmez(db):
+    """Ürün iki sette ama biri bütçeyi aşıyorsa YALNIZCA diğeri uyarır."""
+    from keepmoney.models import WatchSet
+
+    u = db.query(User).first()
+    if u is None:
+        u = User(email="a@x.com", password_hash="x")
+        db.add(u)
+        db.commit()
+
+    ucuz = WatchSet(user_id=u.id, ad="Bol bütçe", hedef_butce=50000)
+    dar = WatchSet(user_id=u.id, ad="Dar bütçe", hedef_butce=10000)
+    db.add_all([ucuz, dar])
+    db.commit()
+
+    p = Product(ad="Ekran Kartı", izleyen_sayisi=1)
+    db.add(p)
+    db.commit()
+    db.add(Source(product_id=p.id, url="https://m.com/gpu2", host="m.com"))
+    db.add(Watch(user_id=u.id, product_id=p.id, setler=[ucuz, dar]))
+    db.commit()
+
+    t = Tarayici(db, SahteCekici({"https://m.com/gpu2": urun_sayfasi("45000")}),
+                 HostThrottle(min_gap=0))
+    t.urun_tara(p)
+
+    uyarilar = db.query(Alert).filter(Alert.tur == "SET_HEDEF").all()
+    assert len(uyarilar) == 1
+    assert "Bol bütçe" in uyarilar[0].baslik
+
+
+def test_setten_cikarilan_urun_digerinde_kalir(db):
+    """Bir setten çıkarmak diğer üyelikleri etkilememeli."""
+    from keepmoney.models import WatchSet
+    from keepmoney.servisler import setler as set_svc
+
+    u = db.query(User).first()
+    if u is None:
+        u = User(email="a@x.com", password_hash="x")
+        db.add(u)
+        db.commit()
+
+    s1 = WatchSet(user_id=u.id, ad="Bir")
+    s2 = WatchSet(user_id=u.id, ad="İki")
+    db.add_all([s1, s2])
+    db.commit()
+
+    p = Product(ad="Ürün", izleyen_sayisi=1)
+    db.add(p)
+    db.commit()
+    w = Watch(user_id=u.id, product_id=p.id, setler=[s1, s2])
+    db.add(w)
+    db.commit()
+
+    assert set_svc.uye_cikar(db, u, s1.id, w.id) is True
+    db.refresh(w)
+    assert [s.id for s in w.setler] == [s2.id]
