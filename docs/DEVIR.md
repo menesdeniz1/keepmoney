@@ -169,7 +169,19 @@ Kalan tek doğrulanmamış alan — ve artık önündeki engel kalktı: `basla.b
 - `tarama_turu` log satırlarında `basarisiz` sayısı zamanla artıyor mu
 - Veritabanı boyutu
 
-### 4.2 Amazon MSI monitör — tek gerçek bilinmeyen
+### 4.2 Arayüz — Keepa refleksleri (`docs/ARAYUZ-PLANI.md`)
+
+Uygulama tohumlanmış kopyada gerçek tarayıcıyla açılıp yedi ekranı incelendi,
+Keepa'nın özellikleri araştırıldı. **En büyük kusur ölçüldü:** analiz motoru
+(`analiz.fiyat_baglami` — dip/ucuz/pahalı sinyali, medyan, yüzdelik, sahte
+indirim) panelde HİÇ görünmüyor; `worker.py:424` her taramada hesaplayıp
+atıyor. Sinyali karta koymak yeni hesap değil, zaten hesaplananı saklamak.
+
+Üç katmanlık plan ayrı dosyada. Katman 1 (kartta sinyal + kıvılcım, grafikte
+zaman aralığı, listeyi sıralama) iki-üç günlük iş ve yeni bağımlılık
+gerektirmiyor — algılanan kalitedeki en büyük sıçrama orada.
+
+### 4.3 Amazon MSI monitör — tek gerçek bilinmeyen
 
 `https://amazon.com.tr/dp/B0BSLHZKB6` — okunamıyor. Bilinenler:
 
