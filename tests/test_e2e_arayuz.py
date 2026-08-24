@@ -247,6 +247,39 @@ def test_urun_ekle_ve_detayini_ac(sayfa, sunucu):
     assert "Kaynaklar" in sayfa.content()
 
 
+def test_yeni_urunde_sinyal_degil_biriktiriliyor_gorunur(sayfa, sunucu):
+    """BACKLOG A7 — gerçek çalıştırmada ölçüldü: worker 3 gün koştu, bir
+    üründe %7,2 düşüş oldu ve hiç uyarı çıkmadı (yeterli geçmiş yoktu).
+    Kullanıcı bunu görmeden "sistem bozuk mu" diye merak ediyordu.
+
+    Yeni eklenen ürünün worker hiç taramadığı (bu test paketinde worker
+    çalışmıyor, yalnızca API sunucusu var) için `sinyal`/`gecmis_gun` HER
+    ZAMAN None — panel bunu renkli bir sinyal yerine nötr "geçmiş
+    biriktiriliyor" ile göstermeli, "pahalı"/"ucuz"/"dibi" YAZMAMALI."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    # Panelde: kart nötr rozeti gösteriyor, panel üstünde toplu uyarı var.
+    sayfa.wait_for_selector("text=geçmiş biriktiriliyor", timeout=15000)
+    icerik = sayfa.content()
+    assert "90 günün dibi" not in icerik
+    assert "ucuz dönem" not in icerik
+    assert "pahalı dönem" not in icerik
+    assert "ürün için geçmiş biriktiriliyor" in icerik   # panel üstü banner
+
+    # Detayda: aynı nötr mesaj, YorumKarti'nin baglam=null dalı.
+    #
+    # "text=Geçmiş biriktiriliyor" BURADA KULLANILAMAZ: Playwright'ın
+    # `text=` eşleşmesi büyük/küçük harf duyarsız — panel kartındaki
+    # (küçük harfle başlayan) SinyalRozeti metniyle de eşleşir ve
+    # navigasyon tamamlanmadan test panel DOM'unda tatmin olabilir. Detaya
+    # ÖZGÜ, panelde hiç geçmeyen "Fiyat geçmişi" başlığı bekleniyor.
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
+    assert "henüz hiç fiyat okunmadı" in sayfa.content()
+
+
 def test_ayni_urun_iki_kez_eklenince_hata_gosterilir(sayfa, sunucu):
     _kayit_ol(sayfa, sunucu)
     _urun_ekle(sayfa)

@@ -28,13 +28,30 @@ const TREND_METNI = {
   sabit: 'Fiyat yatay seyrediyor',
 } as const
 
-export default function YorumKarti({ baglam }: { baglam: Baglam | null }) {
+export default function YorumKarti({
+  baglam,
+  gecmisGun,
+}: {
+  baglam: Baglam | null
+  /**
+   * BACKLOG A7: panel kartındaki SinyalRozeti ile AYNI CÜMLE — "geçmiş
+   * biriktiriliyor". `gecmis_gun` `UrunOzet`'ten (A4) geldiği için `baglam`
+   * null olsa bile biliniyor; jenerik "birkaç gün içinde" yerine somut
+   * sayı gösterilebilir. Sabit bir eşik ("N/7 gün" gibi) YAZILMIYOR — bkz.
+   * SinyalRozeti.tsx'teki aynı gerekçe: backend eşiği (`analiz.MIN_GUN`)
+   * hiçbir API alanında dışa açılmıyor.
+   */
+  gecmisGun: number | null
+}) {
   if (!baglam) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm
                       text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-        Henüz yeterli geçmiş yok — birkaç gün içinde bu fiyatın iyi olup
-        olmadığını söyleyebileceğim.
+        {gecmisGun
+          ? <>Geçmiş biriktiriliyor — {gecmisGun} günlük veri var, birkaç gün
+              daha içinde bu fiyatın iyi olup olmadığını söyleyebileceğim.</>
+          : <>Geçmiş biriktiriliyor — henüz hiç fiyat okunmadı, ilk tarama
+              turundan sonra veri birikmeye başlar.</>}
       </div>
     )
   }

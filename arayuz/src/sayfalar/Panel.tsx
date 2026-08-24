@@ -39,6 +39,19 @@ export default function Panel() {
   const toplam =
     izlemeler?.reduce((t, i) => t + (i.urun.guncel_fiyat ?? 0), 0) ?? 0
 
+  // BACKLOG A7: kartların her biri kendi "geçmiş biriktiriliyor" rozetini
+  // gösteriyor (SinyalRozeti) ama 20 karttan 15'i sinyalsizse bunu tek tek
+  // fark etmek zor. Toplu satır, "sistem bozuk mu" sorusunu daha kartlara
+  // bakmadan cevaplıyor — gerçek çalıştırmada (DEVIR §4.1) tam bu oldu:
+  // worker günlerce açık kalmadan HİÇBİR üründe sinyal çıkmadı.
+  const sinyalsizler = izlemeler?.filter((i) => i.urun.sinyal === null) ?? []
+  // Sabit bir eşik ("N gün içinde") YAZILMIYOR — SinyalRozeti.tsx'teki
+  // gerekçenin aynısı: backend eşiği hiçbir API alanında dışa açılmıyor.
+  // Bunun yerine EN İLERİDEKİ ürünün gerçek gün sayısı gösteriliyor —
+  // ilerlemenin somut, ölçülmüş kanıtı.
+  const enIlerideki = Math.max(
+    0, ...sinyalsizler.map((i) => i.urun.gecmis_gun ?? 0))
+
   return (
     <div className="space-y-6">
       <section>
@@ -97,6 +110,15 @@ export default function Panel() {
           <Kutu etiket="Hedefte" deger={String(hedefteOlanlar.length)} vurgu />
           <Kutu etiket="Liste toplamı" deger={tl(toplam)} />
         </div>
+      )}
+
+      {sinyalsizler.length > 0 && (
+        <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500
+                      dark:bg-slate-900 dark:text-slate-400">
+          {sinyalsizler.length} ürün için geçmiş biriktiriliyor
+          {enIlerideki > 0 && <> (en ileride {enIlerideki} gün)</>} — worker
+          çalıştıkça sinyaller kendiliğinden görünür.
+        </p>
       )}
 
       {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}

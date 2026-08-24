@@ -323,6 +323,38 @@ def test_detay_grafik_ve_yorum_dondurur(istemci, db):
     assert "en düşüğü" in baglam["yorum"] or "dip" in baglam["yorum"].lower()
 
 
+def test_detay_ucu_kaydedilmis_baglam_sutunlarini_da_dondurur(istemci, db):
+    """BACKLOG A7'de GERÇEK TARAYICIDA yakalandı: `urun_svc.detay()` bir
+    sözlük döndürüyordu ve bu sözlükte A4'ün beş alanı (sinyal, dip90,
+    medyan90, yuzdelik, gecmis_gun) hiç yoktu — Pydantic eksik anahtarı
+    şemanın varsayılanıyla (None) dolduruyordu. Sonuç: detay sayfasında
+    grafik veri gösterirken analiz kutusu "hiç fiyat okunmadı" diyordu,
+    DB'de gecmis_gun=4 yazılı olsa bile.
+
+    Liste ucu (`test_liste_ucu_sinyali_donduruyor`, A4) aynı sütunları
+    zaten doğru döndürüyordu — hata yalnızca DETAY ucundaydı, ikisi aynı
+    Product sütununu farklı kod yollarından okuyor."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    urun = db.query(Product).one()
+    urun.sinyal = "ucuz"
+    urun.dip90 = 850.0
+    urun.medyan90 = 1000.0
+    urun.yuzdelik = 60
+    urun.gecmis_gun = 4
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    urun_veri = y.json()["urun"]
+    assert urun_veri["sinyal"] == "ucuz"
+    assert urun_veri["dip90"] == 850.0
+    assert urun_veri["medyan90"] == 1000.0
+    assert urun_veri["yuzdelik"] == 60
+    assert urun_veri["gecmis_gun"] == 4
+
+
 # ─────────────────────────── set ───────────────────────────
 
 def test_set_olustur_ve_toplam(istemci, db):

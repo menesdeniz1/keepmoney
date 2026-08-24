@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { BellOff, Lock, PauseCircle } from 'lucide-react'
 
 import type { Izleme } from '../api/tipler'
+import SinyalRozeti from './SinyalRozeti'
 import { goreliZaman, hedefeKalan, kisaTl, tl } from '../yardimcilar/bicim'
 
 export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
@@ -24,6 +25,16 @@ export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
             {urun.guncel_satici ?? 'bilinmiyor'} ·{' '}
             {goreliZaman(urun.son_kontrol)}
           </p>
+          {/* BACKLOG A7: sinyal ürüne tıklamadan görünsün. `null` iken
+              SinyalRozeti kendiliğinden nötr "geçmiş biriktiriliyor" hâlini
+              çiziyor — burada ayrıca dallanmaya gerek yok. */}
+          <div className="mt-1.5">
+            <SinyalRozeti
+              sinyal={urun.sinyal}
+              yuzdelik={urun.yuzdelik}
+              gecmisGun={urun.gecmis_gun}
+            />
+          </div>
         </div>
 
         <div className="shrink-0 text-right">

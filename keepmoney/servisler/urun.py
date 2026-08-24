@@ -82,6 +82,17 @@ def detay(db: Session, urun: Product) -> dict:
         "puan": urun.puan,
         "yorum_sayisi": urun.yorum_sayisi,
         "son_kontrol": urun.son_kontrol,
+        # BACKLOG A4 bu beşini UrunOzet'e ekledi ama bu sözlüğe YAZMAMIŞTI —
+        # sonuç: UrunDetay'da hepsi sessizce None dönüyordu, DB'de değer
+        # olsa bile (Pydantic eksik anahtarı alan varsayılanıyla dolduruyor).
+        # BACKLOG A7'de gerçek tarayıcı ekran görüntüsüyle yakalandı: detay
+        # sayfasında grafik veri gösterirken analiz kutusu "hiç fiyat
+        # okunmadı" diyordu — çünkü `gecmis_gun` buradan hep None geliyordu.
+        "sinyal": urun.sinyal,
+        "dip90": urun.dip90,
+        "medyan90": urun.medyan90,
+        "yuzdelik": urun.yuzdelik,
+        "gecmis_gun": urun.gecmis_gun,
         "kaynaklar": [_kaynak(k) for k in urun.sources],
         "gecmis": gunluk_seri(db, urun.id, gecmis),
         "baglam": baglam(db, urun, gecmis),

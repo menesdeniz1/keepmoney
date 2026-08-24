@@ -57,7 +57,7 @@ export default function IzlemeDetay() {
         </div>
       </header>
 
-      <YorumKarti baglam={urun.baglam} />
+      <YorumKarti baglam={urun.baglam} gecmisGun={urun.gecmis_gun} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-4
                           dark:border-slate-800 dark:bg-slate-900">
