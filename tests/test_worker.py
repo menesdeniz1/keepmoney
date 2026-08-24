@@ -134,6 +134,71 @@ def test_geri_cekilmedeki_host_atlanir(db):
     assert t.cekici.cagrilar == []                # hiç istek gitmedi
 
 
+# ---------- bağlam sütunları: sinyal artık atılmıyor (BACKLOG A2) ----------
+
+def _gecmis_ekle(db, p, s, gun_sayisi, guncel_fiyat=1000):
+    """`gun_sayisi` FARKLI güne yayılan okuma ekler (bugün HARİÇ — bugünkü
+    okuma taramanın kendisinden gelecek). MIN_GUN=5 eşiğini geçmek/geçmemek
+    için testler bu sayıyı seçiyor."""
+    simdi = utc_simdi()
+    for gun in range(gun_sayisi, 0, -1):
+        db.add(PriceReading(source_id=s.id, product_id=p.id,
+                            fiyat=guncel_fiyat + gun, ts=simdi - timedelta(days=gun)))
+    db.commit()
+
+
+def test_yeterli_gecmiste_bir_tur_sonrasi_baglam_doluyor(db):
+    """MIN_GUN (5) eşiğini geçen ürün: bir taramadan sonra sinyal VE
+    baglam_ts dolu olmalı — artık hesaplanıp atılmıyor."""
+    _, p, s, _, t = kur(db, fiyat="1000")
+    _gecmis_ekle(db, p, s, gun_sayisi=6)          # + bugünkü okuma = 7 gün
+
+    t.urun_tara(p)
+
+    assert p.sinyal in ("dip", "ucuz", "pahali")
+    assert p.dip90 is not None
+    assert p.medyan90 is not None
+    assert p.yuzdelik is not None
+    assert p.baglam_ts is not None
+    assert p.gecmis_gun == 7
+
+
+def test_yetersiz_gecmiste_sinyal_bos_ama_gecmis_gun_ilerliyor(db):
+    """3 günlük geçmiş MIN_GUN (5) altında — `analiz.fiyat_baglami` None
+    döner, sinyal boş kalmalı. Ama `gecmis_gun` yine de yazılmalı: A7'nin
+    "3/7 gün — geçmiş biriktiriliyor" göstergesi tam bu sayıya dayanıyor,
+    sinyal daha hesaplanamıyor olsa bile ilerleme gösterilebilmeli."""
+    _, p, s, _, t = kur(db, fiyat="1000")
+    _gecmis_ekle(db, p, s, gun_sayisi=2)          # + bugünkü okuma = 3 gün
+
+    t.urun_tara(p)
+
+    assert p.sinyal is None
+    assert p.dip90 is None
+    assert p.gecmis_gun == 3
+    assert p.baglam_ts is not None                # bu tur gerçekten okundu
+
+
+def test_okunamayan_turda_eski_baglam_korunur(db):
+    """İkinci turda kaynak tamamen okunamazsa (`en_iyi is None`, taze fiyat
+    yok) altı bağlam sütununa da DOKUNULMAMALI. `uyari_uret` yine de
+    `urun.guncel_fiyat` (bayat, önceki tur) ile çağrılır ve teorik olarak
+    aynı baglam'ı yeniden üretebilirdi — ama bunu Product'a yazmak "az önce
+    doğrulandı" yanılsaması verirdi. Ölçüt: değerler birebir AYNI kalmalı."""
+    _, p, s, _, t = kur(db, fiyat="1000")
+    _gecmis_ekle(db, p, s, gun_sayisi=6)
+
+    t.urun_tara(p)
+    assert p.sinyal is not None                   # önkoşul: ilk tur doldurdu
+    eski = (p.sinyal, p.dip90, p.medyan90, p.yuzdelik, p.gecmis_gun, p.baglam_ts)
+
+    t.cekici.sayfalar.pop(s.url)                  # ikinci turda kaynak "yok"
+    t.urun_tara(p)
+
+    assert (p.sinyal, p.dip90, p.medyan90, p.yuzdelik,
+            p.gecmis_gun, p.baglam_ts) == eski
+
+
 # ---------- çoklu kaynak ----------
 
 def test_en_ucuz_kaynak_secilir(db):

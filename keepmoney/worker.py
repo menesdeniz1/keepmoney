@@ -316,7 +316,8 @@ class Tarayici:
         sonuc.taranan_urun += 1
 
         en_iyi = karar.en_iyi_kaynak(okumalar)
-        if en_iyi is not None and en_iyi.fiyat is not None:
+        fiyat_okundu_bu_tur = en_iyi is not None and en_iyi.fiyat is not None
+        if fiyat_okundu_bu_tur:
             urun.guncel_fiyat = en_iyi.fiyat
             urun.guncel_satici = en_iyi.satici or en_iyi.host
             kaynak_kaydi = next((k for k in urun.sources if k.url == en_iyi.url), None)
@@ -327,7 +328,31 @@ class Tarayici:
         self.db.flush()
 
         gecmis = self._okuma_gecmisi(urun.id)
-        sonuc.uretilen_uyari += self.uyari_uret(urun, eski_fiyat, gecmis)
+        baglam = (analiz.fiyat_baglami(gecmis, urun.guncel_fiyat)
+                  if urun.guncel_fiyat else None)
+
+        # BACKLOG A2: bağlam artık saklanıyor, atılmıyor — ama YALNIZCA bu
+        # tur gerçekten taze bir fiyat okunduysa. Okuma başarısız olduğunda
+        # `urun.guncel_fiyat` eski (bayat) değerinde kalır; `baglam` o bayat
+        # fiyattan yine hesaplanabilir ama bunu yazmak "az önce doğrulandı"
+        # yanılsaması verir. Bu yüzden okunamayan turda ALTI SÜTUNA DA
+        # dokunulmaz — eski değer olduğu gibi durur.
+        #
+        # `gecmis_gun`, baglam'ın MIN_GUN (5) eşiğinden BAĞIMSIZ yazılır:
+        # A7'nin "3/7 gün — geçmiş biriktiriliyor" göstergesi tam da bu ham
+        # gün sayısına ihtiyaç duyuyor; sinyal daha hesaplanamıyor olsa bile
+        # ilerlemeyi göstermek gerekiyor.
+        if fiyat_okundu_bu_tur:
+            urun.gecmis_gun = len(analiz.gunluk_minimumlar(gecmis))
+            urun.baglam_ts = utc_simdi()
+            if baglam is not None:
+                urun.sinyal = baglam.sinyal
+                urun.dip90 = baglam.dip90
+                urun.medyan90 = baglam.medyan90
+                urun.yuzdelik = baglam.yuzdelik
+
+        sonuc.uretilen_uyari += self.uyari_uret(
+            urun, eski_fiyat, gecmis, baglam=baglam)
         if en_iyi is None or en_iyi.fiyat is None:
             sonuc.uretilen_uyari += self._bozuk_kaynak_uyar(urun)
         urun.kontrol_araligi_dk = self._sonraki_aralik(urun, gecmis)
@@ -406,22 +431,26 @@ class Tarayici:
     # ── uyarı üretimi ────────────────────────────────────────────
 
     def uyari_uret(self, urun: Product, eski_fiyat: float | None,
-                   gecmis: list[analiz.Okuma] | None = None) -> int:
+                   gecmis: list[analiz.Okuma] | None = None,
+                   baglam: analiz.Baglam | None = None) -> int:
         """Ürünün fiyatı güncellendikten sonra izleyicilere uyarı üretir.
 
         Uyarı KİŞİSELDİR: aynı fiyat düşüşü, hedefi 50.000 olan kullanıcı için
         alarm, hedefi 40.000 olan için değildir. Bu yüzden döngü Watch üstünde.
 
-        `gecmis` dışarıdan verilebilir: `urun_tara` onu bir kez okuyup hem
-        buraya hem `_sonraki_aralik`e geçirir. Eskiden ikisi de kendi
-        sorgusunu açıyordu — ürün başına iki kez tüm fiyat geçmişi.
+        `gecmis` ve `baglam` dışarıdan verilebilir: `urun_tara` ikisini de
+        bir kez hesaplayıp buraya, `_sonraki_aralik`e ve (BACKLOG A2)
+        `Product` sütunlarına geçirir. Burada `baglam=None` verilirse (örn.
+        bu metot tek başına çağrılırsa) kendi hesabını yapar — eski davranış
+        korunur.
         """
         fiyat = urun.guncel_fiyat
         if fiyat is None:
             return 0
 
         okumalar = self._okuma_gecmisi(urun.id) if gecmis is None else gecmis
-        baglam = analiz.fiyat_baglami(okumalar, fiyat)
+        if baglam is None:
+            baglam = analiz.fiyat_baglami(okumalar, fiyat)
         dip_kirildi, onceki_dip, _ = analiz.dip_kirildi_mi(okumalar, fiyat)
 
         uretilen = 0
