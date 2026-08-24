@@ -1,7 +1,7 @@
 """İzleme rotaları — ürünün ana akışı."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import semalar, toplayici
 from ...cekici import HttpCekici
@@ -15,6 +15,21 @@ router = APIRouter(prefix="/api/izlemeler", tags=["izleme"])
 @router.get("", response_model=list[semalar.IzlemeYaniti])
 def listele(k: Kullanici, db: DB):
     return svc.izlemeler(db, k)
+
+
+# `/{izleme_id}`den ÖNCE tanımlı olmalı: FastAPI yolları sırayla eşler,
+# aksi hâlde "kivilcimlar" bir izleme id'si olarak yorumlanmaya çalışılır
+# ve int dönüşümü 422 ile patlar — kıvılcım ucuna hiç ulaşılmaz.
+@router.get("/kivilcimlar", response_model=dict[int, list[float]])
+def kivilcimlar(k: Kullanici, db: DB,
+               gun: int = Query(svc.KIVILCIM_VARSAYILAN_GUN,
+                                ge=svc.KIVILCIM_MIN_GUN,
+                                le=svc.KIVILCIM_AZAMI_GUN)):
+    """Panel kartlarındaki minik grafik için toplu veri — ayrı uç, çünkü
+    liste yanıtına (`GET /api/izlemeler`) gömülseydi her ürünün 90 günlük
+    fiyat dizisiyle yanıt üç katına çıkardı. Kart göründükten sonra ikinci
+    istekle, gecikmeli yüklenebilsin diye ayrıldı."""
+    return svc.kivilcimlar(db, k, gun)
 
 
 @router.post("", response_model=semalar.IzlemeYaniti,

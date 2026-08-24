@@ -13,9 +13,9 @@ from urllib.parse import urlparse, urlunparse
 from sqlalchemy import case
 from sqlalchemy.orm import Session, selectinload
 
-from .. import aglar, siteler
+from .. import aglar, analiz, siteler
 from ..ayarlar import ayarlar
-from ..models import Product, Source, User, Watch, WatchSet
+from ..models import PriceReading, Product, Source, User, Watch, WatchSet
 from ..zaman import utc_simdi
 from .ortak import alanlari_uygula
 
@@ -262,6 +262,54 @@ def kaynak_ekle(db: Session, kullanici: User, izleme_id: int,
     w.product.sonraki_kontrol = None
     db.flush()
     return kaynak
+
+
+# BACKLOG A5: kıvılcım gün penceresi sınırları. Alt sınır (7) analiz
+# katmanının MIN_GUN'unun altında bile anlamlı bir şekil vermesi için
+# yeterince geniş; üst sınır (365) sınırsız bırakmayı (tek istekte tüm
+# geçmişin belleğe çekilmesi) engelliyor.
+KIVILCIM_VARSAYILAN_GUN = 90
+KIVILCIM_MIN_GUN = 7
+KIVILCIM_AZAMI_GUN = 365
+
+
+def kivilcimlar(db: Session, kullanici: User,
+                gun: int = KIVILCIM_VARSAYILAN_GUN) -> dict[int, list[float]]:
+    """Panel kartlarındaki minik grafik için TEK sorguda toplu veri.
+
+    35 ürün için 35 ayrı istek atmak kabul edilemez (BACKLOG A5) — bu yüzden
+    `watches` ve `price_readings` TEK JOIN'li sorguda birleşir; ürün
+    sahipliği `Watch.user_id` üzerinden filtrelenir. Anahtar İZLEME id'sidir,
+    ürün id'si DEĞİL: aynı ürünü izleyen başka bir kullanıcının izleme
+    id'siyle bu veriye ulaşılamaz — her satır zaten `Watch.user_id ==
+    kullanici.id` süzgecinden geçmiş durumda.
+
+    Gün kırılımı `analiz.gunluk_minimumlar` ile TÜRKİYE TAKVİMİNE göre
+    yapılır (SQL `date()` UTC gün sınırı kullanırdı ve bu, aynı ürünün
+    sinyal hesabındaki (worker.py, A2) gün sayısından FARKLI bir sayı
+    üretebilirdi — iki yerde iki ayrı "gün" tanımı olurdu).
+
+    Tarih taşınmaz, yalnızca fiyat dizisi: kıvılcımda eksen yok, yer kaplar.
+    Geçmişi olmayan izleme sözlükte HİÇ görünmez (boş dizi değil) — arayüz
+    tarafında "veri yok" ile "sıfır günlük geçmiş" ayrımını netleştirir.
+    """
+    sinir = utc_simdi() - timedelta(days=gun)
+
+    satirlar = (db.query(Watch.id, PriceReading.ts, PriceReading.fiyat)
+               .join(PriceReading, PriceReading.product_id == Watch.product_id)
+               .filter(Watch.user_id == kullanici.id, PriceReading.ts >= sinir)
+               .all())
+
+    ham: dict[int, list[analiz.Okuma]] = {}
+    for izleme_id, ts, fiyat in satirlar:
+        if not fiyat:                     # `if f` deseni: okumalar()'daki gibi
+            continue
+        ham.setdefault(izleme_id, []).append(analiz.Okuma(ts=ts, fiyat=fiyat))
+
+    return {
+        izleme_id: [f for _, f in sorted(analiz.gunluk_minimumlar(okumalar).items())]
+        for izleme_id, okumalar in ham.items()
+    }
 
 
 def izlemeler(db: Session, kullanici: User) -> list[Watch]:

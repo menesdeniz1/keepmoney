@@ -779,6 +779,124 @@ def test_izleme_listesi_n_arti_bir_sorgu_yapmaz(istemci, db):
     assert len(secmeler) <= 4, f"{len(secmeler)} SELECT: {secmeler}"
 
 
+# ─────────────────── kıvılcım ucu (BACKLOG A5) ───────────────────
+
+def _gecmis_ekle(db, urun_id, kaynak_id, fiyat_gun_listesi):
+    """`[(fiyat, kac_gun_once), ...]` biçiminde okuma ekler."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import utc_simdi
+
+    simdi = utc_simdi()
+    for fiyat, gun_once in fiyat_gun_listesi:
+        db.add(PriceReading(product_id=urun_id, source_id=kaynak_id,
+                            fiyat=fiyat, ts=simdi - timedelta(days=gun_once)))
+    db.commit()
+
+
+def test_kivilcimlar_tek_sorgu_aciyor(istemci, db):
+    """Kabul ölçütü: uç TEK SQL sorgusu açıyor. Toplam beklenen 2: biri
+    kimlik doğrulama (`db.get(User, ...)`, her uçta ödenen sabit maliyet),
+    biri kıvılcım JOIN'i — ürün/izleme SAYISINDAN BAĞIMSIZ olmalı."""
+    from sqlalchemy import event
+
+    b = kayit_ol(istemci)
+    for n in range(8):
+        istemci.post("/api/izlemeler", headers=b,
+                     json={"url": f"https://magaza.com/urun-{n}"})
+
+    urunler = db.query(Product).all()
+    kaynaklar = {k.product_id: k for k in db.query(Source).all()}
+    for urun in urunler:
+        _gecmis_ekle(db, urun.id, kaynaklar[urun.id].id,
+                    [(1000 + g, g) for g in range(5)])
+
+    sorgular: list[str] = []
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, *a, **kw):
+        sorgular.append(ifade)
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        y = istemci.get("/api/izlemeler/kivilcimlar", headers=b)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert y.status_code == 200
+    assert len(y.json()) == 8                # 8 izlemenin hepsinde geçmiş var
+    secmeler = [s for s in sorgular if s.lstrip().upper().startswith("SELECT")]
+    assert len(secmeler) <= 2, f"{len(secmeler)} SELECT: {secmeler}"
+
+
+def test_kivilcimlar_gecmisi_olmayan_izleme_sozlukte_yok(istemci, db):
+    """Kabul ölçütü: geçmişi olmayan izleme BOŞ DİZİ değil, sözlükte hiç
+    görünmüyor — "veri yok" ile "sıfır günlük geçmiş" ayrımı."""
+    b = kayit_ol(istemci)
+    gecmisli = istemci.post("/api/izlemeler", headers=b,
+                           json={"url": "https://magaza.com/a"}).json()["id"]
+    gecmissiz = istemci.post("/api/izlemeler", headers=b,
+                            json={"url": "https://magaza.com/b"}).json()["id"]
+
+    w = db.query(Watch).filter(Watch.id == gecmisli).one()
+    kaynak = db.query(Source).filter(Source.product_id == w.product_id).one()
+    _gecmis_ekle(db, w.product_id, kaynak.id, [(1000, 0)])
+
+    y = istemci.get("/api/izlemeler/kivilcimlar", headers=b)
+    veri = y.json()
+    assert str(gecmisli) in veri
+    assert str(gecmissiz) not in veri
+
+
+def test_kivilcimlar_baskasinin_izlemesi_donmuyor(istemci, db):
+    """Kabul ölçütü: başkasının izlemesi asla dönmüyor."""
+    a = kayit_ol(istemci, eposta="a@ornek.com")
+    c = kayit_ol(istemci, eposta="c@ornek.com")
+
+    izleme_a = istemci.post("/api/izlemeler", headers=a,
+                           json={"url": "https://magaza.com/a"}).json()["id"]
+    izleme_c = istemci.post("/api/izlemeler", headers=c,
+                           json={"url": "https://magaza.com/c"}).json()["id"]
+
+    for izleme_id in (izleme_a, izleme_c):
+        w = db.query(Watch).filter(Watch.id == izleme_id).one()
+        kaynak = db.query(Source).filter(Source.product_id == w.product_id).one()
+        _gecmis_ekle(db, w.product_id, kaynak.id, [(1000, 0)])
+
+    y = istemci.get("/api/izlemeler/kivilcimlar", headers=c)
+    veri = y.json()
+    assert str(izleme_c) in veri
+    assert str(izleme_a) not in veri
+
+
+def test_kivilcimlar_gun_araligi_disinda_422(istemci):
+    """Kabul ölçütü: `gun` 7-365 dışında 422."""
+    b = kayit_ol(istemci)
+    assert istemci.get("/api/izlemeler/kivilcimlar?gun=6",
+                       headers=b).status_code == 422
+    assert istemci.get("/api/izlemeler/kivilcimlar?gun=366",
+                       headers=b).status_code == 422
+    assert istemci.get("/api/izlemeler/kivilcimlar?gun=7",
+                       headers=b).status_code == 200
+    assert istemci.get("/api/izlemeler/kivilcimlar?gun=365",
+                       headers=b).status_code == 200
+
+
+def test_kivilcimlar_gun_basina_en_dusuk_fiyati_verir(istemci, db):
+    """Değerler gün başına EN DÜŞÜK okuma, eskiden yeniye sıralı."""
+    b = kayit_ol(istemci)
+    izleme_id = istemci.post("/api/izlemeler", headers=b,
+                            json={"url": "https://magaza.com/a"}).json()["id"]
+    w = db.query(Watch).filter(Watch.id == izleme_id).one()
+    kaynak = db.query(Source).filter(Source.product_id == w.product_id).one()
+    # Aynı güne (2 gün önce) iki okuma: düşük olan kazanmalı.
+    _gecmis_ekle(db, w.product_id, kaynak.id,
+                [(1200, 2), (1000, 2), (900, 1), (800, 0)])
+
+    y = istemci.get("/api/izlemeler/kivilcimlar", headers=b)
+    assert y.json()[str(izleme_id)] == [1000.0, 900.0, 800.0]
+
+
 # ─────────────────── izleyen sayacı ───────────────────
 
 def test_sayac_negatife_dusmez(istemci, db):
