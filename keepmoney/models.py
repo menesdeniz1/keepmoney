@@ -122,6 +122,19 @@ class Product(Base):
 
     izleyen_sayisi = Column(Integer, default=0)   # kaç Watch işaret ediyor
 
+    # "Bu iyi bir fiyat mı" bağlamı — HER TARAMADA analiz.fiyat_baglami() ile
+    # hesaplanıyordu ve atılıyordu (yalnızca uyarı kararı için kullanılıp
+    # unutuluyordu). Liste ucu ürün başına geçmiş sorgusu açmadan sinyali
+    # gösterebilsin diye burada saklanır. `sahte_indirim` ve `trend_yonu`
+    # BİLEREK YOK: kart bunları göstermiyor, gösteren detay sayfası zaten
+    # canlı hesaplıyor — gereksiz sütun yazma maliyeti olurdu.
+    sinyal = Column(String, nullable=True)          # dip | ucuz | pahali
+    dip90 = Column(Float, nullable=True)
+    medyan90 = Column(Float, nullable=True)
+    yuzdelik = Column(Integer, nullable=True)       # 0-100
+    gecmis_gun = Column(Integer, nullable=True)     # kaç günlük veriye dayanıyor
+    baglam_ts = Column(DateTime, nullable=True)     # ne zaman hesaplandı
+
     created_at = Column(DateTime, default=utc_simdi)
 
     sources = relationship("Source", back_populates="product",
