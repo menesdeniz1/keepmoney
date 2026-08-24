@@ -94,6 +94,19 @@ export interface UrunOzet {
   puan: number | null
   yorum_sayisi: number | null
   son_kontrol: string | null
+  /**
+   * BACKLOG A4: worker'ın her taramada hesaplayıp attığı bağlam artık
+   * saklanıyor — kart, ürüne tıklamadan bu beşini gösterebilir. `null`
+   * ikisinden biri demek: geçmiş `gecmis_gun < 7` (A7'nin "biriktiriliyor"
+   * hâli) ya da ürün hiç taranmadı. `UrunDetay.baglam` (canlı hesap) bunun
+   * yerini TUTMAZ — kart bu saklanan değeri, detay sayfası anlık hesabı
+   * gösterir; ikisi arasında bir tarama turu kadar fark olabilir.
+   */
+  sinyal: Sinyal | null
+  dip90: number | null
+  medyan90: number | null
+  yuzdelik: number | null
+  gecmis_gun: number | null
 }
 
 export interface UrunDetay extends UrunOzet {
