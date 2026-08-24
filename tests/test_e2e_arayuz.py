@@ -735,6 +735,94 @@ def test_grafik_araligi_yetersiz_veride_pasif(sayfa, sunucu):
     assert not grup.get_by_role("button", name="Tümü", exact=True).is_disabled()
 
 
+# ── Panel sıralaması (BACKLOG C1) ──────────────────────────────────
+
+def _uc_urun_farkli_fiyatla_kur(s: Page, sunucu):
+    """Üç ürün ekler, DB'ye doğrudan yazarak FARKLI fiyat verir — worker
+    bu paket içinde çalışmadığı için `guncel_fiyat` normalde hep None
+    kalırdı (bkz. `_uzun_gecmisli_urune_git`, aynı desen)."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    eposta = _kayit_ol(s, sunucu)
+    kartlar = s.locator("a[href^='/izleme/']")
+    for n in range(3):
+        _urun_ekle(s, url=f"https://www.example.com/urun/parca-{n}", hedef="")
+        # ÖNCEKİ istek tamamlanmadan sonraki `_urun_ekle` form'u dolduruyordu
+        # — "Takibe al" `ekle.isPending` iken disabled, ard arda tıklama
+        # bazen kayboluyordu (ÖLÇÜLDÜ: 3 çağrıdan yalnızca 2 kart oluştu).
+        # Her ekleme sonrası SAYININ ARTTIĞINI bekleyerek sıraya sokuyoruz.
+        expect(kartlar).to_have_count(n + 1, timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    from keepmoney.models import User, Watch
+
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    izlemeler = db.query(Watch).filter(Watch.user_id == kullanici.id).all()
+    # Kaydedilme sırası: parca-0, parca-1, parca-2. Fiyatları KARIŞIK
+    # veriyoruz ki "artan" sıralama DB/ekleme sırasıyla TESADÜFEN
+    # örtüşmesin — testin gerçekten sıraladığını, zaten sıralı olan bir
+    # diziyi olduğu gibi geçmediğini kanıtlamak için.
+    fiyatlar = {"parca-0": 300.0, "parca-1": 100.0, "parca-2": 200.0}
+    for w in izlemeler:
+        for anahtar, fiyat in fiyatlar.items():
+            if anahtar in w.product.sources[0].url:
+                w.product.guncel_fiyat = fiyat
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    s.reload(wait_until="networkidle")
+    s.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+
+def _panel_kart_fiyatlari(s: Page) -> list[str]:
+    return s.locator(
+        "a[href^='/izleme/'] .font-mono.text-lg.font-semibold"
+    ).all_inner_texts()
+
+
+def test_panel_siralama_varsayilan_firsat(sayfa, sunucu):
+    """Kabul ölçütü: varsayılan 'En iyi fırsat'."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    secili = sayfa.locator("#panel-siralama")
+    secili.wait_for(timeout=15000)
+    assert secili.input_value() == "firsat"
+
+
+def test_panel_siralama_fiyata_gore_degistirilebilir(sayfa, sunucu):
+    """Kabul ölçütü: her seçenek doğru sıralıyor."""
+    _uc_urun_farkli_fiyatla_kur(sayfa, sunucu)
+
+    sayfa.locator("#panel-siralama").select_option("fiyat_artan")
+    sayfa.wait_for_timeout(300)
+    fiyatlar = _panel_kart_fiyatlari(sayfa)
+    assert fiyatlar == ["₺100,00", "₺200,00", "₺300,00"]
+
+    sayfa.locator("#panel-siralama").select_option("fiyat_azalan")
+    sayfa.wait_for_timeout(300)
+    fiyatlar = _panel_kart_fiyatlari(sayfa)
+    assert fiyatlar == ["₺300,00", "₺200,00", "₺100,00"]
+
+
+def test_panel_siralama_secimi_yenilemede_korunur(sayfa, sunucu):
+    """Kabul ölçütü: seçim localStorage'da kalıcı."""
+    _uc_urun_farkli_fiyatla_kur(sayfa, sunucu)
+
+    sayfa.locator("#panel-siralama").select_option("fiyat_azalan")
+    sayfa.wait_for_timeout(300)
+
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    assert sayfa.locator("#panel-siralama").input_value() == "fiyat_azalan"
+    fiyatlar = _panel_kart_fiyatlari(sayfa)
+    assert fiyatlar == ["₺300,00", "₺200,00", "₺100,00"]
+
+
 # ── Çoklu kaynak: öneri → seçim → ekleme ─────────────────────────
 # Bu akış bugün eklendi ve yalnızca birim testleriyle doğrulanmıştı:
 # "JSX'te düğme var" ile "düğme çalışıyor" arasındaki farkı kapatan tek

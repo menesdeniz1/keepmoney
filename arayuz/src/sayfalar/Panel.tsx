@@ -1,15 +1,36 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 
-import { useIzlemeEkle, useIzlemeler } from '../api/kancalar'
+import { useIzlemeEkle, useIzlemeler, useKivilcimlar } from '../api/kancalar'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
+import ListeKontrol from '../bilesenler/ListeKontrol'
 import { tl } from '../yardimcilar/bicim'
+import {
+  baslangicSiralamasi,
+  izlemeleriSirala,
+  SIRALAMA_ANAHTARI,
+  type SiralamaSecenegi,
+} from '../yardimcilar/siralama'
 
 export default function Panel() {
   const { data: izlemeler, isLoading } = useIzlemeler()
+  // BACKLOG C1: "son değişim" sıralaması kıvılcım verisine bakıyor. Aynı
+  // queryKey olduğu için IzlemeKarti'nin kendi çağrısıyla TEKİLLEŞTİRİLİR
+  // (kancalar.ts) — burada ikinci bir HTTP isteği AÇILMAZ.
+  const { data: kivilcimlar } = useKivilcimlar()
   const ekle = useIzlemeEkle()
   const [url, setUrl] = useState('')
   const [hedef, setHedef] = useState('')
+  const [siralama, setSiralama] = useState<SiralamaSecenegi>(baslangicSiralamasi)
+
+  function siralamaDegistir(secenek: SiralamaSecenegi) {
+    setSiralama(secenek)
+    try {
+      localStorage.setItem(SIRALAMA_ANAHTARI, secenek)
+    } catch {
+      // Depolama kapalıysa seçim yalnızca bu oturumda kalır — sorun değil.
+    }
+  }
 
   function gonder(e: React.FormEvent) {
     e.preventDefault()
@@ -51,6 +72,11 @@ export default function Panel() {
   // ilerlemenin somut, ölçülmüş kanıtı.
   const enIlerideki = Math.max(
     0, ...sinyalsizler.map((i) => i.urun.gecmis_gun ?? 0))
+
+  // Yalnızca GÖRÜNTÜLEME sırasını etkiler — üstteki kutucuklar (izlenen
+  // sayısı, hedefte, biriktiriliyor) sıraya duyarsız hesaplar, orijinal
+  // `izlemeler` üzerinden kalır.
+  const siraliIzlemeler = izlemeleriSirala(izlemeler ?? [], siralama, kivilcimlar)
 
   return (
     <div className="space-y-6">
@@ -130,8 +156,14 @@ export default function Panel() {
         </div>
       )}
 
+      {izlemeler && izlemeler.length > 0 && (
+        <div className="flex justify-end">
+          <ListeKontrol secili={siralama} onDegistir={siralamaDegistir} />
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
-        {izlemeler?.map((i) => (
+        {siraliIzlemeler.map((i) => (
           <IzlemeKarti key={i.id} izleme={i} />
         ))}
       </div>

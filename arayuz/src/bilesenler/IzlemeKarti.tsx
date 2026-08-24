@@ -6,6 +6,7 @@ import type { Izleme } from '../api/tipler'
 import Kivilcim from './Kivilcim'
 import SinyalRozeti from './SinyalRozeti'
 import { goreliZaman, hedefeKalan, kisaTl, tl, yuzde } from '../yardimcilar/bicim'
+import { kivilcimDegisimiHesapla } from '../yardimcilar/kivilcimDegisim'
 
 /** Yüzde farkı yeşil/kırmızı boyar — DÜŞÜŞ her zaman iyi haber (ucuzlamış),
  * artış nötr/kırmızı. `yuzde()` yönü zaten oka çeviriyor, burada sadece renk. */
@@ -37,13 +38,10 @@ export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
   // taşımıyor (A5'in kendi tasarımı: "eksen yok, yer kaplar"), yani 30
   // günlük bir pencereyi KIVILCIM VERİSİNDEN doğru kesmek mümkün değil.
   // Bunun yerine GERÇEK veri aralığının başı/sonu karşılaştırılıyor ve
-  // etiket urun.gecmis_gun'daki GERÇEK gün sayısını gösteriyor.
-  const ilkFiyat = kivilcimVerisi?.[0]
-  const sonFiyat = kivilcimVerisi?.[kivilcimVerisi.length - 1]
-  const kivilcimDegisim =
-    ilkFiyat && sonFiyat && kivilcimVerisi && kivilcimVerisi.length >= 2
-      ? ((sonFiyat - ilkFiyat) / ilkFiyat) * 100
-      : null
+  // etiket urun.gecmis_gun'daki GERÇEK gün sayısını gösteriyor. Hesap
+  // `yardimcilar/kivilcimDegisim.ts`'te — BACKLOG C1 (sıralama) aynı
+  // hesaba Panel seviyesinde de ihtiyaç duyuyor.
+  const kivilcimDegisim = kivilcimDegisimiHesapla(kivilcimVerisi)
 
   return (
     <Link
