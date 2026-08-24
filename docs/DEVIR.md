@@ -18,16 +18,50 @@ geçmişi sıfırlanacağı için burada duran şey "ne var" değil, **"neden ö
 
 Aşağıdakini olduğu gibi yapıştır:
 
+### Genel devir — projeyi bütün olarak devralmak için
+
 ```
 KeepMoney projesinde çalışıyoruz. Önce şunları oku:
   docs/DEVIR.md   — durum, sıradaki iş, tuzaklar (BURADAN BAŞLA)
-  docs/MIMARI.md  — K1–K63 tasarım kararları
+  docs/MIMARI.md  — K1–K66 tasarım kararları
   docs/CALISTIRMA.md — kurulum ve çalıştırma
 
 Ben Windows'tayım, PowerShell kullanıyorum, proje
 C:\Users\enes\Desktop\myprojects\keepmoney altında. Ana dal: main.
 
 DEVIR.md §4'teki "Sıradaki iş" listesinin ilk maddesinden başla.
+```
+
+### Arayüz işi — BACKLOG.md'deki task'ları yaptırmak için
+
+```
+KeepMoney projesinde arayüz işini yapacaksın. Tek kaynağın bu:
+
+  docs/BACKLOG.md — 34 task, kurulum, kurallar, tuzaklar. TEK BAŞINA YETERLİ.
+
+İstersen bakarsın ama şart değil:
+  docs/DEVIR.md   — projenin ölçülmüş durumu
+  docs/MIMARI.md  — K1-K66 tasarım kararları
+
+Ben Windows'tayım, PowerShell, C:\Users\enes\Desktop\myprojects\keepmoney.
+Ana dal: main. Kod, yorum, commit mesajı, belge hepsi Türkçe.
+
+BACKLOG.md §3'teki sıradan git. A1 ile başla.
+
+Her task için:
+  1. §1'deki "bilinen tuzaklar"ı oku — bunlar bu projede gerçekten yaşandı,
+     aynısına takılacaksın (özellikle göç yazıyorsan)
+  2. Task'ın kabul ölçütlerini TEK TEK karşıla
+  3. Testini yaz — yeni davranışın testi yoksa task kapanmaz
+  4. §1'deki beş kontrolü koştur: pytest, ruff, tsc, eslint, alembic check.
+     Hepsi yeşil olmadan "bitti" deme
+  5. Commit + push. Bana ne yaptığını ve NEYİ ÖLÇTÜĞÜNÜ söyle
+
+Bir seferde bir task. Bitince dur, ben kontrol edeceğim.
+
+Tahmin etme, ölç. "Çalışıyor" diyorsan çalıştırıp görmüş ol.
+Yapamadığın ya da yanlış bulduğun bir şey varsa söyle — sessizce kapsam
+daraltma.
 ```
 
 ---
