@@ -134,6 +134,15 @@ export const api = {
   // ── İzleme ────────────────────────────────────────────────────
   izlemeler: () => istek<Izleme[]>('/izlemeler'),
 
+  /**
+   * BACKLOG A5/A8 — kart başına minik grafik. Dönüş anahtarı İZLEME id'si
+   * ama JSON'da (ve JS objesinde) HER ZAMAN DİZGE: `Record<string, ...>`,
+   * `Record<number, ...>` DEĞİL — sayısal anahtarlı `Record` TypeScript'te
+   * geçerli görünse de çalışma zamanında obje anahtarları zaten dizgeye
+   * çevrilir; yanlış tip erişim noktasında yanıltıcı olurdu.
+   */
+  kivilcimlar: () => istek<Record<string, number[]>>('/izlemeler/kivilcimlar'),
+
   izleme: (id: number) => istek<IzlemeDetay>(`/izlemeler/${id}`),
 
   izlemeEkle: (girdi: IzlemeEkleGirdi) =>

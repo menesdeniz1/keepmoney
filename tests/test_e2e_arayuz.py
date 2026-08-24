@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import contextlib
 import os
+import pathlib
+import re
 import socket
 import subprocess
 import sys
@@ -40,6 +42,19 @@ if not (ARAYUZ_DIST / "index.html").is_file():
 _CHROMIUM = os.environ.get("KEEPMONEY_PLAYWRIGHT_CALISTIRILABILIR", "").strip()
 if not _CHROMIUM and os.path.exists("/opt/pw-browsers/chromium"):
     _CHROMIUM = "/opt/pw-browsers/chromium"
+
+
+class _SunucuAdresi(str):
+    """`sunucu` fixture'ının döndürdüğü değer.
+
+    Normal bir URL dizgesi gibi davranır — `str` alt sınıfı olduğu için
+    `f"{sunucu}/setler"` gibi MEVCUT tüm kullanımlar aynen çalışır. Ek
+    olarak `.db_yolu` taşır: bazı senaryolar (BACKLOG A8 — sinyal sütunu
+    yalnızca worker'ın GÜNLERCE çalışmasıyla dolar, bkz. DEVIR §4.1)
+    tarayıcı etkileşimiyle KURULAMAZ; testin veritabanına doğrudan
+    yazması gerekir — tıpkı worker testlerinde `PriceReading` satırlarının
+    elle eklenmesi gibi (bkz. test_worker.py::_gecmis_ekle)."""
+    db_yolu: pathlib.Path
 
 
 def _bos_port() -> int:
@@ -104,7 +119,8 @@ def sunucu(tmp_path_factory):
         except OSError:
             return "(sunucu kaydı okunamadı)"
 
-    taban = f"http://127.0.0.1:{port}"
+    taban = _SunucuAdresi(f"http://127.0.0.1:{port}")
+    taban.db_yolu = dizin / "e2e.sqlite"
     import urllib.error
     import urllib.request
     try:
@@ -278,6 +294,52 @@ def test_yeni_urunde_sinyal_degil_biriktiriliyor_gorunur(sayfa, sunucu):
     sayfa.locator("a[href^='/izleme/']").first.click()
     sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
     assert "henüz hiç fiyat okunmadı" in sayfa.content()
+
+
+def test_sinyalli_kartta_rozet_metni_ve_kivilcim_gorunur(sayfa, sunucu):
+    """BACKLOG A8 — kartın "görünen sonucu": rozet + kıvılcım grafiği.
+
+    Sinyal sütunu yalnızca worker'ın GÜNLERCE çalışmasıyla dolar (DEVIR
+    §4.1) — tarayıcı etkileşimiyle kurulamaz. `test_worker.py::_gecmis_ekle`
+    ile aynı ilkeyle (worker'ın normalde yazacağı veriyi testte elle
+    kurmak) veritabanına doğrudan yazıyoruz — `sunucu.db_yolu` bunun için
+    var (bkz. `_SunucuAdresi`).
+    """
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import PriceReading, Product, Source
+    from keepmoney.zaman import utc_simdi
+
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = db.query(Product).one()
+    kaynak = db.query(Source).filter(Source.product_id == urun.id).one()
+    simdi = utc_simdi()
+    for gun, fiyat in enumerate([1000, 950, 1100, 900, 850]):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                            fiyat=fiyat, ts=simdi - timedelta(days=4 - gun)))
+    urun.guncel_fiyat = 850
+    urun.sinyal = "dip"
+    urun.dip90 = 850.0
+    urun.medyan90 = 1000.0
+    urun.yuzdelik = 92
+    urun.gecmis_gun = 5
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    # TanStack Query önbelleği eski (sinyalsiz) yanıtı tutuyor olabilir —
+    # taze veri için sayfa yenileniyor (gerçek kullanıcının da yapacağı şey).
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("text=90 günün dibi", timeout=15000)
+    assert sayfa.locator("svg[aria-label*='fiyat eğilimi']").count() >= 1
 
 
 def test_ayni_urun_iki_kez_eklenince_hata_gosterilir(sayfa, sunucu):
@@ -687,8 +749,14 @@ def _detay_yanitini_degistir(s: Page, **kaynak_alanlari):
             k.update(kaynak_alanlari)
         rota.fulfill(response=yanit, json=veri)
 
-    # Yalnızca TEK izlemenin detayı; liste ucu (`/api/izlemeler`) hariç.
-    s.route(lambda u: "/api/izlemeler/" in u, islemci)
+    # Yalnızca TEK izlemenin detayı: `/api/izlemeler/{sayısal id}`.
+    #
+    # `"/api/izlemeler/" in u` YETERSİZDİ (BACKLOG A8'de kırıldı): kart
+    # artık `/api/izlemeler/kivilcimlar`'ı da çağırıyor ve bu yol da aynı
+    # alt dizgeyi içeriyor — `islemci` o yanıtı da yakalayıp `veri["urun"]`
+    # okumaya çalışıyor, ki kıvılcım yanıtında böyle bir anahtar yok
+    # (`{"1": [...], "2": [...]}` biçiminde). Regex SAYISAL id'yle sınırlıyor.
+    s.route(re.compile(r"/api/izlemeler/\d+$"), islemci)
 
 
 def test_pazar_derinligi_gosteriliyor(sayfa, sunucu):

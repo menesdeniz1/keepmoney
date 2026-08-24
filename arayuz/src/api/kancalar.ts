@@ -32,6 +32,7 @@ export const anahtar = {
   ben: ['ben'] as const,
   izlemeler: ['izlemeler'] as const,
   izleme: (id: number) => ['izleme', id] as const,
+  kivilcimlar: ['kivilcimlar'] as const,
   setler: ['setler'] as const,
   uyarilar: (sadeceOkunmamis: boolean) => ['uyarilar', sadeceOkunmamis] as const,
   uyariSayisi: ['uyari-sayisi'] as const,
@@ -48,6 +49,27 @@ export function useBen(): UseQueryResult<Kullanici> {
 
 export function useIzlemeler(): UseQueryResult<Izleme[]> {
   return useQuery({ queryKey: anahtar.izlemeler, queryFn: api.izlemeler })
+}
+
+/**
+ * Kart başına minik grafik verisi (BACKLOG A5/A8) — AYRI ve GECİKMELİ
+ * yüklenir: `IzlemeKarti` bu kancayı KENDİ İÇİNDE çağırır, `useIzlemeler()`
+ * ile YARIŞMAZ, kart onsuz da tam görünür (bkz. Kivilcim.tsx'in yer
+ * ayıran boş durumu).
+ *
+ * 35 kartın HER BİRİ bu kancayı çağırsa bile TEK bir HTTP isteği gider —
+ * TanStack Query aynı `queryKey` için istekleri TEKİLLEŞTİRİR ve sonucu
+ * tüm çağıranlara dağıtır. Bu, backend'in kendi garantisiyle (A5: tek SQL
+ * sorgusu) aynı ilkenin istemci tarafındaki karşılığı.
+ */
+export function useKivilcimlar(): UseQueryResult<Record<string, number[]>> {
+  return useQuery({
+    queryKey: anahtar.kivilcimlar,
+    queryFn: api.kivilcimlar,
+    // Fiyat geçmişi dakikalar içinde değişmez; panel her odaklanmada bu
+    // isteği tekrarlamasın.
+    staleTime: 5 * 60_000,
+  })
 }
 
 export function useIzleme(id: number): UseQueryResult<IzlemeDetay> {
