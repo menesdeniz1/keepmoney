@@ -952,6 +952,15 @@ def _tarama_ozeti(SessionLocal, text) -> int:
         toplam, okunan = satir[0], satir[1] or 0
         print()
         print(f"TARAMA: {okunan}/{toplam} üründe fiyat var")
+
+        # BACKLOG A1/A2/A3: sinyal ancak (a) worker bir tur taradıktan ya da
+        # (b) `betikler/baglam_doldur.py` çalıştırıldıktan sonra dolar. Bu
+        # satır olmadan "sinyal neden hâlâ boş" sorusunun cevabı, "TARAMA"
+        # satırındaki fiyat sayısına bakılarak tahmin edilmek zorunda kalırdı.
+        sinyalli = db.execute(text(
+            "SELECT COUNT(*) FROM products WHERE sinyal IS NOT NULL")).scalar()
+        print(f"SİNYAL: {sinyalli}/{toplam} üründe hesaplanmış "
+              "(betikler/baglam_doldur.py ile ağa çıkmadan doldurulabilir)")
         print()
         print("SİTE BAZINDA (okunan / toplam)")
         for host, ok, hepsi, engelli in db.execute(text(
