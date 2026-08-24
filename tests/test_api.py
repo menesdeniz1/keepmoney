@@ -154,6 +154,44 @@ def test_izleme_listelenir(istemci):
     assert len(y.json()) == 2
 
 
+def test_liste_ucu_sinyali_donduruyor(istemci, db):
+    """BACKLOG A4: sinyal artık ürüne tıklamadan panelde görünüyor.
+
+    `worker.py` bu sütunları A2'de yazıyor; burada doğrudan `Product`
+    üzerinde kurup liste ucunun bunu OKUDUĞUNU doğruluyoruz."""
+    b = kayit_ol(istemci)
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+
+    urun = db.query(Product).one()
+    urun.sinyal = "dip"
+    urun.dip90 = 850.0
+    urun.medyan90 = 1000.0
+    urun.yuzdelik = 92
+    urun.gecmis_gun = 14
+    db.commit()
+
+    y = istemci.get("/api/izlemeler", headers=b)
+    veri = y.json()[0]["urun"]
+    assert veri["sinyal"] == "dip"
+    assert veri["dip90"] == 850.0
+    assert veri["medyan90"] == 1000.0
+    assert veri["yuzdelik"] == 92
+    assert veri["gecmis_gun"] == 14
+
+
+def test_liste_ucu_gecmisi_olmayan_urunde_null_doner(istemci):
+    """Kabul ölçütü: geçmişi olmayan üründe beş alan da null, istek hata
+    vermiyor — yeni eklenen bir ürün henüz hiç taranmamış olabilir."""
+    b = kayit_ol(istemci)
+    istemci.post("/api/izlemeler", headers=b, json={"url": "https://magaza.com/a"})
+
+    y = istemci.get("/api/izlemeler", headers=b)
+    assert y.status_code == 200
+    veri = y.json()[0]["urun"]
+    for alan in ("sinyal", "dip90", "medyan90", "yuzdelik", "gecmis_gun"):
+        assert veri[alan] is None, f"{alan} null olmalıydı: {veri[alan]}"
+
+
 def test_ayni_urun_iki_kez_eklenemez(istemci):
     b = kayit_ol(istemci)
     istemci.post("/api/izlemeler", headers=b,

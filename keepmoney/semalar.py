@@ -148,6 +148,17 @@ class UrunOzet(BaseModel):
     puan: float | None = None
     yorum_sayisi: int | None = None
     son_kontrol: datetime | None = None
+    # BACKLOG A4: liste ucu artık sinyali DÖNDÜRÜYOR — ek sorgu YOK, hepsi
+    # `Product` sütunu (A1) ve `Watch.product` zaten `selectinload` ile
+    # yükleniyor (bkz. servisler/izleme.py::izlemeler). `UrunDetay.baglam`
+    # (aşağıda) canlı hesaplanmaya devam ediyor; ikisi arasında bir tarama
+    # turu kadar fark olabilir — kart saklanan değeri, detay sayfası anlık
+    # hesabı gösterir, bu kabul edilebilir (bkz. A2).
+    sinyal: str | None = None
+    dip90: float | None = None
+    medyan90: float | None = None
+    yuzdelik: int | None = None
+    gecmis_gun: int | None = None
 
 
 class UrunDetay(UrunOzet):
