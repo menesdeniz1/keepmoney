@@ -205,6 +205,22 @@ def _urun_ekle(s: Page, url: str = "https://www.example.com/urun/ekran-karti",
     s.get_by_role("button", name="Takibe al").click()
 
 
+def _kullanicinin_urunu(db, eposta: str):
+    """`sunucu` fixture'ı `scope="module"` — TEK bir DB, dosyadaki TÜM
+    testler arasında PAYLAŞILIYOR ve hiç sıfırlanmıyor. `db.query(Product)
+    .one()` bu yüzden YANLIŞ: bu testten ÖNCE çalışan başka testler zaten
+    kendi ürünlerini eklemiş olabilir (birden fazla satır varsa `.one()`
+    `MultipleResultsFound` fırlatır) — GERÇEKTEN ÖLÇÜLDÜ: tam paket içinde
+    art arda koşunca bu yüzden kırıldı, tek başına çalıştırıldığında
+    (pytest -k ile öncekiler deselect edilince) DB boş kaldığı için
+    tesadüfen geçiyordu. Doğru sorgu kullanıcıya özgü olmalı."""
+    from keepmoney.models import User, Watch
+
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    izleme = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    return izleme.product
+
+
 # ── Kimlik akışı ─────────────────────────────────────────────────
 
 def test_acilista_giris_ekrani(sayfa, sunucu):
@@ -310,16 +326,16 @@ def test_sinyalli_kartta_rozet_metni_ve_kivilcim_gorunur(sayfa, sunucu):
     import sqlalchemy as sa
     from sqlalchemy.orm import Session
 
-    from keepmoney.models import PriceReading, Product, Source
+    from keepmoney.models import PriceReading, Source
     from keepmoney.zaman import utc_simdi
 
-    _kayit_ol(sayfa, sunucu)
+    eposta = _kayit_ol(sayfa, sunucu)
     _urun_ekle(sayfa, hedef="")
     sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
 
     motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
     db = Session(motor)
-    urun = db.query(Product).one()
+    urun = _kullanicinin_urunu(db, eposta)
     kaynak = db.query(Source).filter(Source.product_id == urun.id).one()
     simdi = utc_simdi()
     for gun, fiyat in enumerate([1000, 950, 1100, 900, 850]):
@@ -631,6 +647,92 @@ def test_api_404u_json_doner(sayfa, sunucu):
     yanit = sayfa.request.get(f"{sunucu}/api/boyle-bir-uc-yok")
     assert yanit.status == 404
     assert "application/json" in yanit.headers.get("content-type", "")
+
+
+# ── Grafik zaman aralığı (BACKLOG B1) ─────────────────────────────
+
+def _uzun_gecmisli_urune_git(s: Page, sunucu, gun_sayisi: int) -> None:
+    """`gun_sayisi` FARKLI güne yayılan okuma ekler, sonra detay sayfasına
+    gider. Worker'ın normalde günlerce çalışarak biriktireceği geçmişi
+    testte elle kurma deseni — bkz. A8'in `test_sinyalli_kartta_...`."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import PriceReading, Source
+    from keepmoney.zaman import utc_simdi
+
+    eposta = _kayit_ol(s, sunucu)
+    _urun_ekle(s, hedef="")
+    s.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = _kullanicinin_urunu(db, eposta)
+    kaynak = db.query(Source).filter(Source.product_id == urun.id).one()
+    simdi = utc_simdi()
+    for gun in range(gun_sayisi, 0, -1):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                            fiyat=1000 + gun, ts=simdi - timedelta(days=gun)))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    s.locator("a[href^='/izleme/']").first.click()
+    s.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
+
+
+def test_grafik_araligi_varsayilan_90g_ve_secim_degistirilebilir(sayfa, sunucu):
+    """Kabul ölçütü: varsayılan 90g. Aralık değişince y ekseni yeniden
+    ölçekleniyor — bunu piksel piksel doğrulamak yerine grafiğin GERÇEKTEN
+    yeniden çizildiğini (SVG path'inin değiştiğini) ölçüyoruz; recharts y
+    eksenini `domain` prop'undan hesaplıyor ve `veri` değişince path de
+    değişir, bu da dolaylı ama gerçek bir kanıt."""
+    _uzun_gecmisli_urune_git(sayfa, sunucu, gun_sayisi=120)
+
+    grup = sayfa.get_by_role("group", name="Grafik zaman aralığı")
+    grup.wait_for(timeout=15000)
+    varsayilan = grup.get_by_role("button", name="90g", exact=True)
+    assert varsayilan.get_attribute("aria-pressed") == "true"
+
+    onceki_path = sayfa.locator(".recharts-line-curve").get_attribute("d")
+
+    yedi_gun = grup.get_by_role("button", name="7g", exact=True)
+    yedi_gun.click()
+    sayfa.wait_for_timeout(300)
+
+    assert yedi_gun.get_attribute("aria-pressed") == "true"
+    assert varsayilan.get_attribute("aria-pressed") == "false"
+    sonraki_path = sayfa.locator(".recharts-line-curve").get_attribute("d")
+    assert sonraki_path != onceki_path              # grafik gerçekten değişti
+
+
+def test_grafik_araligi_secimi_yenilemede_korunur(sayfa, sunucu):
+    """Kabul ölçütü: sayfa yenilendiğinde son seçim korunuyor (localStorage)."""
+    _uzun_gecmisli_urune_git(sayfa, sunucu, gun_sayisi=120)
+
+    grup = sayfa.get_by_role("group", name="Grafik zaman aralığı")
+    grup.get_by_role("button", name="30g", exact=True).click()
+    sayfa.wait_for_timeout(300)
+
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
+    grup2 = sayfa.get_by_role("group", name="Grafik zaman aralığı")
+    assert grup2.get_by_role("button", name="30g", exact=True).get_attribute(
+        "aria-pressed") == "true"
+
+
+def test_grafik_araligi_yetersiz_veride_pasif(sayfa, sunucu):
+    """Kabul ölçütü: veri seçilen aralıktan kısaysa düğme pasif — burada
+    yalnızca 5 günlük veriyle "1y" test ediliyor (365 günden KISA olduğu
+    kesin). "Tümü" ASLA pasif olmamalı; o da burada doğrulanıyor."""
+    _uzun_gecmisli_urune_git(sayfa, sunucu, gun_sayisi=5)
+
+    grup = sayfa.get_by_role("group", name="Grafik zaman aralığı")
+    grup.wait_for(timeout=15000)
+    assert grup.get_by_role("button", name="1y", exact=True).is_disabled()
+    assert not grup.get_by_role("button", name="Tümü", exact=True).is_disabled()
 
 
 # ── Çoklu kaynak: öneri → seçim → ekleme ─────────────────────────
