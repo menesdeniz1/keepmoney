@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 
-import { useIzlemeEkle, useIzlemeler, useKivilcimlar } from '../api/kancalar'
+import { useIzlemeEkle, useIzlemeler, useKivilcimlar, useSetler } from '../api/kancalar'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
 import ListeKontrol from '../bilesenler/ListeKontrol'
 import { tl } from '../yardimcilar/bicim'
@@ -11,6 +11,7 @@ import {
   SIRALAMA_ANAHTARI,
   type SiralamaSecenegi,
 } from '../yardimcilar/siralama'
+import { izlemeleriSuz, SUZGEC_BOS, suzgecBosMu, type SuzgecDurumu } from '../yardimcilar/suzme'
 
 export default function Panel() {
   const { data: izlemeler, isLoading } = useIzlemeler()
@@ -18,10 +19,15 @@ export default function Panel() {
   // queryKey olduğu için IzlemeKarti'nin kendi çağrısıyla TEKİLLEŞTİRİLİR
   // (kancalar.ts) — burada ikinci bir HTTP isteği AÇILMAZ.
   const { data: kivilcimlar } = useKivilcimlar()
+  // BACKLOG C2: sete göre süzgeç seçenekleri set ADI göstermeli, yalnızca
+  // id yeterli değil — Setler sayfası zaten bu kancayı çağırıyor, aynı
+  // queryKey TanStack Query tarafından tekilleştirilir.
+  const { data: setler } = useSetler()
   const ekle = useIzlemeEkle()
   const [url, setUrl] = useState('')
   const [hedef, setHedef] = useState('')
   const [siralama, setSiralama] = useState<SiralamaSecenegi>(baslangicSiralamasi)
+  const [suzgec, setSuzgec] = useState<SuzgecDurumu>(SUZGEC_BOS)
 
   function siralamaDegistir(secenek: SiralamaSecenegi) {
     setSiralama(secenek)
@@ -73,10 +79,25 @@ export default function Panel() {
   const enIlerideki = Math.max(
     0, ...sinyalsizler.map((i) => i.urun.gecmis_gun ?? 0))
 
-  // Yalnızca GÖRÜNTÜLEME sırasını etkiler — üstteki kutucuklar (izlenen
-  // sayısı, hedefte, biriktiriliyor) sıraya duyarsız hesaplar, orijinal
+  // BACKLOG C2: mağaza süzgeci seçenekleri sunucudan AYRI bir uçtan
+  // gelmiyor — listedeki ürünlerin kendi `guncel_satici` alanından
+  // çıkarılıyor. `useMemo`: her render'da yeniden hesaplamak (35 üründe
+  // önemsiz olsa da) `Set` + sıralama kurmayı gerektiriyor, referans
+  // stabilitesi `ListeKontrol`'ün gereksiz yeniden render'ını önlüyor.
+  const magazalar = useMemo(() => {
+    const tekil = new Set(
+      (izlemeler ?? [])
+        .map((i) => i.urun.guncel_satici)
+        .filter((m): m is string => m !== null),
+    )
+    return [...tekil].sort((a, b) => a.localeCompare(b, 'tr'))
+  }, [izlemeler])
+
+  // Süzme ÖNCE, sıralama SONRA — üstteki kutucuklar (izlenen sayısı,
+  // hedefte, biriktiriliyor) sıraya VE süzgece duyarsız hesaplar, orijinal
   // `izlemeler` üzerinden kalır.
-  const siraliIzlemeler = izlemeleriSirala(izlemeler ?? [], siralama, kivilcimlar)
+  const suzulmusIzlemeler = izlemeleriSuz(izlemeler ?? [], suzgec)
+  const siraliIzlemeler = izlemeleriSirala(suzulmusIzlemeler, siralama, kivilcimlar)
 
   return (
     <div className="space-y-6">
@@ -157,8 +178,34 @@ export default function Panel() {
       )}
 
       {izlemeler && izlemeler.length > 0 && (
-        <div className="flex justify-end">
-          <ListeKontrol secili={siralama} onDegistir={siralamaDegistir} />
+        <ListeKontrol
+          secili={siralama}
+          onDegistir={siralamaDegistir}
+          suzgec={suzgec}
+          onSuzgecDegistir={setSuzgec}
+          magazalar={magazalar}
+          setler={setler ?? []}
+        />
+      )}
+
+      {/* BACKLOG C2: "sonuç boşsa sebebi söylenir" — İKİ AYRI boş durum var
+          ve birbirine benzemesin diye AYRI CÜMLE: hiç ürün eklenmemiş
+          olması ("Henüz ürün eklemedin", yukarıda) ile ürün var ama
+          süzgeçler hiçbirini bırakmamış olması ("Bu süzgeçlere uyan ürün
+          yok") KULLANICI İÇİN FARKLI durumlardır — biri "başlamalıyım",
+          diğeri "süzgeci gevşetmeliyim" der. */}
+      {izlemeler && izlemeler.length > 0 && suzulmusIzlemeler.length === 0 && (
+        <div className="rounded-lg border border-dashed border-slate-300 p-8
+                        text-center text-sm text-slate-500 dark:border-slate-700">
+          Bu süzgeçlere uyan ürün yok.{' '}
+          {!suzgecBosMu(suzgec) && (
+            <button
+              onClick={() => setSuzgec(SUZGEC_BOS)}
+              className="text-slate-700 underline dark:text-slate-300"
+            >
+              Süzgeçleri temizle
+            </button>
+          )}
         </div>
       )}
 

@@ -823,6 +823,78 @@ def test_panel_siralama_secimi_yenilemede_korunur(sayfa, sunucu):
     assert fiyatlar == ["₺300,00", "₺200,00", "₺100,00"]
 
 
+# ── Panel süzme (BACKLOG C2) ──────────────────────────────────────
+
+def test_panel_suzme_duraklatilmislar_tek_urun_birakir(sayfa, sunucu):
+    """BACKLOG C2'nin kendi test tarifi: iki ürün ekle, birini duraklat,
+    'duraklatılmışlar' süzgecinde tek ürün kalsın."""
+    _kayit_ol(sayfa, sunucu)
+    kartlar = sayfa.locator("a[href^='/izleme/']")
+    _urun_ekle(sayfa, url="https://www.example.com/urun/birinci-eklenen", hedef="")
+    expect(kartlar).to_have_count(1, timeout=15000)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/ikinci-eklenen", hedef="")
+    expect(kartlar).to_have_count(2, timeout=15000)
+
+    # Panel listesi `created_at DESC` sıralı (`servisler/izleme.py`) — "ilk
+    # eklenen ilk kartta görünür" VARSAYIMI YANLIŞ olurdu (ÖLÇÜLDÜ: mutasyon
+    # testinde bu yanlış varsayımla yazılmış bir kimlik kontrolü, filtre
+    # TERSİNE çalışırken bile yanlışlıkla geçmişti). Hangi adın
+    # duraklatılacağını sabit yazmak yerine, tıklamadan hemen önce okuyoruz.
+    duraklatilan_ad = kartlar.first.locator("h3").inner_text()
+
+    kartlar.first.click()
+    sayfa.wait_for_selector("text=Bildirimler", timeout=15000)
+    sayfa.get_by_role("button", name="Duraklat").click()
+    sayfa.wait_for_selector("button:has-text('Devam ettir')", timeout=15000)
+
+    sayfa.get_by_role("link", name="Panele dön").click()
+    expect(kartlar).to_have_count(2, timeout=15000)
+
+    # Toggle grubundaki "Duraklatılmışlar" ile aynı ada sahip aktif çipi
+    # KARIŞTIRMAMAK için `exact=True`: çip metni "Duraklatılmışlar süzgecini
+    # kaldır" (sr-only ek metinle) olduğundan normalde çakışmaz, ama tam eşleşme
+    # burada da yanlış düğmeye tıklama riskini baştan kapatıyor.
+    sayfa.get_by_role("button", name="Duraklatılmışlar", exact=True).click()
+    expect(kartlar).to_have_count(1, timeout=15000)
+    # SAYI değil, KİMLİK doğrulanıyor: iki üründen biri duraklatılmış, biri
+    # aktifken sayı tek başına "1" — filtre TERSİNE çalışıp AKTİF olanı
+    # bıraksa da bu koşul sağlanırdı.
+    assert kartlar.locator("h3").inner_text() == duraklatilan_ad
+
+
+def test_panel_suzme_cip_klavyeyle_kaldirilabiliyor(sayfa, sunucu):
+    """Kabul ölçütü: süzgeç çipleri klavyeyle kaldırılabiliyor. Fare tıklaması
+    DEĞİL — çipe odaklanıp Enter'a basmak GERÇEK tarayıcıda kaldırmalı."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sinyal = sayfa.locator("#panel-sinyal-suzgec")
+    sinyal.select_option("dip")
+    cip = sayfa.get_by_role("button", name="Yalnızca dip süzgecini kaldır")
+    cip.wait_for(timeout=15000)
+
+    cip.press("Enter")
+    expect(sinyal).to_have_value("hepsi")
+    expect(sayfa.get_by_role("button", name="Yalnızca dip süzgecini kaldır")).to_have_count(0)
+
+
+def test_panel_suzme_bos_sonuc_sebebini_soyler(sayfa, sunucu):
+    """Kabul ölçütü: boş sonuç mesajı GERÇEK sebebi söylüyor. Ürün VAR ama
+    süzgeçlere uyan yok — "Henüz ürün eklemedin" (üstteki, tamamen farklı
+    durumun cümlesi) burada GÖRÜNMEMELİ."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.locator("#panel-arama").fill("bu-hicbir-urunle-eslesmeyecek-xyz")
+    sayfa.wait_for_selector("text=Bu süzgeçlere uyan ürün yok", timeout=15000)
+    assert "Henüz ürün eklemedin" not in sayfa.content()
+
+    sayfa.get_by_role("button", name="Süzgeçleri temizle").click()
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+
 # ── Çoklu kaynak: öneri → seçim → ekleme ─────────────────────────
 # Bu akış bugün eklendi ve yalnızca birim testleriyle doğrulanmıştı:
 # "JSX'te düğme var" ile "düğme çalışıyor" arasındaki farkı kapatan tek
