@@ -328,6 +328,51 @@ def izlemeler(db: Session, kullanici: User) -> list[Watch]:
             .all())
 
 
+# BACKLOG D1: Keepa'nın Deals'ının uyarlanmışı — "iyi fiyatta" olanlar.
+FIRSAT_VARSAYILAN_EN_AZ_GUN = 7
+FIRSAT_VARSAYILAN_SINYALLER = ("dip", "ucuz")
+FIRSAT_GECERLI_SINYALLER = frozenset({"dip", "ucuz", "pahali"})
+
+
+def firsatlar(
+    db: Session,
+    kullanici: User,
+    en_az_gun: int = FIRSAT_VARSAYILAN_EN_AZ_GUN,
+    sinyaller: tuple[str, ...] = FIRSAT_VARSAYILAN_SINYALLER,
+) -> list[Watch]:
+    """"Bu iyi bir fiyat mı" listesi, yüzdeliğe göre azalan sıralı.
+
+    EK SORGU AÇMIYOR: `izlemeler()` ile AYNI ilke — A1'in worker.py'de her
+    taramada yazdığı `sinyal`/`yuzdelik`/`gecmis_gun` sütunlarından okur,
+    `analiz.fiyat_baglami()`'yi BURADA TEKRAR ÇAĞIRMAZ (bu, ürün başına bir
+    sorgu daha açardı — tam N+1 kaçınmanın bozulduğu yer olurdu).
+
+    NOT (BACKLOG D1'in kendi metninden bir sapma): `sahte_indirim` rozeti
+    BİLEREK YOK. D1 hem "ek sorgu yok" hem "sahte_indirim işaretli döner"
+    diyordu ama ikisi birlikte imkânsız — `sahte_indirim` A1'de BİLEREK
+    kalıcı sütun YAPILMADI (bkz. models.py::Product yorum satırı: "kart
+    bunları göstermiyor, gösteren detay sayfası zaten canlı hesaplıyor").
+    Fırsatlar listesi de bir "kart" listesi; aynı gerekçe buraya da
+    genişletildi — detay sayfasına gidince zaten canlı hesaplanıyor.
+
+    `gecmis_gun < en_az_gun` (ya da hiç yok) olan ürün SESSİZCE elenir: 3
+    günlük veriden "fırsat" demek yalan olur.
+    """
+    return (
+        db.query(Watch)
+        .join(Product, Watch.product_id == Product.id)
+        .options(selectinload(Watch.product), selectinload(Watch.setler))
+        .filter(
+            Watch.user_id == kullanici.id,
+            Product.sinyal.in_(sinyaller),
+            Product.gecmis_gun.isnot(None),
+            Product.gecmis_gun >= en_az_gun,
+        )
+        .order_by(Product.yuzdelik.desc())
+        .all()
+    )
+
+
 def izleme_getir(db: Session, kullanici: User, izleme_id: int) -> Watch:
     # Kaynaklar da yüklenir: detay ucu her kaynağın çıkış linkini üretiyor,
     # tembel bırakılırsa kaynak başına ayrı sorgu açılır.

@@ -929,6 +929,153 @@ def test_kivilcimlar_gun_basina_en_dusuk_fiyati_verir(istemci, db):
     assert y.json()[str(izleme_id)] == [1000.0, 900.0, 800.0]
 
 
+# ─────────────────── fırsatlar ucu (BACKLOG D1) ───────────────────
+
+def _urun_kur(db, izleme_id, *, sinyal, yuzdelik, gecmis_gun):
+    """Worker'ın her taramada yazacağı A1 sütunlarını elle kuruyoruz — D1
+    "ek sorgu yok" diyor, yani `analiz.fiyat_baglami()` burada ÇALIŞMAZ,
+    zaten yazılmış sütunlardan okur (bkz. `_gecmis_ekle`, aynı ilke)."""
+    w = db.query(Watch).filter(Watch.id == izleme_id).one()
+    urun = w.product
+    urun.sinyal = sinyal
+    urun.yuzdelik = yuzdelik
+    urun.gecmis_gun = gecmis_gun
+    db.commit()
+
+
+def test_firsatlar_yuzdelige_gore_azalan_siralar(istemci, db):
+    """Kabul ölçütü: sıralama yüzdeliğe göre azalan."""
+    b = kayit_ol(istemci)
+    az = istemci.post("/api/izlemeler", headers=b,
+                      json={"url": "https://magaza.com/az"}).json()["id"]
+    cok = istemci.post("/api/izlemeler", headers=b,
+                       json={"url": "https://magaza.com/cok"}).json()["id"]
+    orta = istemci.post("/api/izlemeler", headers=b,
+                        json={"url": "https://magaza.com/orta"}).json()["id"]
+    _urun_kur(db, az, sinyal="ucuz", yuzdelik=40, gecmis_gun=10)
+    _urun_kur(db, cok, sinyal="dip", yuzdelik=95, gecmis_gun=10)
+    _urun_kur(db, orta, sinyal="ucuz", yuzdelik=70, gecmis_gun=10)
+
+    y = istemci.get("/api/firsatlar", headers=b)
+    assert y.status_code == 200
+    assert [i["id"] for i in y.json()] == [cok, orta, az]
+
+
+def test_firsatlar_gecmisi_yetersiz_urun_listede_yok(istemci, db):
+    """Kabul ölçütü: geçmişi yetersiz ürün listede yok. 3 günlük veriden
+    "fırsat" demek yalan olur — `en_az_gun` (varsayılan 7) altındaki
+    SESSİZCE elenir, hata değil, boş sayılır."""
+    b = kayit_ol(istemci)
+    yeterli = istemci.post("/api/izlemeler", headers=b,
+                          json={"url": "https://magaza.com/yeterli"}).json()["id"]
+    yetersiz = istemci.post("/api/izlemeler", headers=b,
+                           json={"url": "https://magaza.com/yetersiz"}).json()["id"]
+    hic_taranmamis = istemci.post(
+        "/api/izlemeler", headers=b,
+        json={"url": "https://magaza.com/hic"}).json()["id"]
+    _urun_kur(db, yeterli, sinyal="dip", yuzdelik=90, gecmis_gun=7)
+    _urun_kur(db, yetersiz, sinyal="dip", yuzdelik=99, gecmis_gun=6)
+    # `hic_taranmamis`: sinyal/yuzdelik/gecmis_gun hepsi NULL — hiç kurulmadı.
+
+    y = istemci.get("/api/firsatlar", headers=b)
+    donenler = [i["id"] for i in y.json()]
+    assert donenler == [yeterli]
+    assert yetersiz not in donenler
+    assert hic_taranmamis not in donenler
+
+
+def test_firsatlar_en_az_gun_parametresi_esigi_yukseltir(istemci, db):
+    """`en_az_gun` çağıran tarafından SIKILAŞTIRILABİLİR — varsayılanı
+    (7) geçen bir ürün, çağıran 30 isteyince yine elenebilmeli."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    _urun_kur(db, i, sinyal="dip", yuzdelik=90, gecmis_gun=10)
+
+    assert len(istemci.get("/api/firsatlar?en_az_gun=7", headers=b).json()) == 1
+    assert len(istemci.get("/api/firsatlar?en_az_gun=30", headers=b).json()) == 0
+
+
+def test_firsatlar_varsayilanda_pahali_gorunmez(istemci, db):
+    """"Fırsatlar" sayfası tanım gereği yalnızca iyi fiyatları gösterir —
+    `sinyal` parametresi verilmezse "pahalı" işaretli ürün ASLA dönmez."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    _urun_kur(db, i, sinyal="pahali", yuzdelik=5, gecmis_gun=10)
+
+    y = istemci.get("/api/firsatlar", headers=b)
+    assert y.json() == []
+
+
+def test_firsatlar_sinyal_parametresiyle_pahali_de_istenebilir(istemci, db):
+    """Ama açıkça istenirse (`sinyal=pahali`) döner — süzgeç kısıtlayıcı,
+    gizleyici değil."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    _urun_kur(db, i, sinyal="pahali", yuzdelik=5, gecmis_gun=10)
+
+    y = istemci.get("/api/firsatlar?sinyal=pahali", headers=b)
+    assert [x["id"] for x in y.json()] == [i]
+
+
+def test_firsatlar_gecersiz_sinyal_422(istemci):
+    b = kayit_ol(istemci)
+    y = istemci.get("/api/firsatlar?sinyal=dip,cokucuz", headers=b)
+    assert y.status_code == 422
+
+
+def test_firsatlar_baskasinin_izlemesi_donmuyor(istemci, db):
+    """Kabul ölçütü: başkasının izlemesi asla dönmüyor."""
+    a = kayit_ol(istemci, eposta="a@ornek.com")
+    c = kayit_ol(istemci, eposta="c@ornek.com")
+
+    izleme_a = istemci.post("/api/izlemeler", headers=a,
+                           json={"url": "https://magaza.com/a"}).json()["id"]
+    izleme_c = istemci.post("/api/izlemeler", headers=c,
+                           json={"url": "https://magaza.com/c"}).json()["id"]
+    _urun_kur(db, izleme_a, sinyal="dip", yuzdelik=90, gecmis_gun=10)
+    _urun_kur(db, izleme_c, sinyal="dip", yuzdelik=90, gecmis_gun=10)
+
+    y = istemci.get("/api/firsatlar", headers=c)
+    donenler = [i["id"] for i in y.json()]
+    assert donenler == [izleme_c]
+    assert izleme_a not in donenler
+
+
+def test_firsatlar_ek_sorgu_acmaz(istemci, db):
+    """Kabul ölçütü: ek sorgu yok — A1 sütunlarından okunuyor.
+    `izlemeler()`in kendi N+1 testiyle AYNI ilke: `analiz.fiyat_baglami()`
+    ürün başına çağrılsaydı SELECT sayısı ürün sayısıyla birlikte artardı.
+    """
+    from sqlalchemy import event
+
+    b = kayit_ol(istemci)
+    for n in range(10):
+        i = istemci.post("/api/izlemeler", headers=b,
+                         json={"url": f"https://magaza.com/urun-{n}"}).json()["id"]
+        _urun_kur(db, i, sinyal="dip", yuzdelik=50 + n, gecmis_gun=10)
+
+    sorgular: list[str] = []
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, *a, **kw):
+        sorgular.append(ifade)
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        y = istemci.get("/api/firsatlar", headers=b)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert len(y.json()) == 10
+    secmeler = [s for s in sorgular if s.lstrip().upper().startswith("SELECT")]
+    # kullanıcı + izlemeler+ürün JOIN'i + setler = 3; ürün sayısıyla artan
+    # bir sorgu olsaydı (N+1) 13+ olurdu.
+    assert len(secmeler) <= 4, f"{len(secmeler)} SELECT: {secmeler}"
+
+
 # ─────────────────── izleyen sayacı ───────────────────
 
 def test_sayac_negatife_dusmez(istemci, db):
