@@ -337,6 +337,117 @@ def test_iki_kullanici_farkli_hedef_farkli_uyari(db):
     assert db.query(Alert).filter(Alert.user_id == b.id).count() == 0
 
 
+# ---------- yüzde uyarısı (BACKLOG E2) ----------
+
+def _sabit_medyan_gecmisi(db, p, s, gun_sayisi=6, taban_fiyat=1000.0):
+    """`gun_sayisi` FARKLI günde AYNI `taban_fiyat` okuması ekler (bugün
+    HARİÇ — o taramanın kendisinden gelecek). `_gecmis_ekle`'nin aksine
+    (orada her gün FARKLI bir fiyat, `+gun` kayması) burada TÜM geçmiş
+    SABİT — medyan90'ı bugünkü taranan fiyattan BAĞIMSIZ, kontrollü bir
+    sayıya (`taban_fiyat`) sabitlemek için: 6 sabit okuma + 1 (düşük)
+    bugünkü okuma sıralandığında medyan (7 değerin 4.'sü) hep
+    `taban_fiyat` kalır — yüzde eşiği sınır testleri (%14,9 / %15,1) tam
+    sayı üzerinden yürüsün diye."""
+    simdi = utc_simdi()
+    for gun in range(gun_sayisi, 0, -1):
+        db.add(PriceReading(source_id=s.id, product_id=p.id,
+                            fiyat=taban_fiyat, ts=simdi - timedelta(days=gun)))
+    db.commit()
+
+
+def test_yuzde_esik_altinda_uyari_uretmez(db):
+    """Kabul ölçütü: %15 eşiğinde %14,9 düşüş uyarı üretmiyor.
+
+    Medyan 1.000 (sabitlendi), %14,9 düşüş = 851,00 — eşik fiyatı (850,00)
+    henüz GEÇMEDİ (851 > 850)."""
+    _, p, s, w, t = kur(db, fiyat="851.00")
+    w.dusus_yuzdesi = 15
+    db.commit()
+    _sabit_medyan_gecmisi(db, p, s)
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "YUZDE").count() == 0
+
+
+def test_yuzde_esik_ustunde_uyari_uretir(db):
+    """Kabul ölçütü: %15 eşiğinde %15,1 düşüş uyarı üretiyor.
+
+    Medyan 1.000 (sabitlendi), %15,1 düşüş = 849,00 — eşik fiyatını
+    (850,00) GEÇTİ (849 <= 850)."""
+    _, p, s, w, t = kur(db, fiyat="849.00")
+    w.dusus_yuzdesi = 15
+    db.commit()
+    _sabit_medyan_gecmisi(db, p, s)
+
+    t.urun_tara(p)
+
+    uyari = db.query(Alert).filter(Alert.tur == "YUZDE").one()
+    assert "849,00 TL" in uyari.mesaj
+    assert w.son_bildirim_ts is not None
+
+
+def test_hem_hedef_hem_yuzde_saglaninca_yalniz_hedef_cikar(db):
+    """Kabul ölçütü: hem hedef hem yüzde sağlanınca yalnızca hedef uyarısı
+    çıkıyor — sıra acil → hedef → yüzde → dip, `elif` zinciri ikinci
+    uyarıyı BASTIRIR."""
+    _, p, s, w, t = kur(db, fiyat="849.00", hedef=900)
+    w.dusus_yuzdesi = 15                      # %15,1 düşüş de sağlanıyor
+    db.commit()
+    _sabit_medyan_gecmisi(db, p, s)
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1
+    assert db.query(Alert).filter(Alert.tur == "YUZDE").count() == 0
+
+
+def test_yuzde_yedi_gunden_az_gecmiste_hic_uretilmez(db):
+    """Kabul ölçütü: 7 günden az geçmişte hiç çıkmıyor — medyan az veriyle
+    güvenilmez. 5 geçmiş gün + bugün = 6 gün (< 7); fiyat eşiğin ÇOK
+    altına (medyanın yarısına) düşse bile YUZDE hiç üretilmemeli."""
+    _, p, s, w, t = kur(db, fiyat="500.00")
+    w.dusus_yuzdesi = 15
+    db.commit()
+    _sabit_medyan_gecmisi(db, p, s, gun_sayisi=5)   # 5 + bugün = 6 gün
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "YUZDE").count() == 0
+
+
+def test_yuzde_sessiz_saatte_ertelenir(db, monkeypatch):
+    """Sessiz saat kuralı yüzde uyarısı için de AYNEN geçerli (BACKLOG E2)
+    — ertelenir, iptal edilmez: `son_bildirim_ts` güncellenmediği için
+    sabah kendiliğinden tetiklenir (HEDEF'teki aynı davranış,
+    `test_sessiz_saatte_normal_alarm_ertelenir`)."""
+    _saati_sabitle(monkeypatch, GECE_UTC)
+    _, p, s, w, t = kur(db, fiyat="849.00")
+    w.dusus_yuzdesi = 15
+    db.commit()
+    _sabit_medyan_gecmisi(db, p, s)
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "YUZDE").count() == 0
+    assert w.son_bildirim_ts is None
+
+
+def test_yuzde_ve_dip_ayni_anda_saglaninca_yalniz_yuzde_cikar(db):
+    """Sıra yüzde → dip: ikisi de aynı taramada sağlanabilir (aşırı bir
+    düşüş hem yüzde eşiğini geçer hem tüm zamanların dibini kırar) ama
+    `elif` zinciri yalnızca YUZDE'yi üretmeli."""
+    _, p, s, w, t = kur(db, fiyat="500.00")       # medyanın YARISI — hem
+    w.dusus_yuzdesi = 15                          # %15 eşiğini aşıyor hem
+    db.commit()                                   # tüm zamanların dibini kırıyor
+    _sabit_medyan_gecmisi(db, p, s)
+
+    t.urun_tara(p)
+
+    assert db.query(Alert).filter(Alert.tur == "YUZDE").count() == 1
+    assert db.query(Alert).filter(Alert.tur == "DIP").count() == 0
+
+
 # ---------- set bütçe uyarısı ----------
 
 def test_set_toplami_butcenin_altina_inince_uyarir(db):

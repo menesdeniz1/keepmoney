@@ -349,7 +349,7 @@ class Alert(Base):
     # görmüyordu (bkz. db.py — artık SQLite'ta da açık).
     watch_id = Column(Integer, ForeignKey("watches.id", ondelete="SET NULL"),
                       nullable=True)
-    tur = Column(String, nullable=False)   # HEDEF | DIP | SAHTE_INDIRIM | SET_HEDEF | KAYNAK_BOZUK
+    tur = Column(String, nullable=False)   # HEDEF | YUZDE | DIP | SAHTE_INDIRIM | SET_HEDEF | KAYNAK_BOZUK
     baslik = Column(String, nullable=False)
     mesaj = Column(String, nullable=False)
     okundu = Column(Boolean, default=False)

@@ -471,6 +471,18 @@ class Tarayici:
         acil = bool(w.acil_fiyat and fiyat <= w.acil_fiyat)
         hedefte = bool(w.hedef_fiyat and fiyat <= w.hedef_fiyat)
 
+        # BACKLOG E2: mutlak hedefi BİLMEYEN kullanıcının doğal ifadesi
+        # ("%15 düşerse haber ver"). Referans 90 GÜNLÜK MEDYAN — "en son
+        # gördüğüm fiyat" referans alınırsa yükselip düşen fiyat sahte
+        # uyarı üretir (E1'in model yorumunda not edilen gerekçe). Medyan
+        # az veriyle güvenilmez — `gun_sayisi >= 7` şartı DIP kuralıyla
+        # AYNI eşik.
+        yuzde_esik_asildi = bool(
+            w.dusus_yuzdesi and baglam and baglam.gun_sayisi >= 7
+            and baglam.medyan90 > 0
+            and fiyat <= baglam.medyan90 * (1 - w.dusus_yuzdesi / 100)
+        )
+
         # Sessiz saatte normal alarm ERTELENİR (durum güncellenmediği için
         # sabah kendiliğinden tetiklenir); ACİL geçer.
         if not acil and sessiz_saat_mi(SESSIZ_BASLANGIC, SESSIZ_BITIS):
@@ -482,12 +494,28 @@ class Tarayici:
         # web kartında, bot mesajında ve e-postada birebir aynı çıksın.
         aciklama = analiz.yorum(baglam, fiyat)
 
+        # Sıra acil → hedef → yüzde → dip (BACKLOG E2) — `elif` zinciri
+        # AYNI taramada birden fazla uyarı çıkmasını engelliyor. Acil'in
+        # kendi dalı YOK: `acil_fiyat` her zaman `hedef_fiyat`ın altında
+        # kurulur (arayüz/bot bunu zorunlu kılar), yani acil'e inen fiyat
+        # hedefe de inmiş demektir — `acil` burada yalnızca HEDEF dalının
+        # emoji/cooldown'unu değiştiren bir BAYRAK.
         if hedefte and self._hatirlatma_zamani(w, fiyat, simdi, acil):
             onek = "🚨 ACİL — " if acil else "🎯 "
             self._uyari_ekle(
                 w, "HEDEF", f"{onek}{urun.ad}",
                 f"{tl(fiyat)} (hedef {tl(w.hedef_fiyat)}) · "
                 f"{urun.guncel_satici}\n{aciklama}")
+            w.son_bildirim_ts = simdi
+            w.son_bildirim_fiyat = fiyat
+            uretilen += 1
+
+        elif yuzde_esik_asildi and self._hatirlatma_zamani(w, fiyat, simdi, False):
+            gercek_dusus = (baglam.medyan90 - fiyat) / baglam.medyan90 * 100
+            self._uyari_ekle(
+                w, "YUZDE", f"📉 {urun.ad} medyanın %{w.dusus_yuzdesi} altına düştü",
+                f"{tl(fiyat)} — 90 günlük medyan {tl(baglam.medyan90)}'ın "
+                f"%{gercek_dusus:.0f} altında · {urun.guncel_satici}\n{aciklama}")
             w.son_bildirim_ts = simdi
             w.son_bildirim_fiyat = fiyat
             uretilen += 1
