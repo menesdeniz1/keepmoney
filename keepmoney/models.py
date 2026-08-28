@@ -285,6 +285,18 @@ class Watch(Base):
     # İkinci eşik: altına inince cooldown beklemez, sessiz saati deler.
     acil_fiyat = Column(Float, nullable=True)
 
+    # BACKLOG E1: mutlak hedef fiyatı BİLMEYEN kullanıcının doğal ifadesi
+    # ("%15 düşerse haber ver"). Referans 90 GÜNLÜK MEDYAN olacak (E2'nin
+    # worker.py işi) — "en son gördüğüm fiyat" referans alınırsa yükselip
+    # düşen fiyat sahte uyarı üretir. Burada yalnızca kullanıcının SEÇTİĞİ
+    # eşik saklanır, hesap burada YAPILMAZ.
+    dusus_yuzdesi = Column(Integer, nullable=True)      # 1-90
+    # Yeniden kurma (rearm) süresi gün cinsinden — E4'ün "3g · 7g · 30g ·
+    # hiç" seçeneği. `None` = varsayılan (7 gün). "hiç" gibi özel
+    # değerlerin sayısal karşılığı E4'ün işi — burada yalnızca BOŞ
+    # BIRAKILAN bir tam sayı sütunu var, kısıt yok.
+    yeniden_kur_gun = Column(Integer, nullable=True)
+
     aktif = Column(Boolean, default=True)
     # Kilitli izleme: kullanıcı "bunu aldım/fiyatı sabitledim" der, bütçe
     # hesabında bu değer kullanılır, tarama sonucu üzerine yazmaz.

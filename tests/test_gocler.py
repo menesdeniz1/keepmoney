@@ -32,6 +32,10 @@ COKLU_SET = "a3c81f47b2d9"
 # Ürün bağlam sütunlarını getiren göç (BACKLOG A1) ve bir öncesi.
 BAGLAM_SUTUNLARI = "c7e5a92f1b4d"
 
+# İzlemeye yüzde eşiği ve yeniden kurma süresi sütunlarını getiren göç
+# (BACKLOG E1) — bir öncesi BAGLAM_SUTUNLARI.
+YUZDE_ESIGI = "a9edb33fc2b8"
+
 
 @pytest.fixture
 def gecici_veritabani(tmp_path, monkeypatch):
@@ -179,4 +183,60 @@ def test_baglam_gocu_urun_ve_set_uyeligini_korur(gecici_veritabani):
     assert urun == (1, "Ekran Kartı", 45499), "geri almada ürün bozuldu/kayboldu"
     assert uyelikler == [(10, 1)], "geri almada set üyeliği kayboldu"
     for sutun in ("sinyal", "dip90", "medyan90", "yuzdelik", "gecmis_gun", "baglam_ts"):
+        assert sutun not in sutunlar, f"geri almada sütun düşürülmemiş: {sutun}"
+
+
+def test_yuzde_esigi_gocu_izleme_verisini_korur(gecici_veritabani):
+    """E1 (yüzde eşiği sütunları) `watches` tablosunu bozmamalı — ne kendi
+    satırını (hedef_fiyat gibi mevcut alanlar) ne üzerinden geçtiği
+    `set_uyeleri` ara tablosunu.
+
+    `c7e5a92f1b4d` (A1) ile AYNI desen: `batch_alter_table` KULLANILMIYOR,
+    düz `add_column`/`drop_column` — ama yine GERÇEK VERİYLE doğrulanır
+    (§5.19 — `alembic check` şemayı doğrular, veriyi değil)."""
+    cfg, yol = gecici_veritabani
+
+    command.upgrade(cfg, BAGLAM_SUTUNLARI)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi) "
+            "VALUES (1, 'a@b.c', 'x', 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO watch_sets (id, user_id, ad) VALUES (1, 1, 'Set')"))
+        b.execute(sa.text(
+            "INSERT INTO watches (id, user_id, product_id, hedef_fiyat) "
+            "VALUES (10, 1, 1, 5000)"))
+        b.execute(sa.text(
+            "INSERT INTO set_uyeleri (watch_id, set_id) VALUES (10, 1)"))
+
+    command.upgrade(cfg, YUZDE_ESIGI)
+
+    with motor.begin() as b:
+        izleme = b.execute(sa.text(
+            "SELECT id, hedef_fiyat FROM watches")).one()
+        uyelikler = list(b.execute(sa.text(
+            "SELECT watch_id, set_id FROM set_uyeleri")))
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('watches')"))]
+
+    assert izleme == (10, 5000), "izleme göçte bozuldu/kayboldu"
+    assert uyelikler == [(10, 1)], "set üyeliği göçte kayboldu"
+    for sutun in ("dusus_yuzdesi", "yeniden_kur_gun"):
+        assert sutun in sutunlar, f"beklenen sütun eksik: {sutun}"
+
+    command.downgrade(cfg, BAGLAM_SUTUNLARI)
+
+    with motor.begin() as b:
+        izleme = b.execute(sa.text(
+            "SELECT id, hedef_fiyat FROM watches")).one()
+        uyelikler = list(b.execute(sa.text(
+            "SELECT watch_id, set_id FROM set_uyeleri")))
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('watches')"))]
+    motor.dispose()
+
+    assert izleme == (10, 5000), "geri almada izleme bozuldu/kayboldu"
+    assert uyelikler == [(10, 1)], "geri almada set üyeliği kayboldu"
+    for sutun in ("dusus_yuzdesi", "yeniden_kur_gun"):
         assert sutun not in sutunlar, f"geri almada sütun düşürülmemiş: {sutun}"
