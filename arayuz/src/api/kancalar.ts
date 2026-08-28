@@ -34,6 +34,7 @@ export const anahtar = {
   izleme: (id: number) => ['izleme', id] as const,
   kivilcimlar: ['kivilcimlar'] as const,
   kivilcimlarGunle: (gun: number) => ['kivilcimlar', gun] as const,
+  firsatlar: ['firsatlar'] as const,
   setler: ['setler'] as const,
   uyarilar: (sadeceOkunmamis: boolean) => ['uyarilar', sadeceOkunmamis] as const,
   uyariSayisi: ['uyari-sayisi'] as const,
@@ -85,6 +86,11 @@ export function useKivilcimlar30Gun(): UseQueryResult<Record<string, number[]>> 
     queryFn: () => api.kivilcimlar(30),
     staleTime: 5 * 60_000,
   })
+}
+
+/** BACKLOG D2 — Fırsatlar sayfası. */
+export function useFirsatlar(): UseQueryResult<Izleme[]> {
+  return useQuery({ queryKey: anahtar.firsatlar, queryFn: api.firsatlar })
 }
 
 export function useIzleme(id: number): UseQueryResult<IzlemeDetay> {

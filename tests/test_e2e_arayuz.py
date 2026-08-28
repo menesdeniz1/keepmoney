@@ -600,12 +600,91 @@ def test_hesap_silinince_girise_dusulur(sayfa, sunucu):
 
 def test_tum_ana_sayfalar_geziliyor(sayfa, sunucu):
     _kayit_ol(sayfa, sunucu)
-    for etiket, isaret in (("Setler", "Setler"),
+    for etiket, isaret in (("Fırsatlar", "Fırsatlar"),
+                           ("Setler", "Setler"),
                            ("Bildirimler", "Bildirim"),
                            ("Ayarlar", "Ayarlar"),
                            ("Panel", "Takip listem")):
         sayfa.get_by_role("link", name=etiket).click()
         sayfa.wait_for_selector(f"text={isaret}", timeout=15000)
+
+
+def test_besinci_sekme_mobilde_tasmiyor(sayfa, sunucu):
+    """BACKLOG D2: "beşinci sekme 390px'te sığıyor mu kontrol et" —
+    Fırsatlar eklenince gezinme çubuğu Panel/Fırsatlar/Setler/Bildirimler/
+    Ayarlar diye BEŞ sekmeye çıktı.
+
+    GENİŞLİK BİLEREK 390 DEĞİL 375: sorun ÖLÇÜLDÜ — bozuk hâlde header
+    satırının içerik genişliği 389px'ti, yani BACKLOG'un yazdığı 390px'te
+    TESADÜFEN sığıyordu (389 < 390) ve o genişlikte test kusuru YAKALAMAZDI.
+    375 (yaygın bir gerçek cihaz genişliği, iPhone SE ailesi) kusuru
+    ölçülebilir kıldı; 375'te geçen bir düzen 390'da da geçer (daha dar
+    olan daha zor koşuldur), yani BACKLOG'un ölçütü GEVŞETİLMİYOR, SIKILAŞTIRILIYOR.
+
+    GERÇEK TARAYICIDA (375px) ÖLÇÜLDÜ: `nav`'ın KENDİ `scrollWidth`'i
+    (`nav.scrollWidth - nav.clientWidth`) bu tuzağı YAKALAMAZ — nav'ın
+    içeriği taşmıyordu (kendi içinde 0), asıl sorun nav'ı SIĞDIRAN HEADER
+    SATIRININ nav'ı küçültememesiydi (`flex` item'ların varsayılan
+    `min-width: auto`'su — A8'in CSS Grid'teki aynı ailedeki tuzağı):
+    header satırı 389px'e taşıyor, viewport 375px, ve nav'ın sağındaki
+    çıkış düğmesi viewport DIŞINA itiliyordu. Bu yüzden BELGE genişliği
+    ölçülmeli (`test_mobil_gorunumde_yatay_kaydirma_yok` ile aynı ilke),
+    nav'ın kendi iç taşması DEĞİL — `Duzen.tsx`'teki `min-w-0` düzeltmesi
+    bu ölçümle doğrulandı.
+    """
+    _kayit_ol(sayfa, sunucu)
+    sayfa.set_viewport_size({"width": 375, "height": 812})
+    sayfa.wait_for_timeout(300)
+    tasma = sayfa.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    assert tasma <= 1, f"sayfa {tasma}px taşıyor"
+
+    nav = sayfa.locator("header nav")
+    baglantilar = nav.locator("a")
+    assert baglantilar.count() == 5
+    # Beş bağlantının BEŞİ de gerçekten görünür (0 genişliğe sıkışmamış) VE
+    # viewport İÇİNDE (nav taşmasa da sağdaki çıkış düğmesi dışarı itilirse
+    # nav'ın kendisi hâlâ "tam" görünür ama komşusu kaybolurdu).
+    for i in range(5):
+        kutu = baglantilar.nth(i).bounding_box()
+        assert kutu is not None and kutu["width"] > 0 and kutu["x"] + kutu["width"] <= 375
+
+    cikis = sayfa.get_by_role("button", name="Çıkış yap")
+    cikis_kutu = cikis.bounding_box()
+    assert cikis_kutu is not None and cikis_kutu["x"] + cikis_kutu["width"] <= 375
+
+    # "Yapılacak": Fırsatlar Panel'den SONRA İKİNCİ sırada.
+    yollar = baglantilar.evaluate_all("els => els.map(e => e.getAttribute('href'))")
+    assert yollar[:2] == ["/", "/firsatlar"], yollar
+
+
+def test_firsatlar_satirina_tiklayinca_detaya_gidiyor(sayfa, sunucu):
+    """Kabul ölçütü: satıra tıklayınca ürün detayına gidiyor."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    # Worker'ın normalde yazacağı sütunları elle kuruyoruz (bkz. A8 deseni)
+    # — bu paket içinde worker çalışmadığı için `sinyal` hiç dolmuyor,
+    # dolayısıyla ürün D1'in `/api/firsatlar` süzgecinden hiç geçmezdi.
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = _kullanicinin_urunu(db, eposta)
+    urun.sinyal = "dip"
+    urun.yuzdelik = 90
+    urun.gecmis_gun = 10
+    urun.guncel_fiyat = 500
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.get_by_role("link", name="Fırsatlar").click()
+    sayfa.wait_for_selector("text=ürün şu an iyi fiyatta", timeout=15000)
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
 
 
 def test_ikon_dugmelerinin_erisilebilir_adi_var(sayfa, sunucu):

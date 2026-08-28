@@ -155,6 +155,14 @@ export const api = {
 
   izleme: (id: number) => istek<IzlemeDetay>(`/izlemeler/${id}`),
 
+  /**
+   * BACKLOG D1/D2 — "şu an iyi fiyatta olanlar". Sunucu tarafında
+   * varsayılan (`dip,ucuz`) süzgeç zaten uygulanıyor; arayüz henüz bu
+   * varsayılanı DEĞİŞTİREN bir kontrol sunmuyor (D2 kapsamında yok) —
+   * parametresiz çağrı bilerek yeterli.
+   */
+  firsatlar: () => istek<Izleme[]>('/firsatlar'),
+
   izlemeEkle: (girdi: IzlemeEkleGirdi) =>
     istek<Izleme>('/izlemeler', { method: 'POST', gövde: girdi }),
 

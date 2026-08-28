@@ -7,6 +7,7 @@ import { anahtar, useBen } from './api/kancalar'
 import Duzen from './bilesenler/Duzen'
 import Ayarlar from './sayfalar/Ayarlar'
 import EpostaDogrula from './sayfalar/EpostaDogrula'
+import Firsatlar from './sayfalar/Firsatlar'
 import Giris from './sayfalar/Giris'
 import ParolaSifirla from './sayfalar/ParolaSifirla'
 import IzlemeDetay from './sayfalar/IzlemeDetay'
@@ -65,6 +66,7 @@ export default function App() {
     <Routes>
       <Route element={<Duzen />}>
         <Route index element={<Panel />} />
+        <Route path="/firsatlar" element={<Firsatlar />} />
         <Route path="/izleme/:id" element={<IzlemeDetay />} />
         <Route path="/setler" element={<Setler />} />
         <Route path="/uyarilar" element={<Uyarilar />} />
