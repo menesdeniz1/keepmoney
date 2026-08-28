@@ -129,4 +129,16 @@ describe('istek biçimi', () => {
     expect(JSON.parse(cagriAyari(f).body as string))
       .toEqual({ hedef_fiyat: null })
   })
+
+  it('kivilcimlar() parametresiz — panelin/kartların paylaştığı varsayılan uç', async () => {
+    const f = yanitVer(200, {})
+    await api.kivilcimlar()
+    expect(f.mock.calls[0]?.[0]).toBe('/api/izlemeler/kivilcimlar')
+  })
+
+  it('kivilcimlar(gun) BACKLOG C4 için ?gun= sorgu parametresi ekler', async () => {
+    const f = yanitVer(200, {})
+    await api.kivilcimlar(30)
+    expect(f.mock.calls[0]?.[0]).toBe('/api/izlemeler/kivilcimlar?gun=30')
+  })
 })

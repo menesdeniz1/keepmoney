@@ -140,8 +140,18 @@ export const api = {
    * `Record<number, ...>` DEĞİL — sayısal anahtarlı `Record` TypeScript'te
    * geçerli görünse de çalışma zamanında obje anahtarları zaten dizgeye
    * çevrilir; yanlış tip erişim noktasında yanıltıcı olurdu.
+   *
+   * `gun` isteğe bağlı: varsayılan (parametresiz) çağrı TÜM kartların ve
+   * C1 sıralamasının kullandığı 90 günlük veriyle AYNI queryKey'i paylaşır
+   * (kancalar.ts::useKivilcimlar). BACKLOG C4'ün "Son 30 günde en büyük
+   * düşüş" kutucuğu bu paylaşılan veriyi KULLANAMAZ — kıvılcım dizisi
+   * tarih taşımıyor, 90 günlük diziden "son 30 gün" doğru kesilemez —
+   * bu yüzden AYRI bir istekle (kendi queryKey'iyle) `gun=30` istiyor.
    */
-  kivilcimlar: () => istek<Record<string, number[]>>('/izlemeler/kivilcimlar'),
+  kivilcimlar: (gun?: number) =>
+    istek<Record<string, number[]>>(
+      `/izlemeler/kivilcimlar${gun !== undefined ? `?gun=${gun}` : ''}`,
+    ),
 
   izleme: (id: number) => istek<IzlemeDetay>(`/izlemeler/${id}`),
 

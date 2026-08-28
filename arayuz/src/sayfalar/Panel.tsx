@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 
-import { useIzlemeEkle, useIzlemeler, useKivilcimlar, useSetler } from '../api/kancalar'
+import {
+  useIzlemeEkle,
+  useIzlemeler,
+  useKivilcimlar,
+  useKivilcimlar30Gun,
+  useSetler,
+} from '../api/kancalar'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
 import ListeKontrol from '../bilesenler/ListeKontrol'
-import { tl } from '../yardimcilar/bicim'
+import UstKutucuklar from '../bilesenler/UstKutucuklar'
 import {
   baslangicSiralamasi,
   izlemeleriSirala,
@@ -19,6 +25,9 @@ export default function Panel() {
   // queryKey olduğu için IzlemeKarti'nin kendi çağrısıyla TEKİLLEŞTİRİLİR
   // (kancalar.ts) — burada ikinci bir HTTP isteği AÇILMAZ.
   const { data: kivilcimlar } = useKivilcimlar()
+  // BACKLOG C4: "Son 30 günde en büyük düşüş" kutucuğu — AYRI istek, bkz.
+  // `kancalar.ts::useKivilcimlar30Gun` NEDEN gerekçesi.
+  const { data: kivilcimlar30 } = useKivilcimlar30Gun()
   // BACKLOG C2: sete göre süzgeç seçenekleri set ADI göstermeli, yalnızca
   // id yeterli değil — Setler sayfası zaten bu kancayı çağırıyor, aynı
   // queryKey TanStack Query tarafından tekilleştirilir.
@@ -54,17 +63,6 @@ export default function Panel() {
       },
     )
   }
-
-  const hedefteOlanlar =
-    izlemeler?.filter(
-      (i) =>
-        i.hedef_fiyat != null &&
-        i.urun.guncel_fiyat != null &&
-        i.urun.guncel_fiyat <= i.hedef_fiyat,
-    ) ?? []
-
-  const toplam =
-    izlemeler?.reduce((t, i) => t + (i.urun.guncel_fiyat ?? 0), 0) ?? 0
 
   // BACKLOG A7: kartların her biri kendi "geçmiş biriktiriliyor" rozetini
   // gösteriyor (SinyalRozeti) ama 20 karttan 15'i sinyalsizse bunu tek tek
@@ -152,11 +150,13 @@ export default function Panel() {
       )}
 
       {izlemeler && izlemeler.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Kutu etiket="İzlenen ürün" deger={String(izlemeler.length)} />
-          <Kutu etiket="Hedefte" deger={String(hedefteOlanlar.length)} vurgu />
-          <Kutu etiket="Liste toplamı" deger={tl(toplam)} />
-        </div>
+        <UstKutucuklar
+          izlemeler={izlemeler}
+          kivilcimlar={kivilcimlar}
+          kivilcimlar30={kivilcimlar30}
+          onSuzgecDegistir={setSuzgec}
+          onSiralamaDegistir={siralamaDegistir}
+        />
       )}
 
       {sinyalsizler.length > 0 && (
@@ -213,30 +213,6 @@ export default function Panel() {
         {siraliIzlemeler.map((i) => (
           <IzlemeKarti key={i.id} izleme={i} />
         ))}
-      </div>
-    </div>
-  )
-}
-
-function Kutu({
-  etiket,
-  deger,
-  vurgu,
-}: {
-  etiket: string
-  deger: string
-  vurgu?: boolean
-}) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3
-                    dark:border-slate-800 dark:bg-slate-900">
-      <div className="text-xs text-slate-500 dark:text-slate-400">{etiket}</div>
-      <div
-        className={`mt-0.5 font-mono text-lg font-semibold ${
-          vurgu ? 'text-green-600 dark:text-green-400' : ''
-        }`}
-      >
-        {deger}
       </div>
     </div>
   )

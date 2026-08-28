@@ -33,6 +33,7 @@ export const anahtar = {
   izlemeler: ['izlemeler'] as const,
   izleme: (id: number) => ['izleme', id] as const,
   kivilcimlar: ['kivilcimlar'] as const,
+  kivilcimlarGunle: (gun: number) => ['kivilcimlar', gun] as const,
   setler: ['setler'] as const,
   uyarilar: (sadeceOkunmamis: boolean) => ['uyarilar', sadeceOkunmamis] as const,
   uyariSayisi: ['uyari-sayisi'] as const,
@@ -65,9 +66,23 @@ export function useIzlemeler(): UseQueryResult<Izleme[]> {
 export function useKivilcimlar(): UseQueryResult<Record<string, number[]>> {
   return useQuery({
     queryKey: anahtar.kivilcimlar,
-    queryFn: api.kivilcimlar,
+    queryFn: () => api.kivilcimlar(),
     // Fiyat geçmişi dakikalar içinde değişmez; panel her odaklanmada bu
     // isteği tekrarlamasın.
+    staleTime: 5 * 60_000,
+  })
+}
+
+/**
+ * BACKLOG C4 — "Son 30 günde en büyük düşüş" kutucuğu. `useKivilcimlar()`in
+ * (varsayılan 90 gün) AYNI DEĞİL: farklı `queryKey`, dolayısıyla TanStack
+ * Query bunu 35 kartın paylaştığı istekle TEKİLLEŞTİRMEZ, kendi tek başına
+ * gider — kutucuk sayfa başına bir kez göründüğü için bu kabul edilebilir.
+ */
+export function useKivilcimlar30Gun(): UseQueryResult<Record<string, number[]>> {
+  return useQuery({
+    queryKey: anahtar.kivilcimlarGunle(30),
+    queryFn: () => api.kivilcimlar(30),
     staleTime: 5 * 60_000,
   })
 }

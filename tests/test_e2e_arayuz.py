@@ -272,7 +272,10 @@ def test_urun_ekle_ve_detayini_ac(sayfa, sunucu):
     _kayit_ol(sayfa, sunucu)
     _urun_ekle(sayfa)
     sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
-    assert "İzlenen ürün" in sayfa.content()
+    # BACKLOG C4: "İzlenen ürün" kutucuğu kaldırıldı — üst kutucuk satırının
+    # gerçekten render olduğunun kanıtı artık "Dip bölgesinde" (aynı satır,
+    # izlemeler.length > 0 olduğu sürece HER ZAMAN görünür).
+    assert "Dip bölgesinde" in sayfa.content()
 
     sayfa.locator("a[href^='/izleme/']").first.click()
     sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
@@ -893,6 +896,114 @@ def test_panel_suzme_bos_sonuc_sebebini_soyler(sayfa, sunucu):
 
     sayfa.get_by_role("button", name="Süzgeçleri temizle").click()
     sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+
+# ── Panel üst kutucukları (BACKLOG C4) ────────────────────────────
+
+def test_ust_kutucuklar_veri_yokken_anlamli_metin_gosterir(sayfa, sunucu):
+    """Kabul ölçütü: veri yokken kutucuk sayı yerine anlamlı bir şey
+    söylüyor. Bu paket içinde worker çalışmadığı için yeni eklenen ürün
+    hiçbir kutucuğu besleyecek veriye sahip DEĞİL — üçü de "boş" hâlde
+    olmalı, "0" YAZMAMALI (0 ürün yerine bilgilendirici cümle).
+
+    URL BİLEREK KENDİNE ÖZGÜ: varsayılan `_urun_ekle` URL'si ("ekran-
+    karti") `sunucu` fixture'ının paylaştığı DB'de başka testlerin (bkz.
+    `test_sinyalli_kartta_...`) ZATEN `sinyal="dip"` yazdığı bir ürüne
+    karşılık geliyordu — ÜRÜN KİMLİĞİ KANONİK URL'YE göre KULLANICILAR
+    ARASI PAYLAŞILIR (MIMARI.md), bu yüzden "yeni ürün" varsayımı yanlıştı
+    ve tam paket içinde (ama tek başına değil) ÖLÇÜLDÜ: bu test o zaman
+    yanlışlıkla "1 ürün" görüyordu, "şu an yok" değil."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/c4-bos-durum", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.wait_for_selector("text=Dip bölgesinde", timeout=15000)
+    icerik = sayfa.content()
+    assert "şu an yok" in icerik
+    assert "henüz yok" in icerik
+    assert "son 30 günde düşüş yok" in icerik
+    # Üçüncü kutucuğun aksine burada GİDİLECEK gerçek bir ürün yok — sahte
+    # bir hedef uydurmak yerine (bkz. UstKutucuklar.tsx) bu durumda kutucuk
+    # hiç LINK olmamalı.
+    assert sayfa.get_by_role("link", name="Son 30 günde en büyük düşüş").count() == 0
+
+
+def _dip_ve_dusen_urun_kur(sunucu, eposta: str) -> None:
+    """Worker'ın normalde günler içinde yazacağı sütunları/okumaları elle
+    kuruyoruz (bkz. `test_sinyalli_kartta_...`, BACKLOG A8 — aynı desen):
+    üç kutucuğun ÜÇÜ de gerçek veriye tepki veriyor mu diye tek üründe
+    hepsini birden sağlıyoruz — dip sinyali, bugün okunmuş VE değişmiş
+    fiyat, son 30 günde gerçek bir düşüş."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import PriceReading, Source, User, Watch
+    from keepmoney.zaman import utc_simdi
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    # `_kullanicinin_urunu` burada KULLANILAMAZ: bu testte kullanıcının İKİ
+    # ürünü var (`.one()` patlar) — hangisinin "dusen" olduğunu kaynak
+    # URL'sinden ayırt ediyoruz (aynı desen `_uc_urun_farkli_fiyatla_kur`'da).
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    izlemeler = db.query(Watch).filter(Watch.user_id == kullanici.id).all()
+    urun = next(w.product for w in izlemeler if "dusen" in w.product.sources[0].url)
+    kaynak = db.query(Source).filter(Source.product_id == urun.id).one()
+    simdi = utc_simdi()
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                        fiyat=1000, ts=simdi - timedelta(days=5)))
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                        fiyat=850, ts=simdi))
+    urun.guncel_fiyat = 850
+    urun.son_kontrol = simdi
+    urun.sinyal = "dip"
+    urun.dip90 = 850.0
+    urun.medyan90 = 1000.0
+    urun.yuzdelik = 92
+    urun.gecmis_gun = 5
+    db.commit()
+    db.close()
+    motor.dispose()
+
+
+def test_ust_kutucuklar_uc_kutu_da_dogru_eylemi_yapar(sayfa, sunucu):
+    """Kabul ölçütü: üç kutucuk da tıklanabilir ve doğru eylemi yapıyor."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    # `:has(h3)`: BU testte kutucuk 3 KENDİSİ de `/izleme/{id}`ye giden bir
+    # link olacak (bkz. UstKutucuklar.tsx) — düz `a[href^='/izleme/']`
+    # ONU DA yakalardı. Panel kartları h3 ürün adı taşır, kutucuk taşımaz.
+    kartlar = sayfa.locator("a[href^='/izleme/']:has(h3)")
+    _urun_ekle(sayfa, url="https://www.example.com/urun/dusen", hedef="")
+    expect(kartlar).to_have_count(1, timeout=15000)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/diger", hedef="")
+    expect(kartlar).to_have_count(2, timeout=15000)
+
+    _dip_ve_dusen_urun_kur(sunucu, eposta)
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("text=Dip bölgesinde", timeout=15000)
+
+    # Kutu 1: "Dip bölgesinde N ürün" → C2'nin "sinyal=dip" süzgecini açar.
+    sayfa.get_by_role("button", name="Dip bölgesinde").click()
+    expect(sayfa.locator("#panel-sinyal-suzgec")).to_have_value("dip")
+    expect(kartlar).to_have_count(1, timeout=15000)
+    assert kartlar.first.locator("h3").inner_text() == "dusen"
+
+    # Süzgeci temizleyip kutu 2'yi test et — "Hepsini temizle" burada
+    # KULLANILIR ("Süzgeçleri temizle" yalnızca SONUÇ BOŞSA görünür, bu
+    # durumda 1 sonuç olduğu için o buton yok, bkz. C2 boş-sonuç mesajı).
+    sayfa.get_by_role("button", name="Hepsini temizle").click()
+    expect(kartlar).to_have_count(2, timeout=15000)
+
+    # Kutu 2: "Bugün M fiyat değişti" → C1'in "son değişim" sıralamasını açar.
+    sayfa.get_by_role("button", name="Bugün değişen").click()
+    expect(sayfa.locator("#panel-siralama")).to_have_value("son_degisim")
+
+    # Kutu 3: gerçek ürüne gider.
+    sayfa.get_by_role("link", name="Son 30 günde en büyük düşüş").click()
+    sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
+    assert "dusen" in sayfa.content()
 
 
 # ── Çoklu kaynak: öneri → seçim → ekleme ─────────────────────────
