@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
 
-import { useFirsatlar, useKivilcimlar } from '../api/kancalar'
+import { useFirsatlar, useIzlemeler, useKivilcimlar } from '../api/kancalar'
 import type { Izleme } from '../api/tipler'
 import Kivilcim from '../bilesenler/Kivilcim'
 import SinyalRozeti from '../bilesenler/SinyalRozeti'
 import { goreliZaman, tl, yuzde } from '../yardimcilar/bicim'
+import { firsatlarBosDurumu } from '../yardimcilar/firsatlarBosDurum'
 
 /**
  * BACKLOG D2 — Keepa'nın Deals'ının uyarlanmışı: kullanıcının izlediklerinden
@@ -22,6 +23,12 @@ import { goreliZaman, tl, yuzde } from '../yardimcilar/bicim'
 export default function Firsatlar() {
   const { data: firsatlar, isLoading } = useFirsatlar()
   const { data: kivilcimlar } = useKivilcimlar()
+  // BACKLOG D3: "boş" listenin ÜÇ AYRI sebebi olabilir — hangisi olduğunu
+  // ayırt etmek için SÜZÜLMEMİŞ tam listeye ihtiyaç var (bu sayfanın kendi
+  // `firsatlar` verisi zaten süzülmüş, sebebi kendi başına anlatamaz).
+  // Panel de aynı kancayı çağırıyor — aynı queryKey, TEKİLLEŞTİRİLİR.
+  const { data: izlemeler } = useIzlemeler()
+  const bosDurum = firsatlarBosDurumu(izlemeler, firsatlar)
 
   return (
     <div className="space-y-6">
@@ -36,10 +43,25 @@ export default function Firsatlar() {
 
       {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}
 
-      {firsatlar && firsatlar.length === 0 && (
+      {bosDurum?.tur === 'hic_urun_yok' && (
         <div className="rounded-lg border border-dashed border-slate-300 p-8
                         text-center text-sm text-slate-500 dark:border-slate-700">
-          Şu an iyi fiyatta ürün yok.
+          Önce <Link to="/" className="underline">panelden</Link> ürün ekle.
+        </div>
+      )}
+
+      {bosDurum?.tur === 'gecmis_yetersiz' && (
+        <div className="rounded-lg border border-dashed border-slate-300 p-8
+                        text-center text-sm text-slate-500 dark:border-slate-700">
+          {bosDurum.urunSayisi} ürün için geçmiş biriktiriliyor
+          {bosDurum.kalanGun > 0 && <>, ilk fırsatlar ~{bosDurum.kalanGun} gün içinde</>}.
+        </div>
+      )}
+
+      {bosDurum?.tur === 'iyi_fiyat_yok' && (
+        <div className="rounded-lg border border-dashed border-slate-300 p-8
+                        text-center text-sm text-slate-500 dark:border-slate-700">
+          Şu an dip bölgesinde ürün yok. Hepsi normal aralıkta.
         </div>
       )}
 

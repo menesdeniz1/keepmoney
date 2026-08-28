@@ -687,6 +687,77 @@ def test_firsatlar_satirina_tiklayinca_detaya_gidiyor(sayfa, sunucu):
     sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
 
 
+# ── Fırsatlar boş durumları (BACKLOG D3) ──────────────────────────
+# Kabul ölçütü: üç durum üç ayrı metin veriyor. Üçü de aynı boş kutuya
+# çıkıyor olsaydı kullanıcı "hiç ürün eklemedim" ile "ürünlerim var ama
+# hiçbiri iyi fiyatta değil" arasındaki farkı ayırt edemezdi.
+
+def test_firsatlar_hic_urun_yokken_panele_yonlendirir(sayfa, sunucu):
+    _kayit_ol(sayfa, sunucu)
+    sayfa.get_by_role("link", name="Fırsatlar").click()
+    sayfa.wait_for_selector("text=Önce", timeout=15000)
+    icerik = sayfa.content()
+    assert "panelden" in icerik
+    assert "geçmiş biriktiriliyor" not in icerik
+    assert "dip bölgesinde ürün yok" not in icerik
+
+
+def test_firsatlar_gecmis_yetersizken_biriktiriliyor_mesaji(sayfa, sunucu):
+    """Ürün VAR ama worker hiç taramadı (bu paket içinde worker çalışmıyor)
+    — sinyal hep null, "hiç ürün yok" mesajıyla KARIŞTIRILMAMALI.
+
+    URL BİLEREK KENDİNE ÖZGÜ: varsayılan `_urun_ekle` URL'si ("ekran-
+    karti") bu dosyadaki BAŞKA testlerin (aynı paylaşılan `sunucu` DB'sinde
+    — bkz. C4'teki aynı bulgu) ZATEN `sinyal` yazdığı ürünle AYNI KANONİK
+    ÜRÜNE karşılık geliyordu (ürün kimliği kullanıcılar arası PAYLAŞILIR),
+    "hiç taranmamış" varsayımını yanlış kılıyordu."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/d3-gecmis-yetersiz", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.get_by_role("link", name="Fırsatlar").click()
+    sayfa.wait_for_selector("text=geçmiş biriktiriliyor", timeout=15000)
+    icerik = sayfa.content()
+    assert "1 ürün için geçmiş biriktiriliyor" in icerik
+    assert "panelden" not in icerik
+    assert "dip bölgesinde ürün yok" not in icerik
+
+
+def test_firsatlar_iyi_fiyat_yokken_normal_aralik_mesaji(sayfa, sunucu):
+    """Ürünün YETERLİ geçmişi var (sinyal='pahali' — worker karar vermiş)
+    ama hiçbiri dip/ucuz değil. "Biriktiriliyor" mesajıyla KARIŞTIRILMAMALI
+    — bu ürünler için biriktirme zaten BİTTİ, sonuç iyi fiyat değil."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/d3-iyi-fiyat-yok", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = _kullanicinin_urunu(db, eposta)
+    urun.sinyal = "pahali"
+    urun.yuzdelik = 5
+    urun.gecmis_gun = 30
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    # TanStack Query önbelleği `useIzlemeler()`i Panel ziyaretinden (yukarı-
+    # daki `_urun_ekle`) eski (sinyalsiz) hâliyle tutuyor — istemci tarafı
+    # gezinme (nav linkine tıklama) bunu ZORLA tazelemez, tıpkı A8'in
+    # `test_sinyalli_kartta_...`daki aynı bulgusu gibi: taze veri için
+    # sayfa yenileniyor (gerçek kullanıcının da yapacağı şey).
+    sayfa.reload(wait_until="networkidle")
+    sayfa.get_by_role("link", name="Fırsatlar").click()
+    sayfa.wait_for_selector("text=dip bölgesinde ürün yok", timeout=15000)
+    icerik = sayfa.content()
+    assert "Hepsi normal aralıkta" in icerik
+    assert "geçmiş biriktiriliyor" not in icerik
+    assert "panelden" not in icerik
+
+
 def test_ikon_dugmelerinin_erisilebilir_adi_var(sayfa, sunucu):
     """Çıkış düğmesi yalnızca SVG içeriyordu ve `title` kullanıcının
     e-postasıydı: ekran okuyucu düğmenin ne yaptığını hiç duyurmuyordu."""
