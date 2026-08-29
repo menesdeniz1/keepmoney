@@ -189,6 +189,12 @@ class IzlemeGuncelleIstegi(BaseModel):
     # demek. Boş liste "hiçbir sette olmasın" — silme değil, tanım.
     set_idler: list[int] | None = None
     sustur_gun: int | None = Field(default=None, ge=0, le=365)
+    # BACKLOG E1/E3 — worker.py'nin yüzde kuralı (E2) 1-90 aralığını kabul
+    # ediyor; sınırlar orayla EŞLEŞMELİ.
+    dusus_yuzdesi: int | None = Field(default=None, ge=1, le=90)
+    # `0` = "hiç" (bir daha yeniden kurma) — `sustur_gun`daki "0 = kaldır"
+    # ile AYNI sentinel deseni.
+    yeniden_kur_gun: int | None = Field(default=None, ge=0, le=365)
 
 
 class IzlemeYaniti(BaseModel):
@@ -204,6 +210,8 @@ class IzlemeYaniti(BaseModel):
     kilitli_fiyat: float | None = None
     sustur_bitis: datetime | None = None
     set_idler: list[int] = Field(default_factory=list)
+    dusus_yuzdesi: int | None = None
+    yeniden_kur_gun: int | None = None
     urun: UrunOzet = Field(validation_alias=AliasChoices("urun", "product"))
 
 

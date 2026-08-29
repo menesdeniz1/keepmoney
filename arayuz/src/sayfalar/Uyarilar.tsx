@@ -6,6 +6,7 @@ import { goreliZaman } from '../yardimcilar/bicim'
 
 const TUR_ETIKETI: Record<UyariTuru, string> = {
   HEDEF: '🎯 Hedef',
+  YUZDE: '📉 Yüzde düşüş',
   DIP: '📉 Dip',
   SAHTE_INDIRIM: '🎭 Sahte indirim',
   SET_HEDEF: '📦 Set bütçesi',

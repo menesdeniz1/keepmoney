@@ -377,20 +377,123 @@ def test_ic_ag_adresi_arayuzde_reddedilir(sayfa, sunucu):
 
 
 def test_hedef_fiyat_ayarlanir_ve_kaldirilir(sayfa, sunucu):
+    """BACKLOG E3'ten SONRA: "Hedef fiyat" artık kendi kutusu değil,
+    `UyariKurulumu`nun bir onay kutusu — kutu işaretlenmeden girdi hiç
+    görünmüyor (bkz. E3'ün "geçmiş yetersizken yüzde pasif" ilkesiyle aynı
+    "önce aç, sonra doldur" deseni)."""
     _kayit_ol(sayfa, sunucu)
     _urun_ekle(sayfa, hedef="")
     sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
     sayfa.locator("a[href^='/izleme/']").first.click()
-    sayfa.wait_for_selector("#hedef-fiyat", timeout=15000)
+    sayfa.wait_for_selector("#hedef-fiyat-onay", timeout=15000)
 
+    sayfa.locator("#hedef-fiyat-onay").check()
     sayfa.locator("#hedef-fiyat").fill("41000")
     sayfa.get_by_role("button", name="Kaydet").click()
     sayfa.wait_for_selector("text=41.000", timeout=15000)
 
-    # Hedefi TEMİZLEME: API'de açık `null` desteklenir, arayüzde de olmalı.
-    sayfa.get_by_role("button", name="Hedefi kaldır").click()
-    sayfa.wait_for_timeout(1500)
-    assert sayfa.get_by_role("button", name="Hedefi kaldır").count() == 0
+    # Hedefi TEMİZLEME: kutuyu kaldırıp yeniden kaydetmek `hedef_fiyat: null`
+    # gönderir (API'de açık `null` destekleniyor, arayüzde de olmalı).
+    sayfa.locator("#hedef-fiyat-onay").uncheck()
+    sayfa.get_by_role("button", name="Kaydet").click()
+    sayfa.wait_for_timeout(1000)
+    assert sayfa.locator("#hedef-fiyat").count() == 0
+    assert "hedefin:" not in sayfa.content()
+
+
+# ── Uyarı kurma arayüzü (BACKLOG E3) ──────────────────────────────
+
+def _yeterli_gecmisli_urune_git(s: Page, sunucu, eposta: str) -> None:
+    """Yüzde seçeneğinin AÇILABİLMESİ için worker'ın normalde günler
+    içinde yazacağı `medyan90`/`gecmis_gun` sütunlarını elle kuruyoruz
+    (bkz. A8 deseni) — bu paket içinde worker çalışmadığı için bunlar
+    hiç dolmuyor, "geçmiş yetersiz" hâli SÜREKLİ olurdu."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = _kullanicinin_urunu(db, eposta)
+    urun.sinyal = "ucuz"
+    urun.medyan90 = 1000.0
+    urun.dip90 = 800.0
+    urun.yuzdelik = 60
+    urun.gecmis_gun = 30
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    s.reload(wait_until="networkidle")
+
+
+def test_yuzde_onizlemesi_yazarken_anlik_guncellenir(sayfa, sunucu):
+    """Kabul ölçütü: önizleme yazarken anlık güncelleniyor — KAYDETMEYİ
+    BEKLEMEZ, saf hesap her tuş vuruşunda çalışır."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    # URL BİLEREK KENDİNE ÖZGÜ: varsayılan ("ekran-karti") başka testlerin
+    # AYNI kanonik ürüne `gecmis_gun`/`medyan90` yazdığı, paylaşılan
+    # `sunucu` DB'sinde çakışan bir üründü (bkz. C4/D3'teki aynı bulgu).
+    _urun_ekle(sayfa, url="https://www.example.com/urun/e3-onizleme", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("#hedef-fiyat-onay", timeout=15000)
+
+    _yeterli_gecmisli_urune_git(sayfa, sunucu, eposta)
+    sayfa.wait_for_selector("#yuzde-dususu-onay", timeout=15000)
+
+    sayfa.locator("#yuzde-dususu-onay").check()
+    sayfa.locator("#yuzde-dususu").fill("15")
+    # Hiçbir "Kaydet" tıklanmadı — önizleme yine de görünmeli.
+    sayfa.wait_for_selector("#yuzde-onizleme", timeout=15000)
+    assert "850,00" in sayfa.locator("#yuzde-onizleme").inner_text()
+
+    sayfa.locator("#yuzde-dususu").fill("30")
+    expect(sayfa.locator("#yuzde-onizleme")).to_contain_text("700,00", timeout=5000)
+
+
+def test_gecmis_yetersizken_yuzde_secenegi_pasif(sayfa, sunucu):
+    """Kabul ölçütü: geçmiş yetersizken yüzde seçeneği pasif ve sebebi
+    yazıyor. Bu paket içinde worker çalışmadığı için YENİ eklenen ürünün
+    `gecmis_gun`ü hep yetersiz (< 7)."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/e3-yetersiz-gecmis", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("#yuzde-dususu-onay", timeout=15000)
+
+    kutu = sayfa.locator("#yuzde-dususu-onay")
+    expect(kutu).to_be_disabled()
+    assert "Yeterli geçmiş birikince kullanılabilir" in sayfa.content()
+    # Girdi hiç görünmemeli — pasif seçenek doldurulamaz olmalı.
+    assert sayfa.locator("#yuzde-dususu").count() == 0
+
+
+def test_ozet_cumlesi_secili_kurallari_dogru_anlatir(sayfa, sunucu):
+    """Kabul ölçütü: özet cümlesi seçili kuralları doğru anlatıyor —
+    HEM hedef HEM yüzde seçilince 'ya da' ile birleşir (BACKLOG'un kendi
+    örnek cümlesi)."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/e3-ozet-cumlesi", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("#hedef-fiyat-onay", timeout=15000)
+
+    _yeterli_gecmisli_urune_git(sayfa, sunucu, eposta)
+    sayfa.wait_for_selector("#yuzde-dususu-onay", timeout=15000)
+
+    # Önce hiçbiri seçili değil: yalnızca dip cümlesi.
+    ozet = sayfa.locator("#uyari-ozet")
+    expect(ozet).to_contain_text("dibini kırınca haber verilir", timeout=5000)
+
+    sayfa.locator("#hedef-fiyat-onay").check()
+    sayfa.locator("#hedef-fiyat").fill("5500")
+    expect(ozet).to_contain_text("₺5.500,00 altına inince haber verilir", timeout=5000)
+    assert "ya da" not in ozet.inner_text()
+
+    sayfa.locator("#yuzde-dususu-onay").check()
+    sayfa.locator("#yuzde-dususu").fill("15")
+    expect(ozet).to_contain_text("₺5.500,00 altına inince ya da", timeout=5000)
+    expect(ozet).to_contain_text("medyanın %15 altına düşünce", timeout=5000)
 
 
 def test_susturma_ve_duraklatma(sayfa, sunucu):

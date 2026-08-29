@@ -10,6 +10,7 @@ export type Sinyal = 'dip' | 'ucuz' | 'pahali'
 export type TrendYonu = 'dusuyor' | 'yukseliyor' | 'sabit'
 export type UyariTuru =
   | 'HEDEF'
+  | 'YUZDE'
   | 'DIP'
   | 'SAHTE_INDIRIM'
   | 'SET_HEDEF'
@@ -125,6 +126,11 @@ export interface Izleme {
   sustur_bitis: string | null
   // Bir ürün BİRDEN ÇOK sette olabilir.
   set_idler: number[]
+  // BACKLOG E1/E3 — hedef_fiyat ile BİRLİKTE kurulabilir (worker.py'nin
+  // öncelik sırası: acil → hedef → yüzde → dip, ikisi birbirini
+  // dışlamaz). `yeniden_kur_gun`: `null` = varsayılan (7 gün), `0` = "hiç".
+  dusus_yuzdesi: number | null
+  yeniden_kur_gun: number | null
   urun: UrunOzet
 }
 
@@ -183,4 +189,6 @@ export interface IzlemeGuncelleGirdi {
   kilitli_fiyat?: number | null
   set_idler?: number[] | null
   sustur_gun?: number | null
+  dusus_yuzdesi?: number | null
+  yeniden_kur_gun?: number | null
 }

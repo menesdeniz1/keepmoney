@@ -34,6 +34,8 @@ function izleme(parcaGirdi: Partial<Izleme> & { urun: UrunOzet }): Izleme {
     kilitli_fiyat: null,
     sustur_bitis: null,
     set_idler: [],
+    dusus_yuzdesi: null,
+    yeniden_kur_gun: null,
     ...parcaGirdi,
   }
 }

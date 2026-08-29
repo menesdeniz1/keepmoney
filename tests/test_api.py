@@ -701,6 +701,77 @@ def test_acil_fiyat_ve_set_de_temizlenebilir(istemci):
     assert y.json()["set_idler"] == []
 
 
+def test_dusus_yuzdesi_ve_yeniden_kur_gun_guncellenir_ve_okunur(istemci):
+    """BACKLOG E1/E3 — yeni sütunlar PATCH ile yazılabiliyor VE yanıtta
+    (GET/PATCH) geri okunabiliyor. E1 yalnızca şemayı ekledi; bu, o
+    sütunların GERÇEKTEN uçtan erişilebilir olduğunu doğruluyor."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"dusus_yuzdesi": 15, "yeniden_kur_gun": 30})
+    assert y.status_code == 200
+    assert y.json()["dusus_yuzdesi"] == 15
+    assert y.json()["yeniden_kur_gun"] == 30
+
+    y = istemci.get("/api/izlemeler", headers=b)
+    assert y.json()[0]["dusus_yuzdesi"] == 15
+    assert y.json()[0]["yeniden_kur_gun"] == 30
+
+
+def test_dusus_yuzdesi_ve_yeniden_kur_gun_temizlenebilir(istemci):
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                 json={"dusus_yuzdesi": 15, "yeniden_kur_gun": 30})
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"dusus_yuzdesi": None, "yeniden_kur_gun": None})
+    assert y.json()["dusus_yuzdesi"] is None
+    assert y.json()["yeniden_kur_gun"] is None
+
+
+def test_yeniden_kur_gun_hic_sentinel_sifir_kabul_edilir(istemci):
+    """`0` = "hiç" (bir daha yeniden kurma) — `sustur_gun`daki "0 = kaldır"
+    ile AYNI sentinel deseni, `null`dan (dokunulmadı/varsayılan) AYRI."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                      json={"yeniden_kur_gun": 0})
+    assert y.status_code == 200
+    assert y.json()["yeniden_kur_gun"] == 0
+
+
+def test_dusus_yuzdesi_araligin_disinda_422(istemci):
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"dusus_yuzdesi": 0}).status_code == 422
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"dusus_yuzdesi": 91}).status_code == 422
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"dusus_yuzdesi": 1}).status_code == 200
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"dusus_yuzdesi": 90}).status_code == 200
+
+
+def test_yeniden_kur_gun_araligin_disinda_422(istemci):
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"yeniden_kur_gun": -1}).status_code == 422
+    assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
+                         json={"yeniden_kur_gun": 366}).status_code == 422
+
+
 def test_dokunulmayan_alan_korunur(istemci):
     """`exclude_unset` sayesinde GÖNDERİLMEYEN alan sıfırlanmamalı —
     "null = temizle" kuralının bedeli bu olmamalı."""

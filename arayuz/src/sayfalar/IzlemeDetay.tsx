@@ -8,6 +8,7 @@ import Onay from '../bilesenler/Onay'
 // Recharts ~400 KB. Panel ve diğer sayfalar bunu indirmesin diye
 // yalnızca bu sayfa açıldığında yüklenir (kod bölme).
 const FiyatGrafigi = lazy(() => import('../bilesenler/FiyatGrafigi'))
+import UyariKurulumu from '../bilesenler/UyariKurulumu'
 import YorumKarti from '../bilesenler/YorumKarti'
 import { goreliZaman, tl } from '../yardimcilar/bicim'
 
@@ -19,7 +20,6 @@ export default function IzlemeDetay() {
   const sil = useIzlemeSil()
   const navigate = useNavigate()
   const { data: setler } = useSetler()
-  const [yeniHedef, setYeniHedef] = useState('')
   const [silOnay, setSilOnay] = useState(false)
 
   if (isLoading) return <p className="text-sm text-slate-500">Yükleniyor…</p>
@@ -79,54 +79,7 @@ export default function IzlemeDetay() {
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-4
-                        dark:border-slate-800 dark:bg-slate-900">
-          <h2 className="mb-3 text-sm font-medium">Hedef fiyat</h2>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (!yeniHedef) return
-              guncelle.mutate({ hedef_fiyat: Number(yeniHedef) })
-              setYeniHedef('')
-            }}
-          >
-            <label htmlFor="hedef-fiyat" className="sr-only">
-              Hedef fiyat
-            </label>
-            <input
-              id="hedef-fiyat"
-              type="number"
-              min="1"
-              value={yeniHedef}
-              onChange={(e) => setYeniHedef(e.target.value)}
-              placeholder={izleme.hedef_fiyat ? String(izleme.hedef_fiyat) : 'örn. 45000'}
-              className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm
-                         dark:border-slate-700 dark:bg-slate-950"
-            />
-            {/* Bekleme sırasında kilitli: çift tıklama iki PATCH göndermesin. */}
-            <button
-              disabled={guncelle.isPending}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white
-                         disabled:opacity-50 dark:bg-white dark:text-slate-900"
-            >
-              {guncelle.isPending ? '…' : 'Kaydet'}
-            </button>
-          </form>
-          <p className="mt-2 text-xs text-slate-500">
-            Hedefi değiştirmek susturmayı kaldırır — yeni hedeften bildirim
-            gelmeye başlar.
-          </p>
-          {izleme.hedef_fiyat != null && (
-            <button
-              onClick={() => guncelle.mutate({ hedef_fiyat: null })}
-              disabled={guncelle.isPending}
-              className="mt-2 text-xs text-slate-500 hover:underline disabled:opacity-50"
-            >
-              Hedefi kaldır
-            </button>
-          )}
-        </div>
+        <UyariKurulumu izleme={izleme} urun={urun} />
 
         <div className="rounded-lg border border-slate-200 bg-white p-4
                         dark:border-slate-800 dark:bg-slate-900">

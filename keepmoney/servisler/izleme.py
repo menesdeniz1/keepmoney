@@ -453,12 +453,14 @@ def ekle(db: Session, kullanici: User, url: str,
 # Kuralların gerekçesi için bkz. `ortak.alanlari_uygula`.
 GUNCELLENEBILIR = frozenset({
     "hedef_fiyat", "acil_fiyat", "aktif", "kilitli", "kilitli_fiyat",
+    "dusus_yuzdesi", "yeniden_kur_gun",
 })
 
 # Bunlara açıkça `null` gönderilmesi "değeri SİL" demektir.
 # `aktif`/`kilitli` burada YOK: onlar boolean, null'un anlamı yok.
 TEMIZLENEBILIR = frozenset({
     "hedef_fiyat", "acil_fiyat", "kilitli_fiyat",
+    "dusus_yuzdesi", "yeniden_kur_gun",
 })
 
 
