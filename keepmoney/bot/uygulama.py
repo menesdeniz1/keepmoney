@@ -154,6 +154,30 @@ async def sustur(cb: CallbackQuery) -> None:
     await cb.answer(f"{gun} gün susturuldu")
 
 
+@dp.callback_query(F.data.startswith("yz:"))
+async def yuzde_dususu(cb: CallbackQuery) -> None:
+    """"%15 düşünce haber ver" — BACKLOG E5.
+
+    Web'deki yüzde eşiği (E1-E3) ile AYNI alan (`dusus_yuzdesi`), AYNI
+    servis fonksiyonu (`izleme_svc.guncelle`) — MIMARI K13: iş kuralı bot
+    ve web'de iki ayrı yerde yaşamasın. Bottan kurulan değer bu yüzden
+    web'de de doğrudan görünür, ayrı bir eşitleme gerekmez.
+    """
+    _, parcalar = kartlar.callback_coz(cb.data or "")
+    izleme_id, yuzde = int(parcalar[0]), int(parcalar[1])
+    with SessionLocal() as db:
+        k = kullanici_svc.chat_id_ile(db, str(cb.message.chat.id))
+        if k is None:
+            await cb.answer("Hesabın bağlı değil", show_alert=True)
+            return
+        try:
+            izleme_svc.guncelle(db, k, izleme_id, dusus_yuzdesi=yuzde)
+        except izleme_svc.IzlemeHatasi:
+            await cb.answer("Bu ürün listende yok", show_alert=True)
+            return
+    await cb.answer(f"%{yuzde} düşünce haber vereceğim")
+
+
 @dp.callback_query(F.data.startswith("dr:"))
 async def duraklat(cb: CallbackQuery) -> None:
     """Duraklat / Devam ettir.

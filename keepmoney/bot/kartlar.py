@@ -74,7 +74,7 @@ YARDIM = (
     "/yardim — bu mesaj\n\n"
     "Ürün adı yazarsan o ürünün kartını getiririm. Karttaki düğmelerle:\n"
     "🎯 hedefi değiştir (yüzdelik kısayol ya da elle yaz)\n"
-    "🔕 sustur  ·  ⏸ duraklat  ·  🗑 takipten çıkar"
+    "📉 %15 düşünce haber ver  ·  🔕 sustur  ·  ⏸ duraklat  ·  🗑 takipten çıkar"
 )
 
 
@@ -182,6 +182,12 @@ def urun_klavyesi(izleme_id: int, aktif: bool) -> list[list[dict]]:
             {"text": "🎯 Hedefi değiştir", "callback_data": f"hd:{izleme_id}"},
             {"text": "🔕 1 hafta sustur", "callback_data": f"ss:{izleme_id}:7"},
         ],
+        # BACKLOG E5 — web'deki yüzde eşiği (E1-E3) burada da kurulabilsin,
+        # bot geride kalmasın (MIMARI K13). Tek şablon değer (%15): kart
+        # zaten sıkışık, "elle yaz" akışı (`he:`) hedef için var, burada
+        # aynısını yüzde için tekrarlamak kapsam dışı — BACKLOG'un kendi
+        # metni de tek bir "%15 düşünce" düğmesi istiyor, menü değil.
+        [{"text": "📉 %15 düşünce haber ver", "callback_data": f"yz:{izleme_id}:15"}],
         [
             {"text": "▶️ Devam ettir" if not aktif else "⏸ Duraklat",
              "callback_data": f"dr:{izleme_id}"},

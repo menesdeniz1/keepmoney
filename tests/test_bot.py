@@ -133,8 +133,10 @@ def test_hedef_klavyesi_fiyat_yoksa_sadece_elle():
 
 
 def test_duraklat_dugmesi_duruma_gore_degisir():
-    aktif = kartlar.urun_klavyesi(1, True)[1][0]["text"]
-    pasif = kartlar.urun_klavyesi(1, False)[1][0]["text"]
+    # [2]: BACKLOG E5'in %15 düğmesi araya bir satır eklediği için
+    # duraklat/sil satırı [1]'den [2]'ye kaydı.
+    aktif = kartlar.urun_klavyesi(1, True)[2][0]["text"]
+    pasif = kartlar.urun_klavyesi(1, False)[2][0]["text"]
     assert "Duraklat" in aktif
     assert "Devam" in pasif
 
@@ -417,6 +419,61 @@ def test_duraklat_dugmesi_durumu_yansitir():
 
     assert any("Duraklat" in t for t in metinler(aktifken))
     assert any("Devam ettir" in t for t in metinler(duraklatilmisken))
+
+
+# ── Yüzde düşüş kısayolu (BACKLOG E5) ──────────────────────────────
+
+
+def test_urun_klavyesi_yuzde_dugmesini_uretir():
+    klavye = kartlar.urun_klavyesi(7, aktif=True)
+    kodlar = [d["callback_data"] for satir in klavye for d in satir]
+    assert "yz:7:15" in kodlar
+
+
+@pytest.mark.asyncio
+async def test_yuzde_dugmesi_dusus_yuzdesini_kurar_ve_webde_gorunur(motor, db, monkeypatch):
+    """Kabul ölçütü: "bottan kurulan kural webde görünüyor".
+
+    Handler'ın içindeki tek iş `izleme_svc.guncelle(..., dusus_yuzdesi=...)`
+    çağrısı — web PATCH'inin (BACKLOG E3, `IzlemeGuncelleIstegi`) kullandığı
+    AYNI fonksiyon, aynı `GUNCELLENEBILIR` beyaz listesi (MIMARI K13). Web
+    ucunun bu alanı doğru serileştirdiği kendi testleriyle zaten kanıtlı
+    (E3/E4 — `izlemeler.py::detay()`); burada asıl doğrulanması gereken BOT
+    tarafının doğru alanı doğru değerle DB'ye yazdığı. Bu dosyada başka
+    hiçbir test bir `uygulama.py` handler'ını doğrudan çalıştırmıyor (yalnız
+    `test_her_dugmenin_handleri_var` statik bir eşleşme kontrolü) — burada
+    gerçekten çalıştırıyoruz çünkü ölçüt "DB'ye yazıldı", "kod eşleşiyor" değil.
+
+    Handler kendi `SessionLocal()`ını açıyor (bkz. `db.py` — üretim kodu DI
+    almıyor); bu, test fikstürünün `db` oturumundan FARKLI bir bağlantı
+    demek. `motor` StaticPool bellek-içi motoru, `uygulama.SessionLocal`ı
+    ona yamamak testin ve handler'ın AYNI şemaya yazıp okumasını sağlıyor
+    (bkz. test_baglam_doldur.py'deki aynı desen)."""
+    from types import SimpleNamespace
+
+    from sqlalchemy.orm import sessionmaker
+
+    from keepmoney.bot import uygulama
+
+    monkeypatch.setattr(uygulama, "SessionLocal", sessionmaker(bind=motor))
+
+    w = izleme(db, urun(db, "Ürün", fiyat=1000))
+    cevaplar: list[tuple[str | None, bool]] = []
+
+    async def cevapla(text=None, show_alert=False):
+        cevaplar.append((text, show_alert))
+
+    cb = SimpleNamespace(
+        data=f"yz:{w.id}:15",
+        message=SimpleNamespace(chat=SimpleNamespace(id="99")),
+        answer=cevapla,
+    )
+
+    await uygulama.yuzde_dususu(cb)
+
+    db.expire_all()
+    assert db.query(Watch).filter(Watch.id == w.id).one().dusus_yuzdesi == 15
+    assert cevaplar == [("%15 düşünce haber vereceğim", False)]
 
 
 # ── Elle hedef girişi (ForceReply akışı) ──────────────────────────
