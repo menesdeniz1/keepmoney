@@ -1110,6 +1110,121 @@ def test_urunun_bildirimlerine_daraltilir(sayfa, sunucu):
     sayfa.wait_for_selector("text=B ürününün bildirimi", timeout=15000)
 
 
+def test_uyaridan_magazaya_git_en_ucuz_kaynaga_gider(sayfa, sunucu):
+    """BACKLOG G3: "Mağazaya git" o an EN UCUZ kaynağa gitmeli, ilk eklenen
+    kaynağa değil — burada ikinci eklenen (ve ucuz olan) kaynak doğru."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, Source, User, Watch
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/g3-magaza", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    w_id, product_id = w.id, w.product_id
+    ilk_kaynak = db.query(Source).filter(Source.product_id == product_id).one()
+    ilk_kaynak.durum = "OK"
+    ilk_kaynak.son_fiyat = 2000
+    db.add(Source(product_id=product_id, url="https://www.example.com/urun/g3-ucuz",
+                  host="example.com", durum="OK", son_fiyat=1500))
+    db.add(Alert(user_id=kullanici.id, watch_id=w_id, tur="HEDEF",
+                 baslik="Fiyat düştü", mesaj="m"))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/uyarilar", wait_until="networkidle")
+    sayfa.wait_for_selector("text=Mağazaya git", timeout=15000)
+    href = sayfa.get_by_role("link", name="Mağazaya git").get_attribute("href")
+    assert href == "https://www.example.com/urun/g3-ucuz"
+
+
+def test_uyaridan_sustur_calisir(sayfa, sunucu):
+    """BACKLOG G3: "7 gün sustur" — ürüne gidip elle ayar değiştirmeden,
+    tek tıkla izlemenin `sustur_bitis`ini ileri tarihe çeker."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, User, Watch
+    from keepmoney.zaman import utc_simdi
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/g3-sustur", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    w_id = w.id
+    assert w.sustur_bitis is None
+    db.add(Alert(user_id=kullanici.id, watch_id=w_id, tur="HEDEF",
+                 baslik="Fiyat düştü", mesaj="m"))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/uyarilar", wait_until="networkidle")
+    sayfa.get_by_role("button", name="7 gün sustur").click()
+    sayfa.wait_for_selector("text=Susturuldu", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    w = db.query(Watch).filter(Watch.id == w_id).one()
+    assert w.sustur_bitis is not None
+    assert w.sustur_bitis > utc_simdi()
+    db.close()
+    motor.dispose()
+
+
+def test_uyaridan_takipten_cikar_onay_ister(sayfa, sunucu):
+    """BACKLOG G3: yıkıcı olan (takipten çıkar) onay ister — bildirim
+    satırındaki kısayol da IzlemeDetay'daki AYNI `Onay` dialogunu kullanır
+    (bkz. `test_takipten_cikarma_onay_ister`). Onaylanınca izleme SET NULL
+    olur, satır kalır ama eylem düğmeleri kaybolur."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, User, Watch
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/g3-cik", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    w_id = w.id
+    db.add(Alert(user_id=kullanici.id, watch_id=w_id, tur="HEDEF",
+                 baslik="Fiyat düştü", mesaj="m"))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/uyarilar", wait_until="networkidle")
+    sayfa.wait_for_selector("text=Fiyat düştü", timeout=15000)
+
+    sayfa.get_by_role("button", name="Takipten çıkar").first.click()
+    sayfa.wait_for_selector("dialog[open]", timeout=5000)
+    sayfa.get_by_role("button", name="Vazgeç").click()
+    sayfa.wait_for_timeout(500)
+    assert sayfa.locator("dialog[open]").count() == 0
+
+    sayfa.get_by_role("button", name="Takipten çıkar").first.click()
+    sayfa.wait_for_selector("dialog[open]", timeout=5000)
+    sayfa.locator("dialog[open]").get_by_role(
+        "button", name="Takipten çıkar").click()
+    # İzleme silinince `Alert.watch_id` `SET NULL` olur — satır kalır ama
+    # eylem düğmeleri (Ürüne git dahil) artık gösterilmemeli.
+    expect(sayfa.get_by_role("link", name="Ürüne git")).to_have_count(0, timeout=15000)
+
+
 # ── Ayarlar ve hesap ─────────────────────────────────────────────
 
 def test_ayarlar_dogrulama_uyarisi_gosterir(sayfa, sunucu):

@@ -206,6 +206,10 @@ export interface Uyari {
   okundu: boolean
   created_at: string
   watch_id: number | null
+  // BACKLOG G3 — "Mağazaya git": o an en ucuz kaynağın çıkış linki, sunucuda
+  // hesaplanır (bkz. keepmoney/servisler/urun.py::en_ucuz_magaza_url).
+  // İzleme silinmişse ya da okunabilir kaynak yoksa `null`.
+  magaza_url: string | null
 }
 
 export interface IzlemeEkleGirdi {

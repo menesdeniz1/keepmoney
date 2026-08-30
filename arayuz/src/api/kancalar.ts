@@ -188,6 +188,12 @@ export function useIzlemeSil() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
       void qc.invalidateQueries({ queryKey: anahtar.setler })
+      // BACKLOG G3 — Bildirimler'den "Takipten çıkar" da bu kancayı
+      // kullanır: izleme gidince `Alert.watch_id` `SET NULL` olur (bkz.
+      // models.py), bildirim satırındaki eylem düğmeleri (Ürüne git/
+      // Mağazaya git/Sustur) tazelenmezse eskiden var olan izlemeye
+      // işaret etmeye devam eder.
+      void qc.invalidateQueries({ queryKey: ['uyarilar'] })
     },
   })
 }

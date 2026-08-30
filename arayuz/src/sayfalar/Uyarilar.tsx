@@ -1,20 +1,10 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
-import { useHepsiOkundu, useUyariOkundu, useUyarilar } from '../api/kancalar'
-import type { UyariTuru } from '../api/tipler'
-import { goreliZaman } from '../yardimcilar/bicim'
+import { useHepsiOkundu, useUyarilar } from '../api/kancalar'
+import UyariKarti from '../bilesenler/UyariKarti'
 import { GRUP_BASLIGI, uyarilariGrupla } from '../yardimcilar/uyariGruplama'
 import { SUZGEC_SECENEKLERI, suzgeciCoz, type UyariSuzgeci } from '../yardimcilar/uyariSuzgecleri'
-
-const TUR_ETIKETI: Record<UyariTuru, string> = {
-  HEDEF: '🎯 Hedef',
-  YUZDE: '📉 Yüzde düşüş',
-  DIP: '📉 Dip',
-  SAHTE_INDIRIM: '🎭 Sahte indirim',
-  SET_HEDEF: '📦 Set bütçesi',
-  KAYNAK_BOZUK: '⚠️ Kaynak',
-}
 
 export default function Uyarilar() {
   const [suzgec, setSuzgec] = useState<UyariSuzgeci>('tumu')
@@ -33,7 +23,6 @@ export default function Uyarilar() {
     hasNextPage,
     isFetchingNextPage,
   } = useUyarilar({ sadeceOkunmamis, tur, watchId })
-  const okundu = useUyariOkundu()
   const hepsi = useHepsiOkundu()
   const uyarilar = data?.pages.flat()
   const bolumler = uyarilariGrupla(uyarilar ?? [])
@@ -99,39 +88,7 @@ export default function Uyarilar() {
             </h2>
             <div className="space-y-2">
               {bolum.ogeler.map((u) => (
-                <div
-                  key={u.id}
-                  className={`rounded-lg border p-4 ${
-                    u.okundu
-                      ? 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
-                      : 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs text-slate-500">{TUR_ETIKETI[u.tur]}</div>
-                      <h3 className="mt-0.5 font-medium">{u.baslik}</h3>
-                      <p className="mt-1 whitespace-pre-line text-sm text-slate-600
-                                    dark:text-slate-400">{u.mesaj}</p>
-                    </div>
-                    <span className="shrink-0 text-xs text-slate-400">
-                      {goreliZaman(u.created_at)}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex gap-3 text-xs">
-                    {u.watch_id != null && (
-                      <Link to={`/izleme/${u.watch_id}`} className="text-slate-500 hover:underline">
-                        Ürüne git
-                      </Link>
-                    )}
-                    {!u.okundu && (
-                      <button onClick={() => okundu.mutate(u.id)}
-                              className="text-slate-500 hover:underline">
-                        Okundu
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <UyariKarti key={u.id} u={u} />
               ))}
             </div>
           </div>

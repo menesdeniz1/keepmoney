@@ -1,9 +1,10 @@
 """Uyarı (bildirim) use-case'leri."""
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from ..models import Alert, User
+from ..models import Alert, Product, User, Watch
+from . import urun as urun_svc
 
 VARSAYILAN_LIMIT = 50
 AZAMI_LIMIT = 100
@@ -11,7 +12,7 @@ AZAMI_LIMIT = 100
 
 def listele(db: Session, kullanici: User, sadece_okunmamis: bool = False,
             limit: int = VARSAYILAN_LIMIT, offset: int = 0,
-            tur: list[str] | None = None, watch_id: int | None = None) -> list[Alert]:
+            tur: list[str] | None = None, watch_id: int | None = None) -> list[dict]:
     """Bildirimler, en yeniden eskiye, SAYFALI.
 
     Sayfalama yalnızca hız için değil ERİŞİLEBİLİRLİK için: liste sabit 50'de
@@ -27,18 +28,39 @@ def listele(db: Session, kullanici: User, sadece_okunmamis: bool = False,
     uygulanır (SQL WHERE her zaman böyle çalışır): sayfalama SÜZÜLMÜŞ
     kümeye göredir, yoksa "sayfa 2"de süzgeçle hiç eşleşmeyen kayıtlar
     sayılmış olur ve sayfa eksik dönerdi.
+
+    BACKLOG G3 — `watch`→`product`→`sources` EAGER yüklenir: `_uyari()` her
+    satır için "en ucuz kaynak" hesaplıyor, eager olmasaydı sayfa başına N
+    ayrı sorgu açılırdı (N+1).
     """
-    q = db.query(Alert).filter(Alert.user_id == kullanici.id)
+    q = (db.query(Alert)
+         .options(selectinload(Alert.watch).selectinload(Watch.product)
+                  .selectinload(Product.sources))
+         .filter(Alert.user_id == kullanici.id))
     if sadece_okunmamis:
         q = q.filter(Alert.okundu.is_(False))
     if tur:
         q = q.filter(Alert.tur.in_(tur))
     if watch_id is not None:
         q = q.filter(Alert.watch_id == watch_id)
-    return (q.order_by(Alert.created_at.desc(), Alert.id.desc())
-            .offset(max(0, offset))
-            .limit(min(max(1, limit), AZAMI_LIMIT))
-            .all())
+    kayitlar = (q.order_by(Alert.created_at.desc(), Alert.id.desc())
+                .offset(max(0, offset))
+                .limit(min(max(1, limit), AZAMI_LIMIT))
+                .all())
+    return [_uyari(a) for a in kayitlar]
+
+
+def _uyari(a: Alert) -> dict:
+    """BACKLOG G3 — "Mağazaya git" için o an en ucuz kaynağın çıkış linki
+    burada, sunucuda hesaplanır (bkz. `urun_svc.en_ucuz_magaza_url`).
+    İstemciye ham `kaynaklar` listesi gönderip sıralamayı orada tekrarlamak,
+    F3'teki `enUcuzKaynak` kuralının ikinci bir kopyasını açardı.
+    """
+    return {
+        "id": a.id, "tur": a.tur, "baslik": a.baslik, "mesaj": a.mesaj,
+        "okundu": a.okundu, "created_at": a.created_at, "watch_id": a.watch_id,
+        "magaza_url": urun_svc.en_ucuz_magaza_url(a.watch.product) if a.watch else None,
+    }
 
 
 def okunmamis_sayisi(db: Session, kullanici: User) -> int:

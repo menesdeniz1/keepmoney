@@ -349,3 +349,8 @@ class UyariYaniti(BaseModel):
     okundu: bool
     created_at: datetime
     watch_id: int | None = None
+    # BACKLOG G3 — "Mağazaya git": o an EN UCUZ kaynağın çıkış linki
+    # (bkz. servisler/urun.py::en_ucuz_magaza_url). İzleme silinmişse ya da
+    # hiçbir kaynak şu an okunabilir durumda değilse `None` — düğme o zaman
+    # gösterilmez.
+    magaza_url: str | None = None

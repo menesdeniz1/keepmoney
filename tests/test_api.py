@@ -2134,6 +2134,61 @@ def test_uyarilar_suzgecle_sayfalama_dogru_calisir(istemci, db):
     assert len(set(kimlikler)) == 5   # çakışma yok, DIP hiç sızmadı
 
 
+# ─────────────────── G3: uyarıdan tek tıkla eylem ───────────────────
+
+def test_uyarida_magaza_url_en_ucuz_kaynagi_verir(istemci, db):
+    """Kabul ölçütü: "Mağazaya git" o an EN UCUZ kaynağa gitmeli, ilk
+    eklenen kaynağa değil — ikinci eklenen kaynak burada ucuz olan."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/pahali"}).json()["id"]
+    w = db.query(Watch).filter(Watch.id == i).one()
+    ilk_kaynak = db.query(Source).filter(Source.product_id == w.product_id).one()
+    ilk_kaynak.durum = "OK"
+    ilk_kaynak.son_fiyat = 1000
+    db.add(Source(product_id=w.product_id, url="https://magaza.com/ucuz",
+                  host="magaza.com", durum="OK", son_fiyat=700))
+    db.add(Alert(user_id=w.user_id, watch_id=i, tur="HEDEF", baslik="h", mesaj="m"))
+    db.commit()
+
+    y = istemci.get("/api/uyarilar", headers=b).json()
+    assert y[0]["magaza_url"] == "https://magaza.com/ucuz"
+
+
+def test_uyarida_okunamayan_kaynak_en_ucuz_sayilmaz(istemci, db):
+    """STOKTA_YOK/ENGELLİ bir kaynağın eski fiyatı daha düşük olsa bile
+    kullanıcı o mağazadan ŞU AN satın alamaz — `magaza_url` okunabilir
+    (durum OK) olan kaynağa gitmeli."""
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/stokta-var"}).json()["id"]
+    w = db.query(Watch).filter(Watch.id == i).one()
+    okunabilir = db.query(Source).filter(Source.product_id == w.product_id).one()
+    okunabilir.durum = "OK"
+    okunabilir.son_fiyat = 1500
+    db.add(Source(product_id=w.product_id, url="https://magaza.com/stokta-yok",
+                  host="magaza.com", durum="STOKTA_YOK", son_fiyat=500))
+    db.add(Alert(user_id=w.user_id, watch_id=i, tur="HEDEF", baslik="h", mesaj="m"))
+    db.commit()
+
+    y = istemci.get("/api/uyarilar", headers=b).json()
+    assert y[0]["magaza_url"] == "https://magaza.com/stokta-var"
+
+
+def test_uyarida_izleme_yoksa_magaza_url_bos(istemci, db):
+    """İzleme takipten çıkarılınca `Alert.watch_id` `SET NULL` olur (bkz.
+    models.py) — geçmiş bildirim kalır ama artık gidilecek bir mağaza yok."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    db.add(Alert(user_id=k.id, watch_id=None, tur="HEDEF", baslik="h", mesaj="m"))
+    db.commit()
+
+    y = istemci.get("/api/uyarilar", headers=b).json()
+    assert y[0]["magaza_url"] is None
+
+
 # ─────────────────── istek kimliği ve hata yakalama ───────────────────
 
 def test_istek_kimligi_yanitta_doner(istemci):
