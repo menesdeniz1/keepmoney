@@ -110,6 +110,7 @@ def ozet(db: Session, s: WatchSet) -> dict:
         "id": s.id,
         "ad": s.ad,
         "hedef_butce": s.hedef_butce,
+        "sablon": s.sablon,
         "toplam": round(toplam, 2),
         "eksik_uye": eksik,
         "uye_sayisi": len(uyeler),
@@ -127,6 +128,7 @@ def ozet(db: Session, s: WatchSet) -> dict:
                 "sinyal": w.product.sinyal if w.product else None,
                 "yuzdelik": w.product.yuzdelik if w.product else None,
                 "gecmis_gun": w.product.gecmis_gun if w.product else None,
+                "kategori": w.product.kategori if w.product else None,
             }
             for w in uyeler
         ],

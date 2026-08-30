@@ -425,6 +425,38 @@ def test_set_uyesi_sinyal_alanlarini_dondurur(istemci, db):
     assert uye["gecmis_gun"] == 30
 
 
+def test_set_sablonu_geri_dondurur(istemci, db):
+    """BACKLOG F4: `WatchSet.sablon` sütunu `SetIstegi.sablon` ile
+    YAZILIYORDU ama hiçbir yanıt şeması geri DÖNDÜRMÜYORDU — yukarıdaki
+    sinyal testiyle aynı A7/E4 sınıfı hata: kaydedilen değer sessizce
+    None'a düşüyordu, arayüz seçileni bir daha hiç göremiyordu."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b,
+                     json={"ad": "Set", "sablon": "pc_toplama"}).json()
+    assert s["sablon"] == "pc_toplama"
+
+    y = istemci.get(f"/api/setler/{s['id']}", headers=b).json()
+    assert y["sablon"] == "pc_toplama"
+
+    liste = istemci.get("/api/setler", headers=b).json()
+    assert liste[0]["sablon"] == "pc_toplama"
+
+
+def test_set_uyesi_kategori_alanini_dondurur(istemci, db):
+    """BACKLOG F4: şablon kontrol listesi üyenin `kategori`sine bakarak
+    hangi parçanın eklendiğini bulur — bu alan da API'den dönmeli."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    i = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/kategorili", "set_idler": [s["id"]]}).json()["id"]
+    w = db.query(Watch).filter(Watch.id == i).one()
+    w.product.kategori = "Ekran Kartları"
+    db.commit()
+
+    y = istemci.get(f"/api/setler/{s['id']}", headers=b).json()
+    assert y["uyeler"][0]["kategori"] == "Ekran Kartları"
+
+
 def test_bos_set_hedefte_demez(istemci, db):
     """Üyesi olmayan set "🎯 bütçe altında" DEMEZ.
 

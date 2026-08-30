@@ -629,7 +629,11 @@ def test_setin_icinden_coklu_urun_eklenir(sayfa, sunucu):
     sayfa.locator("#set-adi").fill("PC Toplama")
     sayfa.locator("#set-butce").fill("84000")
     sayfa.get_by_role("button", name="Set kur").click()
-    sayfa.wait_for_selector("text=PC Toplama", timeout=15000)
+    # "text=" DEĞİL: BACKLOG F4'ün şablon seçicisinde de aynı metinli bir
+    # <option value="pc_toplama">PC Toplama</option> var — set adı BUNUNLA
+    # çakışıyor (tesadüf, F4'ten önce yazılmış bir test). Başlık rolüyle
+    # (<h3>) aramak <option>'ı (rolü "option") dışarıda bırakır.
+    sayfa.get_by_role("heading", name="PC Toplama").wait_for(timeout=15000)
     assert "Boş." in sayfa.content()                 # boş set uyarısı
 
     sayfa.get_by_role("button", name="Ürün ekle").click()
@@ -693,7 +697,9 @@ def test_ayni_urun_iki_sette_olabilir(sayfa, sunucu):
     for ad in ("PC Toplama", "Kara Cuma"):
         sayfa.locator("#set-adi").fill(ad)
         sayfa.get_by_role("button", name="Set kur").click()
-        sayfa.wait_for_selector(f"text={ad}", timeout=15000)
+        # Başlık rolüyle: "PC Toplama" BACKLOG F4'ün şablon seçicisindeki
+        # bir <option> metniyle de eşleşiyor, "text=" ikisini ayırt etmez.
+        sayfa.get_by_role("heading", name=ad).wait_for(timeout=15000)
 
     sayfa.goto(sunucu, wait_until="networkidle")
     sayfa.locator("a[href^='/izleme/']").first.click()
@@ -898,6 +904,74 @@ def test_set_gecmis_uye_cikarilinca_ucu_yeniden_hesaplanmis_veri_dondurur(sayfa,
     # Tek üye kaldı — geçmiş artık YALNIZCA o üyenin fiyatlarını yansıtmalı.
     kalan_toplamlar = sorted(n["toplam"] for n in sonra if n["toplam"] is not None)
     assert kalan_toplamlar in ([900.0, 1000.0], [2000.0, 2200.0])
+
+
+def test_sablonlu_sette_eksik_parcalar_listelenir(sayfa, sunucu):
+    """BACKLOG F4: şablon kurarken seçilir, kontrol listesi hangi parçanın
+    eksik olduğunu gösterir. `kategori` mağazadan otomatik çıkarılan serbest
+    metin olduğu için doğrudan DB'ye yazılıyor — kullanıcı arayüzden bunu
+    seçmiyor."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Product, User, Watch
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/f4-cpu", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.locator("#set-adi").fill("Şablonlu set")
+    sayfa.locator("#set-sablon").select_option("pc_toplama")
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector("text=Şablonlu set", timeout=15000)
+
+    kart = sayfa.locator("div.rounded-lg", has_text="Şablonlu set")
+    kart.get_by_text("Kontrol listesi").wait_for(timeout=15000)
+    govde = kart.inner_text()
+    for parca in ("İşlemci", "Ekran kartı", "Bellek", "SSD", "Güç kaynağı",
+                  "Kasa", "Monitör"):
+        assert parca in govde
+    assert govde.count("henüz eklenmedi") == 7
+
+    # Ürünü sete ekle, sonra kategorisini "İşlemciler" yap — CPU satırı
+    # kontrol listesinden düşmeli, diğer 6 parça hâlâ eksik kalmalı.
+    sayfa.get_by_role("button", name="Ürün ekle").click()
+    sayfa.wait_for_selector("input[type=checkbox]", timeout=15000)
+    sayfa.locator("input[type=checkbox]").first.check()
+    sayfa.get_by_role("button", name="Ekle (1)").click()
+    sayfa.wait_for_selector("text=1 ürün eklendi", timeout=15000)
+    sayfa.get_by_role("button", name="Kapat").click()
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    db.query(Product).filter(Product.id == w.product_id).update(
+        {"kategori": "İşlemciler"})
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.reload(wait_until="networkidle")
+    kart = sayfa.locator("div.rounded-lg", has_text="Şablonlu set")
+    kart.get_by_text("Kontrol listesi").wait_for(timeout=15000)
+    govde = kart.inner_text()
+    assert "İşlemci (CPU) — henüz eklenmedi" not in govde
+    assert govde.count("henüz eklenmedi") == 6
+
+
+def test_sablonsuz_set_kontrol_listesi_gostermez(sayfa, sunucu):
+    """BACKLOG F4 kabul ölçütü: şablonsuz set eskisi gibi çalışıyor —
+    kontrol listesi hiç görünmüyor."""
+    _kayit_ol(sayfa, sunucu)
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.locator("#set-adi").fill("Şablonsuz set")
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector("text=Şablonsuz set", timeout=15000)
+
+    kart = sayfa.locator("div.rounded-lg", has_text="Şablonsuz set")
+    assert "Kontrol listesi" not in kart.inner_text()
 
 
 # ── Ayarlar ve hesap ─────────────────────────────────────────────

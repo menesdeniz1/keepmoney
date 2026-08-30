@@ -150,12 +150,17 @@ export interface SetUyesi {
   sinyal: Sinyal | null
   yuzdelik: number | null
   gecmis_gun: number | null
+  // BACKLOG F4 — şablon kontrol listesi bununla eşleştirir.
+  kategori: string | null
 }
 
 export interface KmSet {
   id: number
   ad: string
   hedef_butce: number | null
+  // BACKLOG F4 — `SABLONLAR`daki bir anahtarla eşleşmiyorsa (ya da null'sa)
+  // şablonsuz set gibi davranılır.
+  sablon: string | null
   toplam: number
   eksik_uye: number
   hedefte: boolean

@@ -190,8 +190,8 @@ export const api = {
   // ── Set ───────────────────────────────────────────────────────
   setler: () => istek<KmSet[]>('/setler'),
 
-  setOlustur: (ad: string, hedef_butce?: number | null) =>
-    istek<KmSet>('/setler', { method: 'POST', gövde: { ad, hedef_butce } }),
+  setOlustur: (ad: string, hedef_butce?: number | null, sablon?: string | null) =>
+    istek<KmSet>('/setler', { method: 'POST', gövde: { ad, hedef_butce, sablon } }),
 
   setGuncelle: (id: number, girdi: SetGuncelleGirdi) =>
     istek<KmSet>(`/setler/${id}`, { method: 'PATCH', gövde: girdi }),

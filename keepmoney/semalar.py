@@ -278,6 +278,9 @@ class SetUyesi(BaseModel):
     sinyal: str | None = None
     yuzdelik: int | None = None
     gecmis_gun: int | None = None
+    # BACKLOG F4: şablon kontrol listesi mağazadan çıkarılan `kategori`
+    # metniyle eşleştiriyor — `Product` sütunu, ek sorgu yok.
+    kategori: str | None = None
 
 
 class SetYaniti(BaseModel):
@@ -286,6 +289,11 @@ class SetYaniti(BaseModel):
     id: int
     ad: str
     hedef_butce: float | None = None
+    # BACKLOG F4: `WatchSet.sablon` sütunu YAZILIYORDU (`SetIstegi.sablon`)
+    # ama hiçbir yanıt şeması bunu GERİ DÖNDÜRMÜYORDU — A7/E4 sınıfı hata:
+    # kaydedilen değer sessizce None'a düşüyordu, arayüz seçileni bir daha
+    # hiç göremiyordu.
+    sablon: str | None = None
     # Hesaplanan alanlar — DB'de yok, API sözleşmesinde var
     toplam: float = 0.0
     eksik_uye: int = 0

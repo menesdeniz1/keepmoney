@@ -13,6 +13,7 @@ import SetUyeSecici from '../bilesenler/SetUyeSecici'
 import SinyalRozeti from '../bilesenler/SinyalRozeti'
 import { kisaTl, tl } from '../yardimcilar/bicim'
 import { butceDurumu, enPahaliUye } from '../yardimcilar/setButcesi'
+import { eksikParcalar, SABLON_SECENEKLERI } from '../yardimcilar/setSablonlari'
 
 export default function Setler() {
   const { data: setler, isLoading } = useSetler()
@@ -21,6 +22,7 @@ export default function Setler() {
   const sil = useSetSil()
   const [ad, setAd] = useState('')
   const [butce, setButce] = useState('')
+  const [sablon, setSablon] = useState('')
   const [silinecek, setSilinecek] = useState<{ id: number; ad: string } | null>(null)
   const [duzenlenen, setDuzenlenen] = useState<number | null>(null)
   const [yeniButce, setYeniButce] = useState('')
@@ -46,8 +48,8 @@ export default function Setler() {
           e.preventDefault()
           if (!ad.trim()) return
           olustur.mutate(
-            { ad: ad.trim(), butce: butce ? Number(butce) : null },
-            { onSuccess: () => { setAd(''); setButce('') } },
+            { ad: ad.trim(), butce: butce ? Number(butce) : null, sablon: sablon || null },
+            { onSuccess: () => { setAd(''); setButce(''); setSablon('') } },
           )
         }}
         className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-4
@@ -69,6 +71,17 @@ export default function Setler() {
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm
                      sm:w-40 dark:border-slate-700 dark:bg-slate-950"
         />
+        <label htmlFor="set-sablon" className="sr-only">Şablon</label>
+        <select
+          id="set-sablon"
+          value={sablon} onChange={(e) => setSablon(e.target.value)}
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm
+                     sm:w-44 dark:border-slate-700 dark:bg-slate-950"
+        >
+          {SABLON_SECENEKLERI.map((s) => (
+            <option key={s.deger} value={s.deger}>{s.etiket}</option>
+          ))}
+        </select>
         <button
           disabled={olustur.isPending}
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium
@@ -92,6 +105,7 @@ export default function Setler() {
           const oran = s.hedef_butce ? Math.min(100, (s.toplam / s.hedef_butce) * 100) : 0
           const durum = butceDurumu(s.toplam, s.hedef_butce, s.uye_sayisi, s.eksik_uye)
           const enPahali = enPahaliUye(s.uyeler)
+          const eksikParca = eksikParcalar(s.sablon, s.uyeler)
           const acik = acikSet === s.id
           const eklemeAcik = eklenenSet === s.id
           const gecmisAcik = gecmisAcikSet === s.id
@@ -152,6 +166,20 @@ export default function Setler() {
                     }`}
                     style={{ width: `${oran}%` }}
                   />
+                </div>
+              )}
+
+              {eksikParca.length > 0 && (
+                <div className="mt-3 rounded-md bg-amber-50 p-2.5 text-xs
+                                dark:bg-amber-950/30">
+                  <p className="font-medium text-amber-800 dark:text-amber-400">
+                    Kontrol listesi
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-amber-700 dark:text-amber-500">
+                    {eksikParca.map((parca) => (
+                      <li key={parca.ad}>{parca.ad} — henüz eklenmedi</li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

@@ -214,8 +214,8 @@ export function useKaynakEkle(id: number) {
 export function useSetOlustur() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ ad, butce }: { ad: string; butce?: number | null }) =>
-      api.setOlustur(ad, butce),
+    mutationFn: ({ ad, butce, sablon }: { ad: string; butce?: number | null; sablon?: string | null }) =>
+      api.setOlustur(ad, butce, sablon),
     onSuccess: () => void qc.invalidateQueries({ queryKey: anahtar.setler }),
   })
 }
