@@ -1024,6 +1024,92 @@ def test_bildirimler_gune_gore_gruplanir(sayfa, sunucu):
         < icerik.index("Bu haftaki uyarı") < icerik.index("Eski uyarı")
 
 
+def test_bildirimler_ture_gore_suzulur(sayfa, sunucu):
+    """BACKLOG G2: süzgeç: hedef · düşüş · set · bozuk kaynak · okunmamış.
+    "Düşüş" YUZDE ve DIP'i BİRLİKTE gösterir."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, User
+
+    eposta = _kayit_ol(sayfa, sunucu)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    for tur, baslik in [("HEDEF", "Hedef bildirimi"), ("YUZDE", "Yüzde bildirimi"),
+                        ("DIP", "Dip bildirimi"), ("SET_HEDEF", "Set bildirimi")]:
+        db.add(Alert(user_id=kullanici.id, tur=tur, baslik=baslik, mesaj="m"))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/uyarilar", wait_until="networkidle")
+    sayfa.wait_for_selector("text=Set bildirimi", timeout=15000)
+
+    sayfa.get_by_role("button", name="Hedef", exact=True).click()
+    sayfa.wait_for_selector("text=Hedef bildirimi", timeout=15000)
+    govde = sayfa.locator("main").inner_text()
+    assert "Yüzde bildirimi" not in govde
+    assert "Dip bildirimi" not in govde
+    assert "Set bildirimi" not in govde
+
+    sayfa.get_by_role("button", name="Düşüş", exact=True).click()
+    sayfa.wait_for_selector("text=Yüzde bildirimi", timeout=15000)
+    sayfa.wait_for_selector("text=Dip bildirimi", timeout=15000)
+    govde = sayfa.locator("main").inner_text()
+    assert "Hedef bildirimi" not in govde
+    assert "Set bildirimi" not in govde
+
+    sayfa.get_by_role("button", name="Tümü", exact=True).click()
+    sayfa.wait_for_selector("text=Set bildirimi", timeout=15000)
+    govde = sayfa.locator("main").inner_text()
+    assert all(b in govde for b in
+              ("Hedef bildirimi", "Yüzde bildirimi", "Dip bildirimi", "Set bildirimi"))
+
+
+def test_urunun_bildirimlerine_daraltilir(sayfa, sunucu):
+    """BACKLOG G2: "Ürüne göre daraltma" — İzleme Detayı'ndaki bağlantı
+    yalnızca o ürünün bildirimlerine süzülmüş Bildirimler sayfasına götürür."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, User, Watch
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/g2-a", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/g2-b", hedef="")
+    expect(sayfa.locator("a[href^='/izleme/']")).to_have_count(2, timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w_a, w_b = (db.query(Watch).filter(Watch.user_id == kullanici.id)
+               .order_by(Watch.id).all())
+    w_a_id, w_b_id = w_a.id, w_b.id
+    db.add(Alert(user_id=kullanici.id, watch_id=w_a_id, tur="HEDEF",
+                 baslik="A ürününün bildirimi", mesaj="m"))
+    db.add(Alert(user_id=kullanici.id, watch_id=w_b_id, tur="HEDEF",
+                 baslik="B ürününün bildirimi", mesaj="m"))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/izleme/{w_a_id}", wait_until="networkidle")
+    sayfa.get_by_role("link", name="Bu ürünün bildirimlerini gör").click()
+    sayfa.wait_for_selector("text=A ürününün bildirimi", timeout=15000)
+
+    assert f"watch_id={w_a_id}" in sayfa.url
+    govde = sayfa.locator("main").inner_text()
+    assert "B ürününün bildirimi" not in govde
+    assert "yalnızca bu ürünün bildirimleri" in govde
+
+    # Kaldırınca daraltma açılır, ikisi de görünür.
+    sayfa.get_by_role("button", name="yalnızca bu ürünün bildirimleri ✕").click()
+    sayfa.wait_for_selector("text=B ürününün bildirimi", timeout=15000)
+
+
 # ── Ayarlar ve hesap ─────────────────────────────────────────────
 
 def test_ayarlar_dogrulama_uyarisi_gosterir(sayfa, sunucu):

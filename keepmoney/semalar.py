@@ -8,6 +8,7 @@ verilmeli. İkisini tek sınıfa bindirmek, zamanla ya API'yi ya şemayı rehin 
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, HttpUrl
 
@@ -331,6 +332,11 @@ class SetGecmisNoktasi(BaseModel):
 
 
 # ─────────────────────────── Uyarı ───────────────────────────
+
+# BACKLOG G2: `?tur=` süzgeci — `Literal` olarak tiplemek FastAPI'ye
+# geçersiz değerde OTOMATİK 422 döndürtür, elle bir if/raise gerekmez
+# (bkz. models.py::Alert.tur'daki AYNI altı değer).
+UyariTuru = Literal["HEDEF", "YUZDE", "DIP", "SAHTE_INDIRIM", "SET_HEDEF", "KAYNAK_BOZUK"]
 
 
 class UyariYaniti(BaseModel):

@@ -2055,6 +2055,85 @@ def test_uyari_sirasi_kararli(istemci, db):
     assert not set(a) & set(c), "sayfalar çakışıyor — sıralama kararsız"
 
 
+# ─────────────────── G2: türe/ürüne göre süzme ───────────────────
+
+def test_uyarilar_tur_sungeci_calisir(istemci, db):
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    db.add(Alert(user_id=k.id, tur="HEDEF", baslik="h1", mesaj="m"))
+    db.add(Alert(user_id=k.id, tur="DIP", baslik="d1", mesaj="m"))
+    db.add(Alert(user_id=k.id, tur="SET_HEDEF", baslik="s1", mesaj="m"))
+    db.commit()
+
+    y = istemci.get("/api/uyarilar?tur=HEDEF", headers=b).json()
+    assert len(y) == 1
+    assert y[0]["baslik"] == "h1"
+
+
+def test_uyarilar_coklu_tur_sungeci_or_ile_calisir(istemci, db):
+    """BACKLOG G2: arayüzdeki "düşüş" filtresi YUZDE ve DIP'i BİRLİKTE
+    gösterir — `?tur=` tekrarlanan parametre, OR mantığıyla eşleşir."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    db.add(Alert(user_id=k.id, tur="YUZDE", baslik="y1", mesaj="m"))
+    db.add(Alert(user_id=k.id, tur="DIP", baslik="d1", mesaj="m"))
+    db.add(Alert(user_id=k.id, tur="HEDEF", baslik="h1", mesaj="m"))
+    db.commit()
+
+    y = istemci.get("/api/uyarilar?tur=YUZDE&tur=DIP", headers=b).json()
+    basliklar = {u["baslik"] for u in y}
+    assert basliklar == {"y1", "d1"}
+
+
+def test_uyarilar_gecersiz_tur_422(istemci):
+    """Kabul ölçütü: geçersiz `tur` değerinde 422."""
+    b = kayit_ol(istemci)
+    assert istemci.get("/api/uyarilar?tur=YANLIS", headers=b).status_code == 422
+
+
+def test_uyarilar_watch_id_daraltmasi(istemci, db):
+    """BACKLOG G2: "yalnızca bu ürünün uyarıları" — ürüne göre daraltma."""
+    b = kayit_ol(istemci)
+    i1 = istemci.post("/api/izlemeler", headers=b,
+                      json={"url": "https://magaza.com/a"}).json()["id"]
+    i2 = istemci.post("/api/izlemeler", headers=b,
+                      json={"url": "https://magaza.com/b"}).json()["id"]
+    kullanici_id = db.query(Watch).filter(Watch.id == i1).one().user_id
+    db.add(Alert(user_id=kullanici_id, watch_id=i1, tur="HEDEF", baslik="urun1", mesaj="m"))
+    db.add(Alert(user_id=kullanici_id, watch_id=i2, tur="HEDEF", baslik="urun2", mesaj="m"))
+    db.commit()
+
+    y = istemci.get(f"/api/uyarilar?watch_id={i1}", headers=b).json()
+    assert len(y) == 1
+    assert y[0]["baslik"] == "urun1"
+
+
+def test_uyarilar_suzgecle_sayfalama_dogru_calisir(istemci, db):
+    """Kabul ölçütü: süzgeçle sayfalama birlikte doğru çalışıyor — sayfalama
+    SÜZÜLMÜŞ kümeye göre olmalı, tüm tabloya göre değil."""
+    from keepmoney.models import User
+
+    b = kayit_ol(istemci)
+    k = db.query(User).one()
+    for n in range(5):
+        db.add(Alert(user_id=k.id, tur="HEDEF", baslik=f"h{n}", mesaj="m"))
+    for n in range(5):
+        db.add(Alert(user_id=k.id, tur="DIP", baslik=f"d{n}", mesaj="m"))
+    db.commit()
+
+    ilk = istemci.get("/api/uyarilar?tur=HEDEF&limit=3&offset=0", headers=b).json()
+    ikinci = istemci.get("/api/uyarilar?tur=HEDEF&limit=3&offset=3", headers=b).json()
+    assert len(ilk) == 3
+    assert len(ikinci) == 2
+    assert all(u["tur"] == "HEDEF" for u in ilk + ikinci)
+    kimlikler = [u["id"] for u in ilk + ikinci]
+    assert len(set(kimlikler)) == 5   # çakışma yok, DIP hiç sızmadı
+
+
 # ─────────────────── istek kimliği ve hata yakalama ───────────────────
 
 def test_istek_kimligi_yanitta_doner(istemci):

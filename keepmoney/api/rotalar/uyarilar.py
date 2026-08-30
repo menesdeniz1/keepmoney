@@ -15,6 +15,12 @@ def listele(
     k: Kullanici,
     db: DB,
     sadece_okunmamis: bool = False,
+    # BACKLOG G2 — tekrarlanan parametre: `?tur=YUZDE&tur=DIP` gibi birden
+    # çok türü BİRDEN süzebilmek için (arayüzdeki "düşüş" filtresi ikisini
+    # birlikte gösterir). `list[UyariTuru]` FastAPI'ye her elemanı ayrı ayrı
+    # doğrulatır — geçersiz bir değer OTOMATİK 422 döner.
+    tur: list[semalar.UyariTuru] | None = Query(None),
+    watch_id: int | None = Query(None),
     limit: int = Query(svc.VARSAYILAN_LIMIT, ge=1, le=svc.AZAMI_LIMIT),
     offset: int = Query(0, ge=0),
 ):
@@ -23,7 +29,7 @@ def listele(
     `limit` üst sınırı şemada zorlanıyor: sınırsız bırakmak, tek istekle
     tüm tablonun belleğe çekilmesine izin vermek olurdu.
     """
-    return svc.listele(db, k, sadece_okunmamis, limit, offset)
+    return svc.listele(db, k, sadece_okunmamis, limit, offset, tur=tur, watch_id=watch_id)
 
 
 @router.get("/sayi")

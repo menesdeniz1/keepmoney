@@ -20,6 +20,7 @@ import type {
   SetGecmisNoktasi,
   SetGuncelleGirdi,
   Uyari,
+  UyariTuru,
   UyelikSonucu,
 } from './tipler'
 
@@ -211,10 +212,25 @@ export const api = {
     istek<SetGecmisNoktasi[]>(`/setler/${setId}/gecmis`),
 
   // ── Uyarı ─────────────────────────────────────────────────────
-  uyarilar: (sadeceOkunmamis = false, offset = 0, limit = 50) =>
-    istek<Uyari[]>(
-      `/uyarilar?sadece_okunmamis=${sadeceOkunmamis}&offset=${offset}&limit=${limit}`,
-    ),
+  // BACKLOG G2 — `tur` tekrarlanan parametre olarak gönderilir
+  // (`?tur=YUZDE&tur=DIP`): "düşüş" süzgeci iki türü BİRLİKTE ister.
+  uyarilar: ({
+    sadeceOkunmamis = false, tur = null, watchId = null, offset = 0, limit = 50,
+  }: {
+    sadeceOkunmamis?: boolean
+    tur?: UyariTuru[] | null
+    watchId?: number | null
+    offset?: number
+    limit?: number
+  } = {}) => {
+    const params = new URLSearchParams()
+    params.set('sadece_okunmamis', String(sadeceOkunmamis))
+    params.set('offset', String(offset))
+    params.set('limit', String(limit))
+    for (const t of tur ?? []) params.append('tur', t)
+    if (watchId != null) params.set('watch_id', String(watchId))
+    return istek<Uyari[]>(`/uyarilar?${params.toString()}`)
+  },
 
   okunmamisSayisi: () => istek<{ okunmamis: number }>('/uyarilar/sayi'),
 

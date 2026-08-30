@@ -130,6 +130,14 @@ export default function IzlemeDetay() {
           {rearmMetni && (
             <p className="mt-2 text-xs text-slate-500">{rearmMetni}</p>
           )}
+          {/* BACKLOG G2 — "ürüne göre daraltma": Bildirimler sayfasına
+              yalnızca bu ürünün uyarılarıyla süzülmüş gidiyor. */}
+          <Link
+            to={`/uyarilar?watch_id=${izleme.id}`}
+            className="mt-3 inline-block text-xs text-slate-500 hover:underline"
+          >
+            Bu ürünün bildirimlerini gör
+          </Link>
         </div>
       </section>
 

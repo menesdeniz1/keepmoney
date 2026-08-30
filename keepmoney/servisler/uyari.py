@@ -10,7 +10,8 @@ AZAMI_LIMIT = 100
 
 
 def listele(db: Session, kullanici: User, sadece_okunmamis: bool = False,
-            limit: int = VARSAYILAN_LIMIT, offset: int = 0) -> list[Alert]:
+            limit: int = VARSAYILAN_LIMIT, offset: int = 0,
+            tur: list[str] | None = None, watch_id: int | None = None) -> list[Alert]:
     """Bildirimler, en yeniden eskiye, SAYFALI.
 
     Sayfalama yalnızca hız için değil ERİŞİLEBİLİRLİK için: liste sabit 50'de
@@ -21,10 +22,19 @@ def listele(db: Session, kullanici: User, sadece_okunmamis: bool = False,
     Sıralamada `id` ikinci anahtar: aynı saniyede üretilen iki bildirim
     (bir tarama turu bunu rahatlıkla yapar) `created_at` ile kararlı biçimde
     sıralanmaz ve sayfalar arasında kayıt tekrarlanabilir ya da atlanabilir.
+
+    BACKLOG G2 — `tur`/`watch_id` süzgeçleri `LIMIT/OFFSET`TEN ÖNCE
+    uygulanır (SQL WHERE her zaman böyle çalışır): sayfalama SÜZÜLMÜŞ
+    kümeye göredir, yoksa "sayfa 2"de süzgeçle hiç eşleşmeyen kayıtlar
+    sayılmış olur ve sayfa eksik dönerdi.
     """
     q = db.query(Alert).filter(Alert.user_id == kullanici.id)
     if sadece_okunmamis:
         q = q.filter(Alert.okundu.is_(False))
+    if tur:
+        q = q.filter(Alert.tur.in_(tur))
+    if watch_id is not None:
+        q = q.filter(Alert.watch_id == watch_id)
     return (q.order_by(Alert.created_at.desc(), Alert.id.desc())
             .offset(max(0, offset))
             .limit(min(max(1, limit), AZAMI_LIMIT))

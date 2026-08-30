@@ -24,6 +24,15 @@ ignore = [
 # Testlerde assert kullanımı zaten amaç
 "tests/*" = ["S101"]
 
+[tool.ruff.lint.flake8-bugbear]
+# B008 (varsayılan argümanda fonksiyon çağrısı): `Query(None)` liste tipli
+# bir parametrenin (BACKLOG G2 — `?tur=` tekrarlanan parametresi)
+# VARSAYILANI olunca `list[...]` "değişebilir" sayıldığı için tetikleniyor.
+# FastAPI'nin `Query`si paylaşılan mutable bir değer TUTMAZ — yalnızca
+# istek başına yeniden değerlendirilen metadata taşır, kuralın asıl
+# korumak istediği "paylaşılan mutable varsayılan" riski burada yok.
+extend-immutable-calls = ["fastapi.Query"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

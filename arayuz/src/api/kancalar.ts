@@ -25,6 +25,7 @@ import type {
   Kullanici,
   SetGecmisNoktasi,
   SetGuncelleGirdi,
+  UyariTuru,
 } from './tipler'
 
 /** Sorgu anahtarları tek yerde — yazım hatası kaynaklı "neden tazelenmiyor"
@@ -38,7 +39,11 @@ export const anahtar = {
   firsatlar: ['firsatlar'] as const,
   setler: ['setler'] as const,
   setGecmis: (id: number) => ['set-gecmis', id] as const,
-  uyarilar: (sadeceOkunmamis: boolean) => ['uyarilar', sadeceOkunmamis] as const,
+  // BACKLOG G2 — `tur`/`watchId` de anahtara girer: aksi hâlde süzgeç
+  // değişince önbellek eskisini gösterir (bu dosyanın kendi kuralı, üstteki
+  // yorum).
+  uyarilar: (sadeceOkunmamis: boolean, tur: UyariTuru[] | null, watchId: number | null) =>
+    ['uyarilar', sadeceOkunmamis, tur, watchId] as const,
   uyariSayisi: ['uyari-sayisi'] as const,
 }
 
@@ -124,11 +129,17 @@ export const UYARI_SAYFA = 50
  * Eskiden tek istekle ilk 50 kayıt geliyordu ve daha eskisine ulaşmanın
  * hiçbir yolu yoktu — liste sessizce kesiliyordu.
  */
-export function useUyarilar(sadeceOkunmamis = false) {
+export function useUyarilar({
+  sadeceOkunmamis = false, tur = null, watchId = null,
+}: {
+  sadeceOkunmamis?: boolean
+  tur?: UyariTuru[] | null
+  watchId?: number | null
+} = {}) {
   return useInfiniteQuery({
-    queryKey: anahtar.uyarilar(sadeceOkunmamis),
+    queryKey: anahtar.uyarilar(sadeceOkunmamis, tur, watchId),
     queryFn: ({ pageParam }) =>
-      api.uyarilar(sadeceOkunmamis, pageParam as number, UYARI_SAYFA),
+      api.uyarilar({ sadeceOkunmamis, tur, watchId, offset: pageParam as number, limit: UYARI_SAYFA }),
     initialPageParam: 0,
     // Dolu sayfa geldiyse devamı olabilir; eksik sayfa son sayfadır.
     getNextPageParam: (sonSayfa, tumSayfalar) =>
