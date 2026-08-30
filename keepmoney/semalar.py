@@ -161,9 +161,21 @@ class UrunOzet(BaseModel):
     gecmis_gun: int | None = None
 
 
+class KaynakSerisi(BaseModel):
+    """BACKLOG B2 — geçmişi kaynak bazında böler: grafikte mağaza başına
+    ayrı çizgi çizilebilsin diye `PriceReading.source_id` zaten yazılıyordu
+    (models.py yorumu) ama bu niyet hiç ürüne çıkmamıştı."""
+    kaynak_id: int
+    host: str
+    noktalar: list[FiyatNoktasi]
+
+
 class UrunDetay(UrunOzet):
     kaynaklar: list[KaynakYaniti] = []
-    gecmis: list[FiyatNoktasi] = []
+    gecmis: list[FiyatNoktasi] = []          # KALIYOR — kıvılcım ve varsayılan görünüm bunu kullanıyor
+    # Tek kaynaklı üründe boş döner (bkz. servisler/urun.py::kaynak_serileri)
+    # — istemci fazladan bir "mağazalara ayır" düğmesi göstermemeli (B3).
+    seriler: list[KaynakSerisi] = []
     baglam: BaglamYaniti | None = None
 
 

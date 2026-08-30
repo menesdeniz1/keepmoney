@@ -14,6 +14,11 @@
  *  • BACKLOG B1 — zaman aralığı düğmeleri: tüm geçmiş tek görünümde
  *    eziliyordu, son haftanın hareketi 120 günün içinde kayboluyordu.
  *    Tamamen istemci tarafı — `gecmis` zaten geliyor, yalnızca dilimleniyor.
+ *  • BACKLOG B3 — mağaza başına çizgi: VARSAYILAN GÖRÜNÜM BİRLEŞİK KALIR.
+ *    Grafiği ilk açılışta çizgi çorbasına çevirmek, analizi cümleye çeviren
+ *    üstünlüğümüzü kaybettirir — "Mağazalara ayır" düğmesiyle bilinçli
+ *    olarak geçilir. Tek kaynaklı üründe (`seriler` boş, bkz. B2) düğme
+ *    hiç görünmez.
  */
 import { useState } from 'react'
 import {
@@ -27,7 +32,7 @@ import {
   YAxis,
 } from 'recharts'
 
-import type { Baglam, FiyatNoktasi } from '../api/tipler'
+import type { Baglam, FiyatNoktasi, KaynakSerisi } from '../api/tipler'
 import { kisaTl, tl } from '../yardimcilar/bicim'
 import {
   GRAFIK_ARALIK_ANAHTARI,
@@ -37,12 +42,20 @@ import {
   grafikAraligiYetersiz,
   grafikBaslangicAraligi,
 } from '../yardimcilar/grafikAraligi'
+import {
+  anahtar,
+  birlesikVeri,
+  enUcuzKaynakId,
+  gorunurFiyatAraligi,
+  kaynakStili,
+} from '../yardimcilar/kaynakRenkleri'
 
 interface Props {
   gecmis: FiyatNoktasi[]
   hedefFiyat?: number | null
   baglam?: Baglam | null
   yukseklik?: number
+  seriler?: KaynakSerisi[]
 }
 
 const SINYAL_RENGI: Record<string, string> = {
@@ -61,8 +74,11 @@ export default function FiyatGrafigi({
   hedefFiyat,
   baglam,
   yukseklik = 280,
+  seriler = [],
 }: Props) {
   const [araligi, setAraligi] = useState<GrafikAraligi>(grafikBaslangicAraligi)
+  const [ayrilmisMi, setAyrilmisMi] = useState(false)
+  const [gizliKaynaklar, setGizliKaynaklar] = useState<Set<number>>(new Set())
 
   function araligiSec(yeni: GrafikAraligi) {
     setAraligi(yeni)
@@ -71,6 +87,15 @@ export default function FiyatGrafigi({
     } catch {
       // Depolama kapalıysa seçim yalnızca bu oturumda kalır — sorun değil.
     }
+  }
+
+  function kaynagiAcKapa(kaynakId: number) {
+    setGizliKaynaklar((onceki) => {
+      const yeni = new Set(onceki)
+      if (yeni.has(kaynakId)) yeni.delete(kaynakId)
+      else yeni.add(kaynakId)
+      return yeni
+    })
   }
 
   const secilenGun = GRAFIK_ARALIK_SECENEKLERI.find((s) => s.deger === araligi)?.gun ?? null
@@ -93,47 +118,85 @@ export default function FiyatGrafigi({
   // ÇİZMEK yerine tüm geçmişe düş, kullanıcı boş bir kutuyla karşılaşmasın.
   const veri = gorunenGecmis.length >= 2 ? gorunenGecmis : gecmis
 
+  // Ayrılmış görünümdeki her kaynak, AYNI zaman aralığı seçimine göre
+  // süzülür (B1 düğmeleri iki görünümde de aynı işi yapar). `veri`deki AYNI
+  // geri düşme kuralı KAYNAK BAŞINA da uygulanır: bir kaynağın geçmişi
+  // seçili aralığın tamamen dışında kalabilir (ör. eski bir mağaza linki,
+  // yeni eklenen bir kaynakla aynı üründe) — o kaynağın çizgisi sessizce
+  // kaybolmak yerine kendi tam geçmişine düşer.
+  const suzulmusSeriler = seriler.map((s) => {
+    const suzulmus = grafikAraligaGoreSuz(s.noktalar, secilenGun)
+    return { ...s, noktalar: suzulmus.length >= 2 ? suzulmus : s.noktalar }
+  })
+  const gorunurSeriler = suzulmusSeriler.filter((s) => !gizliKaynaklar.has(s.kaynak_id))
+  const cokluVeri = birlesikVeri(suzulmusSeriler)
+  const enUcuzId = enUcuzKaynakId(gorunurSeriler)
+
   const renk = baglam ? (SINYAL_RENGI[baglam.sinyal] ?? '#0ea5e9') : '#0ea5e9'
-  const fiyatlar = veri.map((n) => n.fiyat)
-  const enDusuk = Math.min(...fiyatlar)
-  const enYuksek = Math.max(...fiyatlar)
+
+  // Y ekseni: ayrılmış görünümde yalnızca GÖRÜNÜR (gizlenmemiş) kaynaklara
+  // göre ölçeklenir — bir mağaza gizlenince kalanlara göre daralır/genişler.
+  const ayrilmisAralik = ayrilmisMi
+    ? gorunurFiyatAraligi(suzulmusSeriler, gizliKaynaklar)
+    : null
+  const birlesikAralik = { enDusuk: Math.min(...veri.map((n) => n.fiyat)),
+                           enYuksek: Math.max(...veri.map((n) => n.fiyat)) }
+  const { enDusuk, enYuksek } = ayrilmisMi
+    ? (ayrilmisAralik ?? { enDusuk: 0, enYuksek: 0 })
+    : birlesikAralik
   // Y eksenini fiyat aralığına oturt: 0'dan başlatmak, %2'lik oynamaları
   // görünmez yapar ve grafiği işe yaramaz hâle getirir.
   const pay = Math.max((enYuksek - enDusuk) * 0.15, enDusuk * 0.02)
 
   return (
     <div>
-      <div
-        role="group"
-        aria-label="Grafik zaman aralığı"
-        className="mb-2 flex justify-end gap-1"
-      >
-        {GRAFIK_ARALIK_SECENEKLERI.map((s) => {
-          const yetersiz = grafikAraligiYetersiz(gecmis, s.gun)
-          const secili = araligi === s.deger
-          return (
-            <button
-              key={s.deger}
-              type="button"
-              aria-pressed={secili}
-              disabled={yetersiz}
-              onClick={() => araligiSec(s.deger)}
-              className={`rounded px-2 py-1 text-xs font-medium transition
-                         disabled:cursor-not-allowed disabled:opacity-40
-                         ${
-                           secili
-                             ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                             : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
-                         }`}
-            >
-              {s.etiket}
-            </button>
-          )
-        })}
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div
+          role="group"
+          aria-label="Grafik zaman aralığı"
+          className="flex gap-1"
+        >
+          {GRAFIK_ARALIK_SECENEKLERI.map((s) => {
+            const yetersiz = grafikAraligiYetersiz(gecmis, s.gun)
+            const secili = araligi === s.deger
+            return (
+              <button
+                key={s.deger}
+                type="button"
+                aria-pressed={secili}
+                disabled={yetersiz}
+                onClick={() => araligiSec(s.deger)}
+                className={`rounded px-2 py-1 text-xs font-medium transition
+                           disabled:cursor-not-allowed disabled:opacity-40
+                           ${
+                             secili
+                               ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                               : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+                           }`}
+              >
+                {s.etiket}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Tek kaynaklı üründe `seriler` boş (bkz. B2) — düğme hiç
+            görünmez, kabul ölçütü tam bu. */}
+        {seriler.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setAyrilmisMi((v) => !v)}
+            className="text-xs font-medium text-slate-500 hover:underline
+                       dark:text-slate-400"
+          >
+            {ayrilmisMi ? '← Birleşik görünüme dön' : 'Mağazalara ayır'}
+          </button>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={yukseklik}>
-        <LineChart data={veri} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+        <LineChart data={ayrilmisMi ? cokluVeri : veri}
+                   margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-800" />
           <XAxis
             dataKey="gun"
@@ -148,7 +211,7 @@ export default function FiyatGrafigi({
             width={78}
           />
           <Tooltip
-            formatter={(v) => [tl(Number(v)), 'Fiyat']}
+            formatter={(v, adi) => [tl(Number(v)), ayrilmisMi ? adi : 'Fiyat']}
             labelFormatter={(g) => `${g}`}
             contentStyle={{ fontSize: 13, borderRadius: 8 }}
           />
@@ -170,17 +233,71 @@ export default function FiyatGrafigi({
             />
           )}
 
-          <Line
-            type="stepAfter"
-            dataKey="fiyat"
-            stroke={renk}
-            strokeWidth={2}
-            dot={false}
-            activeDot={{ r: 4 }}
-            isAnimationActive={false}
-          />
+          {ayrilmisMi ? (
+            gorunurSeriler.map((s) => {
+              const stil = kaynakStili(s.host, gorunurSeriler.length)
+              return (
+                <Line
+                  key={s.kaynak_id}
+                  type="stepAfter"
+                  dataKey={anahtar(s.kaynak_id)}
+                  name={s.host}
+                  stroke={stil.renk}
+                  strokeDasharray={stil.desen}
+                  strokeWidth={s.kaynak_id === enUcuzId ? 3 : 1.5}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  isAnimationActive={false}
+                  connectNulls={false}
+                />
+              )
+            })
+          ) : (
+            <Line
+              type="stepAfter"
+              dataKey="fiyat"
+              stroke={renk}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
+              isAnimationActive={false}
+            />
+          )}
         </LineChart>
       </ResponsiveContainer>
+
+      {ayrilmisMi && (
+        <div
+          role="group"
+          aria-label="Kaynakları göster/gizle"
+          className="mt-2 flex flex-wrap gap-2"
+        >
+          {suzulmusSeriler.map((s) => {
+            const stil = kaynakStili(s.host, suzulmusSeriler.length)
+            const gizli = gizliKaynaklar.has(s.kaynak_id)
+            return (
+              <button
+                key={s.kaynak_id}
+                type="button"
+                aria-pressed={!gizli}
+                onClick={() => kaynagiAcKapa(s.kaynak_id)}
+                className={`inline-flex items-center gap-1.5 rounded px-2 py-1
+                           text-xs transition ${
+                             gizli
+                               ? 'text-slate-400 line-through dark:text-slate-600'
+                               : 'text-slate-700 dark:text-slate-300'
+                           }`}
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: gizli ? '#94a3b8' : stil.renk }}
+                />
+                {s.host}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

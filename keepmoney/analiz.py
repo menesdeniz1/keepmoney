@@ -44,6 +44,10 @@ class Okuma:
     """Tek bir fiyat gözlemi."""
     ts: datetime
     fiyat: float
+    # BACKLOG B2 — `urun.py::kaynak_serileri` bunu kullanır; başka hiçbir
+    # çağıran doldurmaz (analiz burada kaynak ayrımı YAPMAZ, sinyal/medyan
+    # hesabı birleşik geçmişe göredir), o yüzden isteğe bağlı.
+    source_id: int | None = None
 
 
 @dataclass(frozen=True)

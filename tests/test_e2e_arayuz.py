@@ -1769,3 +1769,94 @@ def test_kaynak_tablosunda_en_ucuz_isaretli_ve_sebep_yaziyor(sayfa, sunucu):
     assert "en ucuz" not in pahali_satir.inner_text()
     assert "bot duvarı" in engelli_satir.inner_text()
     assert "akakçe kaynağı ara" in engelli_satir.inner_text()
+
+
+def _urun_yanitini_gecmis_ve_serilerle_degistir(s: Page, seriler: list):
+    """`/api/izlemeler/{id}` yanıtına sahte `gecmis` + `seriler` enjekte
+    eder (BACKLOG B2/B3). Gerçek fiyat geçmişi kurmak yerine mock kullanmak
+    F3'teki `test_kaynak_tablosunda_...` ile aynı desen: kontrollü, DB'siz
+    veri — yalnızca arayüzün ALDIĞI veriyi doğru çizip çizmediği test edilir."""
+    def islemci(rota):
+        yanit = rota.fetch()
+        veri = yanit.json()
+        veri["urun"]["gecmis"] = [
+            {"gun": "2026-01-01", "fiyat": 1000.0},
+            {"gun": "2026-01-02", "fiyat": 950.0},
+        ]
+        veri["urun"]["seriler"] = seriler
+        rota.fulfill(response=yanit, json=veri)
+
+    s.route(re.compile(r"/api/izlemeler/\d+$"), islemci)
+
+
+def test_tek_kaynakli_urunde_magazalara_ayir_dugmesi_yok(sayfa, sunucu):
+    """BACKLOG B3 kabul ölçütü: tek kaynaklı üründe düğme hiç görünmüyor
+    — backend zaten `seriler` boş döner (B2), burada arayüzün bunu doğru
+    yorumladığı doğrulanıyor."""
+    _urun_yanitini_gecmis_ve_serilerle_degistir(sayfa, [])
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+    assert sayfa.get_by_role("button", name="Mağazalara ayır").count() == 0
+
+
+def test_uc_kaynakli_urunde_uc_cizgi_ve_renkler_tutarli(sayfa, sunucu):
+    """Kabul ölçütü: üç kaynaklı üründe üç ayrı çizgi, renkler tutarlı."""
+    seriler = [
+        {"kaynak_id": 1, "host": "amazon.com.tr", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 1000.0}, {"gun": "2026-01-02", "fiyat": 950.0}]},
+        {"kaynak_id": 2, "host": "hepsiburada.com", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 1100.0}, {"gun": "2026-01-02", "fiyat": 1050.0}]},
+        {"kaynak_id": 3, "host": "trendyol.com", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 900.0}, {"gun": "2026-01-02", "fiyat": 890.0}]},
+    ]
+    _urun_yanitini_gecmis_ve_serilerle_degistir(sayfa, seriler)
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    sayfa.get_by_role("button", name="Mağazalara ayır").click()
+    rozetler = sayfa.locator("[aria-label='Kaynakları göster/gizle'] button")
+    expect(rozetler).to_have_count(3, timeout=15000)
+    cizgiler = sayfa.locator("svg path.recharts-line-curve")
+    expect(cizgiler).to_have_count(3, timeout=15000)
+
+    # Renkler tutarlı: üç rozetin nokta rengi birbirinden farklı olmalı —
+    # host adının hash'inden geldiği için (index'ten değil) her açılışta
+    # AYNI host AYNI rengi taşır.
+    renkler = {
+        rozetler.nth(i).locator("span").first
+        .evaluate("el => getComputedStyle(el).backgroundColor")
+        for i in range(3)
+    }
+    assert len(renkler) == 3
+    assert not sayfa.sunucu_hatalari
+
+
+def test_kaynak_gizle_goster_cizgiyi_kaldirir_ve_geri_getirir(sayfa, sunucu):
+    """Y ekseninin piksel piksel daralıp genişlediğini doğrulamak
+    recharts'ın kendi render davranışını test eder; ölçüm mantığı zaten
+    `gorunurFiyatAraligi` birim testleriyle kanıtlı (kaynakRenkleri.test.ts).
+    Burada asıl ölçülen: gizle/göster düğmesi GERÇEKTEN çizgiyi kaldırıp
+    geri getiriyor, sayfa çökmüyor."""
+    seriler = [
+        {"kaynak_id": 1, "host": "amazon.com.tr", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 1000.0}, {"gun": "2026-01-02", "fiyat": 950.0}]},
+        {"kaynak_id": 2, "host": "hepsiburada.com", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 1100.0}, {"gun": "2026-01-02", "fiyat": 1050.0}]},
+        {"kaynak_id": 3, "host": "trendyol.com", "noktalar": [
+            {"gun": "2026-01-01", "fiyat": 900.0}, {"gun": "2026-01-02", "fiyat": 890.0}]},
+    ]
+    _urun_yanitini_gecmis_ve_serilerle_degistir(sayfa, seriler)
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    sayfa.get_by_role("button", name="Mağazalara ayır").click()
+    cizgiler = sayfa.locator("svg path.recharts-line-curve")
+    expect(cizgiler).to_have_count(3, timeout=15000)
+
+    rozetler = sayfa.locator("[aria-label='Kaynakları göster/gizle'] button")
+    rozetler.first.click()
+    expect(cizgiler).to_have_count(2, timeout=15000)
+
+    rozetler.first.click()
+    expect(cizgiler).to_have_count(3, timeout=15000)
+    assert not sayfa.sunucu_hatalari

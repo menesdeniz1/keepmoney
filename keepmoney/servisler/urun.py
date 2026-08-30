@@ -8,11 +8,15 @@ from ..models import PriceReading, Product
 
 
 def okumalar(db: Session, urun_id: int) -> list[analiz.Okuma]:
-    satirlar = (db.query(PriceReading.ts, PriceReading.fiyat)
+    # `source_id` de çekilir (BACKLOG B2): `kaynak_serileri` bunu aynı
+    # sonuçtan türetir, ikinci bir sorgu açmaz — "sorgu sayısı artmamış"
+    # kabul ölçütü budur.
+    satirlar = (db.query(PriceReading.source_id, PriceReading.ts, PriceReading.fiyat)
                 .filter(PriceReading.product_id == urun_id)
                 .order_by(PriceReading.ts)
                 .all())
-    return [analiz.Okuma(ts=ts, fiyat=f) for ts, f in satirlar if f]
+    return [analiz.Okuma(ts=ts, fiyat=f, source_id=source_id)
+            for source_id, ts, f in satirlar if f]
 
 
 def gunluk_seri(db: Session, urun_id: int,
@@ -51,6 +55,35 @@ def baglam(db: Session, urun: Product,
         "trend_yonu": b.trend_yonu,
         "iyi_firsat": b.iyi_firsat,
     }
+
+
+def kaynak_serileri(urun: Product, gecmis: list[analiz.Okuma]) -> list[dict]:
+    """BACKLOG B2 — geçmişi kaynak bazında böler: grafikte mağaza başına
+    ayrı çizgi çizilebilsin diye `PriceReading.source_id` zaten yazılıyordu
+    (models.py yorumu) ama bu niyet hiç ürüne çıkmamıştı.
+
+    TEK KAYNAKLI ÜRÜNDE BOŞ LİSTE döner: istemci fazladan bir "mağazalara
+    ayır" düğmesi göstermemeli (B3) — birleşik `gecmis` zaten aynı çizgiyi
+    çiziyor. `gecmis`, `detay()`'in `okumalar()`dan ZATEN çektiği liste —
+    ikinci bir sorgu YOK.
+    """
+    ham: dict[int, list[analiz.Okuma]] = {}
+    for o in gecmis:
+        ham.setdefault(o.source_id, []).append(o)
+
+    if len(ham) < 2:
+        return []
+
+    host_map = {k.id: k.host for k in urun.sources}
+    return [
+        {
+            "kaynak_id": source_id,
+            "host": host_map.get(source_id, "?"),
+            "noktalar": [{"gun": g, "fiyat": f}
+                        for g, f in sorted(analiz.gunluk_minimumlar(okumalar).items())],
+        }
+        for source_id, okumalar in ham.items()
+    ]
 
 
 def _kaynak(k) -> dict:
@@ -95,5 +128,6 @@ def detay(db: Session, urun: Product) -> dict:
         "gecmis_gun": urun.gecmis_gun,
         "kaynaklar": [_kaynak(k) for k in urun.sources],
         "gecmis": gunluk_seri(db, urun.id, gecmis),
+        "seriler": kaynak_serileri(urun, gecmis),
         "baglam": baglam(db, urun, gecmis),
     }

@@ -110,9 +110,20 @@ export interface UrunOzet {
   gecmis_gun: number | null
 }
 
+/** BACKLOG B2 — geçmişin kaynak bazında bölünmüş hâli. Tek kaynaklı
+ *  üründe boş dizi döner (bkz. `UrunDetay.seriler`). */
+export interface KaynakSerisi {
+  kaynak_id: number
+  host: string
+  noktalar: FiyatNoktasi[]
+}
+
 export interface UrunDetay extends UrunOzet {
   kaynaklar: Kaynak[]
   gecmis: FiyatNoktasi[]
+  // BACKLOG B2/B3 — mağaza başına ayrı çizgi için. `gecmis` KALIYOR:
+  // kıvılcım ve varsayılan (birleşik) görünüm onu kullanmaya devam ediyor.
+  seriler: KaynakSerisi[]
   baglam: Baglam | null
 }
 

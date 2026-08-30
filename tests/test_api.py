@@ -323,6 +323,112 @@ def test_detay_grafik_ve_yorum_dondurur(istemci, db):
     assert "en düşüğü" in baglam["yorum"] or "dip" in baglam["yorum"].lower()
 
 
+def test_iki_kaynakli_urunde_iki_seri_doner(istemci, db):
+    """BACKLOG B2: `PriceReading.source_id` zaten yazılıyordu ("grafikte
+    mağaza başına ayrı çizgi çizilebilsin diye", models.py yorumu) ama bu
+    niyet hiç ürüne çıkmamıştı — API tek seriye eziyordu."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    urun = db.query(Product).one()
+    kaynak_a = db.query(Source).one()
+    kaynak_b = Source(product_id=urun.id, url="https://baska-magaza.com/a",
+                      host="baska-magaza.com")
+    db.add(kaynak_b)
+    db.commit()
+
+    simdi = utc_simdi()
+    for gun, fiyat in enumerate([1000, 950]):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak_a.id,
+                            fiyat=fiyat, ts=simdi - timedelta(days=1 - gun)))
+    for gun, fiyat in enumerate([1200, 1100, 1050]):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak_b.id,
+                            fiyat=fiyat, ts=simdi - timedelta(days=2 - gun)))
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    urun_veri = y.json()["urun"]
+    seriler = {s["host"]: s for s in urun_veri["seriler"]}
+    assert len(seriler) == 2
+    assert kaynak_a.host in seriler
+    assert "baska-magaza.com" in seriler
+    assert len(seriler[kaynak_a.host]["noktalar"]) == 2
+    assert len(seriler["baska-magaza.com"]["noktalar"]) == 3
+    # Birleşik `gecmis` KALIYOR — kıvılcım ve varsayılan görünüm onu kullanır.
+    assert len(urun_veri["gecmis"]) > 0
+
+
+def test_tek_kaynakli_urunde_seriler_bos_doner(istemci, db):
+    """Kabul ölçütü: tek kaynaklı üründe `seriler` boş — istemci gereksiz
+    bir "mağazalara ayır" düğmesi göstermemeli (B3)."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    kaynak = db.query(Source).one()
+    for gun, fiyat in enumerate([1000, 950]):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                            fiyat=fiyat, ts=utc_simdi() - timedelta(days=1 - gun)))
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    assert y.json()["urun"]["seriler"] == []
+
+
+def test_kaynak_serileri_sorgu_sayisini_artirmaz(istemci, db):
+    """Kabul ölçütü: sorgu sayısı artmamış. `okumalar()` `source_id`yi
+    AYNI sorguya ek bir kolon olarak ekliyor, `kaynak_serileri` ikinci bir
+    sorgu açmadan bunu ve zaten yüklü `urun.sources`u kullanıyor — bkz.
+    `test_urun_detayi_gecmisi_tek_kez_okur` (aynı ilke, çağrı sayısı)."""
+    from datetime import timedelta
+
+    from sqlalchemy import event
+
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    kaynak_a = db.query(Source).one()
+    kaynak_b = Source(product_id=urun.id, url="https://baska-magaza.com/a",
+                      host="baska-magaza.com")
+    db.add(kaynak_b)
+    db.commit()
+    for kaynak in (kaynak_a, kaynak_b):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                            fiyat=1000, ts=utc_simdi() - timedelta(days=1)))
+    db.commit()
+
+    sorgular: list[str] = []
+    motor = db.get_bind()
+
+    def yakala(conn, cursor, ifade, *a, **kw):
+        if ifade.lstrip().upper().startswith("SELECT"):
+            sorgular.append(ifade)
+
+    event.listen(motor, "before_cursor_execute", yakala)
+    try:
+        y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    finally:
+        event.remove(motor, "before_cursor_execute", yakala)
+
+    assert y.status_code == 200
+    assert len(y.json()["urun"]["seriler"]) == 2
+    # kullanıcı + izleme + ürün + kaynaklar + okumalar ≈ 5; B2 öncesi de
+    # bu civardaydı — yeni bir sorgu eklenmediğinin ölçütü budur.
+    assert len(sorgular) <= 6, f"{len(sorgular)} SELECT: {sorgular}"
+
+
 def test_detay_ucu_kaydedilmis_baglam_sutunlarini_da_dondurur(istemci, db):
     """BACKLOG A7'de GERÇEK TARAYICIDA yakalandı: `urun_svc.detay()` bir
     sözlük döndürüyordu ve bu sözlükte A4'ün beş alanı (sinyal, dip90,

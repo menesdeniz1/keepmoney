@@ -77,6 +77,7 @@ export default function IzlemeDetay() {
             gecmis={urun.gecmis}
             hedefFiyat={izleme.hedef_fiyat}
             baglam={urun.baglam}
+            seriler={urun.seriler}
           />
         </Suspense>
       </section>
