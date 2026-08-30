@@ -1,8 +1,9 @@
 import type { Sinyal } from '../api/tipler'
 
 /**
- * "Bu iyi bir fiyat mı?" sinyalini panel kartında, detayda ve Fırsatlar
- * sayfasında AYNI YERDEN çizer (BACKLOG A6). Renk paleti `YorumKarti.tsx`
+ * "Bu iyi bir fiyat mı?" sinyalini panel kartında, detayda, Fırsatlar
+ * sayfasında ve set üye listesinde (F1) AYNI YERDEN çizer (BACKLOG A6).
+ * Renk paleti `YorumKarti.tsx`
  * ile birebir aynı (dip=yeşil, ucuz=SARI — amber değil, mevcut uygulamanın
  * kendi ayrımı budur, ikisini karıştırmak tutarsızlık yaratırdı).
  *

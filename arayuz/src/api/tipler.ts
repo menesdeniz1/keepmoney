@@ -146,6 +146,10 @@ export interface SetUyesi {
   ad: string
   fiyat: number | null
   kilitli: boolean
+  // BACKLOG F1 — üye satırına sinyal rozeti (A6).
+  sinyal: Sinyal | null
+  yuzdelik: number | null
+  gecmis_gun: number | null
 }
 
 export interface KmSet {

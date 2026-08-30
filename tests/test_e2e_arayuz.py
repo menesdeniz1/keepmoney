@@ -726,10 +726,71 @@ def test_set_silme_onay_ister(sayfa, sunucu):
     sayfa.wait_for_timeout(400)
     assert "Kombin" in sayfa.content()
 
-    sayfa.get_by_role("button", name="Seti sil (ürünler silinmez)").click()
-    sayfa.wait_for_selector("dialog[open]", timeout=5000)
-    sayfa.locator("dialog[open]").get_by_role("button", name="Seti sil").click()
-    sayfa.wait_for_selector("text=Henüz set yok", timeout=15000)
+
+def test_set_butcesi_asinca_kirmizi_altindayken_yesil(sayfa, sunucu):
+    """BACKLOG F1: "₺104.826 / bütçe ₺90.000" yazıyordu, ne kadar aştığı
+    yoktu. Aşımda kırmızı + tutar/yüzde, altındayken yeşil, bütçesiz sette
+    hiçbiri görünmüyor."""
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/f1-butce-asimi", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    # `db.close()` + `motor.dispose()`: kapatılmayan bağlantı SQLite'ın TEK
+    # yazıcı kilidini gereksiz yere elinde tutabilir (bkz.
+    # `test_sinyalli_kartta_rozet_metni_ve_kivilcim_gorunur` aynı desen).
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    urun = _kullanicinin_urunu(db, eposta)
+    urun.guncel_fiyat = 104826
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.locator("#set-adi").fill("Aşan set")
+    sayfa.locator("#set-butce").fill("90000")
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector("text=Aşan set", timeout=15000)
+
+    sayfa.get_by_role("button", name="Ürün ekle").click()
+    sayfa.wait_for_selector("input[type=checkbox]", timeout=15000)
+    sayfa.locator("input[type=checkbox]").first.check()
+    sayfa.get_by_role("button", name="Ekle (1)").click()
+    sayfa.wait_for_selector("text=1 ürün eklendi", timeout=15000)
+    sayfa.get_by_role("button", name="Kapat").click()
+
+    # 104.826 / 90.000 → 14.826 aşıyor, %16
+    asan_kart = sayfa.locator("div.rounded-lg", has_text="Aşan set")
+    asan_kart.get_by_text("aşıyor (%16)", exact=False).wait_for(timeout=15000)
+    fark_metni = asan_kart.get_by_text("aşıyor (%16)", exact=False)
+    assert "text-red-600" in fark_metni.get_attribute("class")
+    assert "Sığması için" in asan_kart.inner_text()
+
+    # Fiyat bütçenin altına inince aynı kart yeşile dönmeli.
+    motor2 = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db2 = Session(motor2)
+    urun2 = _kullanicinin_urunu(db2, eposta)
+    urun2.guncel_fiyat = 50000
+    db2.commit()
+    db2.close()
+    motor2.dispose()
+    sayfa.reload(wait_until="networkidle")
+    asan_kart = sayfa.locator("div.rounded-lg", has_text="Aşan set")
+    asan_kart.get_by_text("bütçe altında", exact=False).wait_for(timeout=15000)
+    altinda_metni = asan_kart.get_by_text("bütçe altında", exact=False)
+    assert "text-green-600" in altinda_metni.get_attribute("class")
+
+    # Bütçesiz sette hiçbiri görünmüyor.
+    sayfa.locator("#set-adi").fill("Bütçesiz set")
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector("text=Bütçesiz set", timeout=15000)
+    bosuz_kart = sayfa.locator("div.rounded-lg", has_text="Bütçesiz set")
+    govde = bosuz_kart.inner_text()
+    assert "aşıyor" not in govde
+    assert "bütçe altında" not in govde
 
 
 # ── Ayarlar ve hesap ─────────────────────────────────────────────

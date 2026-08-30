@@ -407,6 +407,24 @@ def test_set_olustur_ve_toplam(istemci, db):
     assert y["hedefte"] is True
 
 
+def test_set_uyesi_sinyal_alanlarini_dondurur(istemci, db):
+    """BACKLOG F1: üye satırına sinyal rozeti (A6). `setler.py::ozet()`
+    üyeler listesini ELLE kuruyor — A7'de tam bu şekilde bir alan
+    unutulmuştu (bkz. `izlemeler.py::detay()`teki aynı desen, E4).
+    Burada da aynı sınıf hata mümkün: alan eklenip sözlükten unutulabilir."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    i = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/sinyalli", "set_idler": [s["id"]]}).json()["id"]
+    _urun_kur(db, i, sinyal="dip", yuzdelik=95, gecmis_gun=30)
+
+    y = istemci.get(f"/api/setler/{s['id']}", headers=b).json()
+    uye = y["uyeler"][0]
+    assert uye["sinyal"] == "dip"
+    assert uye["yuzdelik"] == 95
+    assert uye["gecmis_gun"] == 30
+
+
 def test_bos_set_hedefte_demez(istemci, db):
     """Üyesi olmayan set "🎯 bütçe altında" DEMEZ.
 

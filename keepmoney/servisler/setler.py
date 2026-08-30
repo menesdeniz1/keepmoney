@@ -121,6 +121,9 @@ def ozet(db: Session, s: WatchSet) -> dict:
                 "fiyat": (w.kilitli_fiyat if w.kilitli
                           else (w.product.guncel_fiyat if w.product else None)),
                 "kilitli": bool(w.kilitli),
+                "sinyal": w.product.sinyal if w.product else None,
+                "yuzdelik": w.product.yuzdelik if w.product else None,
+                "gecmis_gun": w.product.gecmis_gun if w.product else None,
             }
             for w in uyeler
         ],

@@ -272,6 +272,12 @@ class SetUyesi(BaseModel):
     ad: str
     fiyat: float | None = None
     kilitli: bool = False
+    # BACKLOG F1: üye satırına sinyal rozeti (A6) — `Product` sütunu, ek
+    # sorgu yok (bkz. UrunOzet'teki aynı gerekçe, `_UYELERLE` zaten
+    # `Watch.product`u yüklüyor).
+    sinyal: str | None = None
+    yuzdelik: int | None = None
+    gecmis_gun: int | None = None
 
 
 class SetYaniti(BaseModel):

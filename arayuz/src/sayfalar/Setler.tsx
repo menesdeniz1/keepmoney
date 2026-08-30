@@ -7,7 +7,9 @@ import {
 } from '../api/kancalar'
 import Onay from '../bilesenler/Onay'
 import SetUyeSecici from '../bilesenler/SetUyeSecici'
-import { tl } from '../yardimcilar/bicim'
+import SinyalRozeti from '../bilesenler/SinyalRozeti'
+import { kisaTl, tl } from '../yardimcilar/bicim'
+import { butceDurumu, enPahaliUye } from '../yardimcilar/setButcesi'
 
 export default function Setler() {
   const { data: setler, isLoading } = useSetler()
@@ -83,6 +85,8 @@ export default function Setler() {
       <div className="space-y-3">
         {setler?.map((s) => {
           const oran = s.hedef_butce ? Math.min(100, (s.toplam / s.hedef_butce) * 100) : 0
+          const durum = butceDurumu(s.toplam, s.hedef_butce, s.uye_sayisi, s.eksik_uye)
+          const enPahali = enPahaliUye(s.uyeler)
           const acik = acikSet === s.id
           const eklemeAcik = eklenenSet === s.id
           return (
@@ -107,19 +111,39 @@ export default function Setler() {
                 </div>
                 <div className="text-right">
                   <div className="font-mono font-semibold">{tl(s.toplam)}</div>
-                  {s.hedef_butce != null && (
-                    <div className={`text-xs ${s.hedefte ? 'text-green-600' : 'text-slate-500'}`}>
-                      {s.hedefte ? '🎯 bütçe altında' : `bütçe ${tl(s.hedef_butce)}`}
+                  {durum.tur === 'asiyor' && (
+                    <div className="text-xs text-red-600 dark:text-red-400">
+                      {kisaTl(durum.fark)} aşıyor (%{durum.yuzde})
+                    </div>
+                  )}
+                  {durum.tur === 'altinda' && (
+                    <div className="text-xs text-green-600 dark:text-green-400">
+                      🎯 bütçe altında
+                    </div>
+                  )}
+                  {(durum.tur === 'bos' || durum.tur === 'eksik') && (
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      bütçe {tl(s.hedef_butce)}
                     </div>
                   )}
                 </div>
               </div>
 
+              {durum.tur === 'asiyor' && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Sığması için {kisaTl(durum.fark)} daha düşmeli.
+                </p>
+              )}
+
               {s.hedef_butce != null && (
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100
                                 dark:bg-slate-800">
                   <div
-                    className={`h-full ${s.hedefte ? 'bg-green-500' : 'bg-slate-400'}`}
+                    className={`h-full ${
+                      durum.tur === 'altinda' ? 'bg-green-500'
+                      : durum.tur === 'asiyor' ? 'bg-red-500'
+                      : 'bg-slate-400'
+                    }`}
                     style={{ width: `${oran}%` }}
                   />
                 </div>
@@ -212,11 +236,21 @@ export default function Setler() {
                                dark:border-slate-800">
                   {s.uyeler.map((u) => (
                     <li key={u.izleme_id}
-                        className="flex items-center gap-2 py-1.5 text-sm">
+                        className="flex flex-wrap items-center gap-2 py-1.5 text-sm">
                       <Link to={`/izleme/${u.izleme_id}`}
                             className="flex-1 truncate hover:underline">
                         {u.ad}
                       </Link>
+                      <SinyalRozeti
+                        sinyal={u.sinyal} yuzdelik={u.yuzdelik} gecmisGun={u.gecmis_gun}
+                      />
+                      {u.izleme_id === enPahali && (
+                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px]
+                                         font-medium text-red-700 dark:bg-red-950/50
+                                         dark:text-red-300">
+                          en pahalı
+                        </span>
+                      )}
                       {u.kilitli && (
                         <span className="text-xs text-slate-400">kilitli</span>
                       )}
