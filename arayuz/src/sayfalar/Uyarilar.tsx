@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useHepsiOkundu, useUyariOkundu, useUyarilar } from '../api/kancalar'
 import type { UyariTuru } from '../api/tipler'
 import { goreliZaman } from '../yardimcilar/bicim'
+import { GRUP_BASLIGI, uyarilariGrupla } from '../yardimcilar/uyariGruplama'
 
 const TUR_ETIKETI: Record<UyariTuru, string> = {
   HEDEF: '🎯 Hedef',
@@ -24,6 +25,7 @@ export default function Uyarilar() {
   const okundu = useUyariOkundu()
   const hepsi = useHepsiOkundu()
   const uyarilar = data?.pages.flat()
+  const bolumler = uyarilariGrupla(uyarilar ?? [])
 
   return (
     <div className="space-y-4">
@@ -42,38 +44,54 @@ export default function Uyarilar() {
       {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}
 
       <div className="space-y-2">
-        {uyarilar?.map((u) => (
-          <div
-            key={u.id}
-            className={`rounded-lg border p-4 ${
-              u.okundu
-                ? 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
-                : 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-xs text-slate-500">{TUR_ETIKETI[u.tur]}</div>
-                <h3 className="mt-0.5 font-medium">{u.baslik}</h3>
-                <p className="mt-1 whitespace-pre-line text-sm text-slate-600
-                              dark:text-slate-400">{u.mesaj}</p>
-              </div>
-              <span className="shrink-0 text-xs text-slate-400">
-                {goreliZaman(u.created_at)}
-              </span>
-            </div>
-            <div className="mt-2 flex gap-3 text-xs">
-              {u.watch_id != null && (
-                <Link to={`/izleme/${u.watch_id}`} className="text-slate-500 hover:underline">
-                  Ürüne git
-                </Link>
-              )}
-              {!u.okundu && (
-                <button onClick={() => okundu.mutate(u.id)}
-                        className="text-slate-500 hover:underline">
-                  Okundu
-                </button>
-              )}
+        {/* BACKLOG G1 — SIRALAMA KORUNUR: `bolumler` yalnızca zaten sıralı
+            listeyi bölümlüyor, hiçbir öğeyi taşımıyor (bkz.
+            `uyariGruplama.ts`) — sayfalama bu yüzden kırılmaz. */}
+        {bolumler.map((bolum) => (
+          <div key={bolum.grup}>
+            <h2
+              className="sticky top-14 z-[5] -mx-1 bg-slate-50/95 px-1 py-1.5
+                        text-xs font-semibold uppercase tracking-wide text-slate-500
+                        backdrop-blur dark:bg-slate-950/95 dark:text-slate-400"
+            >
+              {GRUP_BASLIGI[bolum.grup]}
+            </h2>
+            <div className="space-y-2">
+              {bolum.ogeler.map((u) => (
+                <div
+                  key={u.id}
+                  className={`rounded-lg border p-4 ${
+                    u.okundu
+                      ? 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
+                      : 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs text-slate-500">{TUR_ETIKETI[u.tur]}</div>
+                      <h3 className="mt-0.5 font-medium">{u.baslik}</h3>
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-600
+                                    dark:text-slate-400">{u.mesaj}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {goreliZaman(u.created_at)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex gap-3 text-xs">
+                    {u.watch_id != null && (
+                      <Link to={`/izleme/${u.watch_id}`} className="text-slate-500 hover:underline">
+                        Ürüne git
+                      </Link>
+                    )}
+                    {!u.okundu && (
+                      <button onClick={() => okundu.mutate(u.id)}
+                              className="text-slate-500 hover:underline">
+                        Okundu
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ))}

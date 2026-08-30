@@ -57,3 +57,16 @@ export function hedefeKalan(
   if (guncel === null || hedef === null) return null
   return { hedefte: guncel <= hedef, fark: guncel - hedef }
 }
+
+/**
+ * Bir zamanın Türkiye takvim GÜNÜ, "YYYY-MM-DD" anahtarı olarak.
+ *
+ * Sunucu naive UTC gönderir. `Intl.DateTimeFormat` ile 'Europe/Istanbul'
+ * dilimine çevirip biçimlemek, tarayıcının kendi yerel saatine güvenmekten
+ * (kullanıcı başka bir dilimde olabilir) daha güvenilir — bkz. C4
+ * (`ustKutucuklar.ts::bugunDegisenSayisi`) ve G1 (`uyariGruplama.ts`),
+ * ikisi de AYNI gün tanımına ihtiyaç duyuyor.
+ */
+export function turkiyeGunAnahtari(tarih: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(tarih)
+}

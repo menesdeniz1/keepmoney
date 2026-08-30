@@ -974,6 +974,56 @@ def test_sablonsuz_set_kontrol_listesi_gostermez(sayfa, sunucu):
     assert "Kontrol listesi" not in kart.inner_text()
 
 
+# ── Bildirimler (BACKLOG G1) ───────────────────────────────────────
+
+def test_bildirimler_gune_gore_gruplanir(sayfa, sunucu):
+    """BACKLOG G1: düz liste uyarı biriktikçe okunmaz hâle geliyordu —
+    "Bugün · Dün · Bu hafta · Daha eski" başlıkları altında bölümlenir,
+    sıralama korunur (aynı gerekçeyle backend zaten `created_at DESC, id
+    DESC` kullanıyor, bkz. uyari.py)."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import Alert, User
+    from keepmoney.zaman import utc_simdi
+
+    eposta = _kayit_ol(sayfa, sunucu)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    simdi = utc_simdi()
+    kayitlar = [
+        ("Bugünkü uyarı", 0),
+        ("Dünkü uyarı", 1),
+        ("Bu haftaki uyarı", 3),
+        ("Eski uyarı", 20),
+    ]
+    for baslik, gun_once in kayitlar:
+        db.add(Alert(user_id=kullanici.id, tur="HEDEF", baslik=baslik,
+                     mesaj="m", created_at=simdi - timedelta(days=gun_once)))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/uyarilar", wait_until="networkidle")
+    sayfa.wait_for_selector("text=Eski uyarı", timeout=15000)
+
+    # `.inner_text()` CSS'i hesaba katar — başlıklar `uppercase` stilinde,
+    # yani DOM'daki "Bugün" değil, GÖRÜNEN "BUGÜN" döner. Bu doğru: kullanıcı
+    # neyi görüyorsa onu doğrulamak istiyoruz.
+    basliklar = sayfa.locator("h2").all_inner_texts()
+    gorunen_gruplar = [b for b in basliklar
+                       if b in ("BUGÜN", "DÜN", "BU HAFTA", "DAHA ESKİ")]
+    assert gorunen_gruplar == ["BUGÜN", "DÜN", "BU HAFTA", "DAHA ESKİ"]
+
+    icerik = sayfa.content()
+    assert icerik.index("Bugünkü uyarı") < icerik.index("Dünkü uyarı") \
+        < icerik.index("Bu haftaki uyarı") < icerik.index("Eski uyarı")
+
+
 # ── Ayarlar ve hesap ─────────────────────────────────────────────
 
 def test_ayarlar_dogrulama_uyarisi_gosterir(sayfa, sunucu):

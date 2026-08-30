@@ -3,21 +3,10 @@
  * bunu tüketir; `siralama.ts`/`suzme.ts` ile aynı katman ayrımı.
  */
 import type { Izleme } from '../api/tipler'
+import { turkiyeGunAnahtari } from './bicim'
 
 export function dipteKacUrun(izlemeler: Izleme[]): number {
   return izlemeler.filter((i) => i.urun.sinyal === 'dip').length
-}
-
-/**
- * Bir ISO zaman damgasının Türkiye takvim GÜNÜ bugünle aynı mı.
- *
- * Sunucu naive UTC gönderir (bkz. `bicim.ts::tarih` — aynı 'Z' ekleme
- * deseni). `Intl.DateTimeFormat` ile 'Europe/Istanbul' diliminde YYYY-MM-DD
- * biçimine çevirip karşılaştırmak, tarayıcının kendi yerel saatine
- * güvenmekten (ki kullanıcı başka bir dilimde olabilir) daha güvenilir.
- */
-function turkiyeGunAnahtari(tarih: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(tarih)
 }
 
 function ayniTurkiyeGunuMu(iso: string, simdi: Date): boolean {
