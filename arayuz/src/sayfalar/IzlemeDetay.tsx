@@ -11,6 +11,7 @@ const FiyatGrafigi = lazy(() => import('../bilesenler/FiyatGrafigi'))
 import UyariKurulumu from '../bilesenler/UyariKurulumu'
 import YorumKarti from '../bilesenler/YorumKarti'
 import { goreliZaman, tl } from '../yardimcilar/bicim'
+import { yenidenKurmaDurumu, yenidenKurmaMetni } from '../yardimcilar/yenidenKurma'
 
 export default function IzlemeDetay() {
   const { id } = useParams()
@@ -26,6 +27,7 @@ export default function IzlemeDetay() {
   if (!izleme) return <p className="text-sm text-slate-500">İzleme bulunamadı.</p>
 
   const { urun } = izleme
+  const rearmMetni = yenidenKurmaMetni(yenidenKurmaDurumu(izleme))
 
   return (
     <div className="space-y-5">
@@ -109,7 +111,23 @@ export default function IzlemeDetay() {
             >
               {izleme.aktif ? 'Duraklat' : 'Devam ettir'}
             </button>
+            {/* BACKLOG E4: yalnızca GERÇEKTEN bir bekleme durumu varken
+                anlamlı — hiç bildirim gitmemişse "yeniden kur" fiilen
+                hiçbir şeyi sıfırlamaz. */}
+            {izleme.son_bildirim_ts != null && (
+              <button
+                onClick={() => guncelle.mutate({ yeniden_kur: true })}
+                disabled={guncelle.isPending}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm
+                           disabled:opacity-50 dark:border-slate-700"
+              >
+                Şimdi yeniden kur
+              </button>
+            )}
           </div>
+          {rearmMetni && (
+            <p className="mt-2 text-xs text-slate-500">{rearmMetni}</p>
+          )}
         </div>
       </section>
 

@@ -509,6 +509,80 @@ def test_susturma_ve_duraklatma(sayfa, sunucu):
     sayfa.wait_for_selector("button:has-text('Devam ettir')", timeout=15000)
 
 
+# ── Yeniden kurma / rearm (BACKLOG E4) ────────────────────────────
+
+def _bildirim_gecmisi_kur(sunucu, eposta: str, *, gun_once: int, yeniden_kur_gun: int) -> None:
+    """Worker'ın normalde bir alarm sonrası yazacağı `son_bildirim_ts`i
+    elle kuruyoruz (bu paket içinde worker çalışmıyor) — `gun_once` gün
+    önce bildirildi, `yeniden_kur_gun` gün sonra yeniden uyarır.
+
+    Watch KULLANICIYA GÖRE bulunuyor (`_kullanicinin_urunu` ile AYNI
+    User→Watch join), ürüne göre DEĞİL — `Watch.product_id == urun.id`
+    ile aramak, ürün kimliği kullanıcılar arası PAYLAŞILDIĞI için (bkz.
+    C4/D3/E3'teki AYNI bulgu) başka bir kullanıcının da aynı kanonik
+    ürünü izlediği durumda `MultipleResultsFound` fırlatırdı — GERÇEKTEN
+    ÖLÇÜLDÜ: bu iki test aynı varsayılan URL'yi kullanınca ikinci test
+    tam bunu yaşadı."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import User, Watch
+    from keepmoney.zaman import utc_simdi
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    w = db.query(Watch).filter(Watch.user_id == kullanici.id).one()
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=gun_once)
+    w.son_bildirim_fiyat = 45000
+    w.yeniden_kur_gun = yeniden_kur_gun
+    db.commit()
+    db.close()
+    motor.dispose()
+
+
+def test_kalan_sure_dogru_gosterilir(sayfa, sunucu):
+    """Kabul ölçütü: kalan süre doğru gösteriliyor — hem kartta hem
+    detayda (BACKLOG'un kendi örneği: "3 gün sonra yeniden uyarır")."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/e4-kalan-sure", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    # 4 gün önce bildirildi, eşik 7 gün → kalan TAM 3 gün.
+    _bildirim_gecmisi_kur(sunucu, eposta, gun_once=4, yeniden_kur_gun=7)
+    sayfa.reload(wait_until="networkidle")
+
+    sayfa.wait_for_selector("text=3 gün sonra yeniden uyarır", timeout=15000)
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("text=3 gün sonra yeniden uyarır", timeout=15000)
+
+
+def test_simdi_yeniden_kur_butonu_bildirim_gecmisini_sifirlar(sayfa, sunucu):
+    """Kabul ölçütü (dolaylı — E4'ün "tek tıkla" özelliği): buton
+    `son_bildirim_ts`i sıfırlar, bekleme metni kaybolur."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/e4-simdi-yeniden-kur", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    _bildirim_gecmisi_kur(sunucu, eposta, gun_once=1, yeniden_kur_gun=7)
+    sayfa.reload(wait_until="networkidle")
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    # ÖNCE detay sayfasına GERÇEKTEN geçildiğini doğrula ("Bildirimler"
+    # yalnızca detayda var) — "gün sonra yeniden uyarır" metni PANEL
+    # kartında da geçiyor (aynı `yenidenKurma.ts` çıktısı), bu yüzden
+    # doğrudan onu beklemek geçiş TAMAMLANMADAN panel kartına karşı
+    # tatmin olabilirdi (ÖLÇÜLDÜ: buton bulunamadı diye zaman aşımına
+    # uğradı — hâlâ panelde bekleniyormuş).
+    sayfa.wait_for_selector("text=Bildirimler", timeout=15000)
+    sayfa.wait_for_selector("text=gün sonra yeniden uyarır", timeout=15000)
+
+    sayfa.get_by_role("button", name="Şimdi yeniden kur").click()
+    sayfa.wait_for_selector("text=gün sonra yeniden uyarır", state="detached", timeout=15000)
+    assert sayfa.get_by_role("button", name="Şimdi yeniden kur").count() == 0
+
+
 def test_takipten_cikarma_onay_ister(sayfa, sunucu):
     """Yıkıcı işlem onaysız çalışıyordu: yanlışlıkla tıklanan düğme aylarca
     biriken bir takibi geri alınamaz biçimde siliyordu."""

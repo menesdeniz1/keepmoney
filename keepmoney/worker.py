@@ -30,12 +30,22 @@ from .zaman import sessiz_saat_mi, tr_bugun, utc_simdi
 log = logging.getLogger("keepmoney.worker")
 
 # ── Bildirim politikası ──────────────────────────────────────────
-# Aynı uyarı bu süre geçmeden tekrarlanmaz. Hedefin ALTINDA kalındığı sürece
-# bu aralıkla hatırlatılır — kullanıcı "düştü, hâlâ düşük mü?" diye merak
-# etmesin diye. Susturma ya da izlemeyi bırakma dışında durmaz.
+# Aynı uyarı bu süre geçmeden tekrarlanmaz. Yalnızca SET bütçe uyarısı
+# (`_tek_set_uyarisi`) için — HEDEF/YÜZDE'nin kendi bekleme süresi BACKLOG
+# E4'ten itibaren `Watch.yeniden_kur_gun` (kullanıcı seçimi, gün cinsinden,
+# bkz. `YENIDEN_KUR_VARSAYILAN_GUN`). Setlerin kendi `yeniden_kur_gun`ü
+# yok (F epiği), bu yüzden set bildirimleri hâlâ bu sabit süreyi kullanır.
 HATIRLATMA_DK = 240                  # 4 saat
 
+# BACKLOG E4: kullanıcı `yeniden_kur_gun`u hiç seçmediyse (None) bu
+# varsayılan uygulanır — E1'in kendi şema yorumunda yazılıydı ("varsayılan
+# 7"). Eski `HATIRLATMA_DK` (4 saat) HEDEF/YÜZDE için ÇOK sıktı; Keepa'nın
+# "günde bir" felsefesine yakın bir varsayılana geçildi.
+YENIDEN_KUR_VARSAYILAN_GUN = 7
+
 # Cooldown içinde olsa bile fiyat bu kadar daha düşerse yeniden bildir.
+# `yeniden_kur_gun == 0` ("hiç") bu istisnayı da KAPSAR — kullanıcı açıkça
+# "bir daha rahatsız etme" dedi.
 EK_DUSUS_YUZDE = 3.0
 
 # Sessiz saatler (Türkiye saati). ACİL eşiği bunu deler.
@@ -544,13 +554,24 @@ class Tarayici:
     def _hatirlatma_zamani(self, w: Watch, fiyat: float, simdi: datetime,
                            acil: bool) -> bool:
         """Mükerrer bildirim freni. ACİL cooldown beklemez ama kendi 3 saatlik
-        freni vardır."""
+        freni vardır.
+
+        BACKLOG E4: normal (HEDEF/YÜZDE) bekleme artık `w.yeniden_kur_gun`e
+        (gün) göre — kullanıcı hiç seçmediyse `YENIDEN_KUR_VARSAYILAN_GUN`.
+        `0` ("hiç") MUTLAK dur demektir: bir kez bildirildikten sonra bir
+        daha ASLA — ek düşüş istisnası da dahil, kullanıcı açıkça "rahatsız
+        etme" dedi.
+        """
         if w.son_bildirim_ts is None:
             return True
         gecen = simdi - w.son_bildirim_ts
         if acil:
             return gecen > timedelta(hours=3)
-        if gecen > timedelta(minutes=HATIRLATMA_DK):
+        if w.yeniden_kur_gun == 0:
+            return False
+        kur_gun = (w.yeniden_kur_gun if w.yeniden_kur_gun is not None
+                  else YENIDEN_KUR_VARSAYILAN_GUN)
+        if gecen > timedelta(days=kur_gun):
             return True
         # Cooldown içinde olsa da fiyat belirgin şekilde daha düştüyse bildir
         if w.son_bildirim_fiyat:

@@ -448,6 +448,74 @@ def test_yuzde_ve_dip_ayni_anda_saglaninca_yalniz_yuzde_cikar(db):
     assert db.query(Alert).filter(Alert.tur == "DIP").count() == 0
 
 
+# ---------- yeniden kurma / rearm (BACKLOG E4) ----------
+# `utc_simdi()` GERÇEK saati döner (bu dosyada yalnızca `sessiz_saat_mi`
+# sabitleniyor, bkz. `_gunduz`) — bu yüzden "N gün geçti" GERÇEK zamanı
+# ileri sarmak yerine `son_bildirim_ts`i GEÇMİŞE elle çekerek simüle
+# ediliyor. Aynı tekniğin `test_ek_dusus_cooldownu_deler` ile ortak
+# noktası: ikisi de gerçek "şimdi" ile geçmiş bir zaman damgası
+# arasındaki FARKI test ediyor, zamanın kendisini değil.
+
+def test_yeniden_kur_suresi_dolunca_tekrar_uyari_cikar(db):
+    """Kabul ölçütü: süre dolunca aynı ürün için tekrar uyarı çıkıyor."""
+    _, p, _, w, t = kur(db, fiyat="45000", hedef=50000)
+    w.yeniden_kur_gun = 3
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1
+
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=4)   # 3 günlük eşiği aştı
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 2
+
+
+def test_yeniden_kur_suresi_dolmadan_tekrar_uyari_cikmaz(db):
+    _, p, _, w, t = kur(db, fiyat="45000", hedef=50000)
+    w.yeniden_kur_gun = 7
+    db.commit()
+    t.urun_tara(p)
+
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=2)   # 7 günlük eşiğin İÇİNDE
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1
+
+
+def test_yeniden_kur_gun_bos_ise_varsayilan_yedi_gun_kullanilir(db):
+    """`yeniden_kur_gun` hiç seçilmediyse (`None`) E1'in şema yorumunda
+    yazılı varsayılan (7 gün) uygulanır."""
+    _, p, _, w, t = kur(db, fiyat="45000", hedef=50000)
+    t.urun_tara(p)
+
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=6)
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1  # 6 < 7, henüz değil
+
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=8)
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 2  # 8 > 7
+
+
+def test_yeniden_kur_gun_hic_secilirse_bir_daha_uyari_cikmaz(db):
+    """Kabul ölçütü: 'hiç' (0) seçilirse bir daha çıkmıyor — EK DÜŞÜŞ
+    İSTİSNASI DAHİL (kullanıcı açıkça "rahatsız etme" dedi), süre ne kadar
+    geçerse geçsin ve fiyat ne kadar düşerse düşsün."""
+    _, p, s, w, t = kur(db, fiyat="45000", hedef=50000)
+    w.yeniden_kur_gun = 0
+    db.commit()
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1
+
+    w.son_bildirim_ts = utc_simdi() - timedelta(days=365)
+    db.commit()
+    t.cekici.sayfalar[s.url] = urun_sayfasi("10000")      # büyük ek düşüş
+    t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "HEDEF").count() == 1  # hâlâ 1
+
+
 # ---------- set bütçe uyarısı ----------
 
 def test_set_toplami_butcenin_altina_inince_uyarir(db):

@@ -480,6 +480,14 @@ def guncelle(db: Session, kullanici: User, izleme_id: int, **alanlar) -> Watch:
         w.sustur_bitis = (utc_simdi() + timedelta(days=sustur_gun)
                           if sustur_gun > 0 else None)
 
+    # BACKLOG E4 — "tek tıkla şimdi yeniden kur". `son_bildirim_ts`/
+    # `son_bildirim_fiyat` sıfırlanınca worker'ın `_hatirlatma_zamani`si
+    # bir sonraki taramada koşulsuz `True` döner (bkz. worker.py: "son_
+    # bildirim_ts is None → return True") — yani beklemeden yeniden uyarır.
+    if alanlar.pop("yeniden_kur", None):
+        w.son_bildirim_ts = None
+        w.son_bildirim_fiyat = None
+
     # `set_idler` bir sütun değil, üyelik tablosunun tamamını değiştiren bir
     # komut — bu yüzden `alanlari_uygula`ya girmiyor. PATCH semantiği:
     # anahtarın VARLIĞI "üyelikleri şu listeye eşitle" demek; boş liste

@@ -66,6 +66,16 @@ def detay(izleme_id: int, k: Kullanici, db: DB):
         "kilitli_fiyat": w.kilitli_fiyat,
         "sustur_bitis": w.sustur_bitis,
         "set_idler": [s.id for s in w.setler],
+        # BACKLOG E1/E3/E4 — bu sözlük ELLE kuruluyor, `Watch` ORM
+        # nesnesinin `from_attributes` ile otomatik eşlenmesi DEĞİL; A7'de
+        # tam bu şekilde `urun_svc.detay()`nin 5 alanı unutulmuştu (aynı
+        # sözlük-elle-kurma deseni). Buradaki üç alan atlanırsa
+        # `IzlemeDetay` şemasının varsayılanına (`None`) sessizce düşer —
+        # detay sayfası "Yüzde düşüş" kutusunu ve "N gün sonra yeniden
+        # uyarır" metnini GERÇEK değer ne olursa olsun boş gösterirdi.
+        "dusus_yuzdesi": w.dusus_yuzdesi,
+        "yeniden_kur_gun": w.yeniden_kur_gun,
+        "son_bildirim_ts": w.son_bildirim_ts,
         "urun": urun_svc.detay(db, w.product),
     }
 

@@ -355,6 +355,37 @@ def test_detay_ucu_kaydedilmis_baglam_sutunlarini_da_dondurur(istemci, db):
     assert urun_veri["gecmis_gun"] == 4
 
 
+def test_izleme_detay_ucu_kaydedilmis_uyari_alanlarini_da_dondurur(istemci, db):
+    """BACKLOG E4'te GERÇEK TARAYICIDA yakalandı — A7'nin (bir satır
+    yukarıdaki test) AYNI HATA SINIFI, farklı sözlük: `api/rotalar/
+    izlemeler.py::detay()` ELLE kurduğu yanıt sözlüğünde `dusus_yuzdesi`,
+    `yeniden_kur_gun`, `son_bildirim_ts`i hiç DÖNDÜRMÜYORDU — Pydantic
+    eksik anahtarı `None` varsayılanıyla dolduruyordu. Sonuç: DB'de
+    `son_bildirim_ts` yazılı olsa bile "Şimdi yeniden kur" düğmesi ve
+    "N gün sonra yeniden uyarır" metni detay sayfasında HİÇ görünmüyordu.
+
+    Liste ucu (`GET /api/izlemeler`, ham `Watch` ORM nesnesi + `from_
+    attributes`) aynı sütunları zaten doğru döndürüyordu — hata yalnızca
+    DETAY ucundaydı, ikisi aynı `Watch` sütununu farklı kod yollarından
+    okuyor (A7'deki `Product` için de birebir aynı ayrım geçerliydi)."""
+    from datetime import datetime
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    w = db.query(Watch).filter(Watch.id == i).one()
+    w.dusus_yuzdesi = 15
+    w.yeniden_kur_gun = 3
+    w.son_bildirim_ts = datetime(2026, 1, 1)
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b)
+    assert y.json()["dusus_yuzdesi"] == 15
+    assert y.json()["yeniden_kur_gun"] == 3
+    assert y.json()["son_bildirim_ts"] is not None
+
+
 # ─────────────────────────── set ───────────────────────────
 
 def test_set_olustur_ve_toplam(istemci, db):
@@ -770,6 +801,49 @@ def test_yeniden_kur_gun_araligin_disinda_422(istemci):
                          json={"yeniden_kur_gun": -1}).status_code == 422
     assert istemci.patch(f"/api/izlemeler/{i}", headers=b,
                          json={"yeniden_kur_gun": 366}).status_code == 422
+
+
+def test_yeniden_kur_komutu_bildirim_gecmisini_sifirlar(istemci, db):
+    """BACKLOG E4 — "tek tıkla şimdi yeniden kur". `yeniden_kur` bir sütun
+    değil bir KOMUT: `son_bildirim_ts`/`son_bildirim_fiyat`i sıfırlar ki
+    worker'ın `_hatirlatma_zamani`si beklemeden yeniden uyarabilsin."""
+    from datetime import datetime
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+
+    # Worker'ın normalde bir alarm sonrası yazacağı durumu elle kuruyoruz.
+    w = db.query(Watch).filter(Watch.id == i).one()
+    w.son_bildirim_ts = datetime(2026, 1, 1)
+    w.son_bildirim_fiyat = 40000
+    db.commit()
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"yeniden_kur": True})
+    assert y.status_code == 200
+    assert y.json()["son_bildirim_ts"] is None
+
+    db.expire_all()
+    w = db.query(Watch).filter(Watch.id == i).one()
+    assert w.son_bildirim_ts is None
+    assert w.son_bildirim_fiyat is None
+
+
+def test_yeniden_kur_gonderilmeyince_bildirim_gecmisi_korunur(istemci, db):
+    """`yeniden_kur` alanı hiç GÖNDERİLMEDİYSE dokunulmamalı — `sustur_gun`
+    ve diğer komutlarla aynı `exclude_unset` ilkesi."""
+    from datetime import datetime
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    w = db.query(Watch).filter(Watch.id == i).one()
+    w.son_bildirim_ts = datetime(2026, 1, 1)
+    db.commit()
+
+    y = istemci.patch(f"/api/izlemeler/{i}", headers=b, json={"aktif": False})
+    assert y.status_code == 200
+    assert y.json()["son_bildirim_ts"] is not None
 
 
 def test_dokunulmayan_alan_korunur(istemci):

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { BellOff, Lock, PauseCircle } from 'lucide-react'
+import { BellOff, Clock, Lock, PauseCircle } from 'lucide-react'
 
 import { useKivilcimlar } from '../api/kancalar'
 import type { Izleme } from '../api/tipler'
@@ -7,6 +7,7 @@ import Kivilcim from './Kivilcim'
 import SinyalRozeti from './SinyalRozeti'
 import { goreliZaman, hedefeKalan, kisaTl, tl, yuzde } from '../yardimcilar/bicim'
 import { kivilcimDegisimiHesapla } from '../yardimcilar/kivilcimDegisim'
+import { yenidenKurmaDurumu, yenidenKurmaMetni } from '../yardimcilar/yenidenKurma'
 
 /** Yüzde farkı yeşil/kırmızı boyar — DÜŞÜŞ her zaman iyi haber (ucuzlamış),
  * artış nötr/kırmızı. `yuzde()` yönü zaten oka çeviriyor, burada sadece renk. */
@@ -19,8 +20,11 @@ function farkRengi(y: number): string {
 export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
   const { urun } = izleme
   const durum = hedefeKalan(urun.guncel_fiyat, izleme.hedef_fiyat)
-  const susturulmus =
-    izleme.sustur_bitis !== null && new Date(`${izleme.sustur_bitis}Z`) > new Date()
+  // BACKLOG E4: susturma VE rearm beklemesi TEK bir hesaptan geliyor
+  // (`yenidenKurma.ts`) — ikisini burada ayrı ayrı türetmek (eskiden
+  // olduğu gibi) susturma mantığının iki yerde ıraksama riskini taşırdı.
+  const rearmDurum = yenidenKurmaDurumu(izleme)
+  const susturulmus = rearmDurum?.tur === 'susturuldu'
 
   // BACKLOG A8: kıvılcım verisi AYRI ve GECİKMELİ — bu kanca kendi isteğini
   // açar, `izlemeler` listesini beklemez. 35 kartın hepsi aynı queryKey'i
@@ -110,8 +114,9 @@ export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
         </div>
       </div>
 
-      {(susturulmus || !izleme.aktif || izleme.kilitli) && (
-        <div className="mt-2 flex gap-2 text-xs text-slate-500 dark:text-slate-400">
+      {(susturulmus || !izleme.aktif || izleme.kilitli || rearmDurum?.tur === 'bekliyor'
+        || rearmDurum?.tur === 'hic_uyarmaz') && (
+        <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
           {!izleme.aktif && (
             <span className="inline-flex items-center gap-1">
               <PauseCircle size={13} /> duraklatıldı
@@ -119,7 +124,14 @@ export default function IzlemeKarti({ izleme }: { izleme: Izleme }) {
           )}
           {susturulmus && (
             <span className="inline-flex items-center gap-1">
-              <BellOff size={13} /> susturuldu
+              <BellOff size={13} /> {yenidenKurmaMetni(rearmDurum)}
+            </span>
+          )}
+          {/* Susturma YOKKEN rearm beklemesi ya da "hiç" durumu — ikisi
+              AYNI ANDA gösterilmez (yenidenKurma.ts susturmayı önceliklendirir). */}
+          {!susturulmus && (rearmDurum?.tur === 'bekliyor' || rearmDurum?.tur === 'hic_uyarmaz') && (
+            <span className="inline-flex items-center gap-1">
+              <Clock size={13} /> {yenidenKurmaMetni(rearmDurum)}
             </span>
           )}
           {izleme.kilitli && (

@@ -195,6 +195,12 @@ class IzlemeGuncelleIstegi(BaseModel):
     # `0` = "hiç" (bir daha yeniden kurma) — `sustur_gun`daki "0 = kaldır"
     # ile AYNI sentinel deseni.
     yeniden_kur_gun: int | None = Field(default=None, ge=0, le=365)
+    # BACKLOG E4 — "tek tıkla şimdi yeniden kur". `sustur_gun` gibi bir
+    # KOMUT, ham sütun DEĞİL: `son_bildirim_ts`/`son_bildirim_fiyat`i
+    # doğrudan PATCH edilebilir kılmak yerine (iç muhasebe alanları,
+    # kullanıcının serbestçe yazabileceği bir şey değil) niyeti taşıyan
+    # tek bir bayrak.
+    yeniden_kur: bool | None = None
 
 
 class IzlemeYaniti(BaseModel):
@@ -212,6 +218,10 @@ class IzlemeYaniti(BaseModel):
     set_idler: list[int] = Field(default_factory=list)
     dusus_yuzdesi: int | None = None
     yeniden_kur_gun: int | None = None
+    # BACKLOG E4 — arayüzün "N gün sonra yeniden uyarır" hesabı için.
+    # Salt okunur: PATCH'te YOK, yalnızca `yeniden_kur: true` komutuyla
+    # sıfırlanır (bkz. `IzlemeGuncelleIstegi`).
+    son_bildirim_ts: datetime | None = None
     urun: UrunOzet = Field(validation_alias=AliasChoices("urun", "product"))
 
 

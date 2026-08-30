@@ -131,6 +131,9 @@ export interface Izleme {
   // dışlamaz). `yeniden_kur_gun`: `null` = varsayılan (7 gün), `0` = "hiç".
   dusus_yuzdesi: number | null
   yeniden_kur_gun: number | null
+  // BACKLOG E4 — arayüzün "N gün sonra yeniden uyarır" hesabı için. Salt
+  // okunur: PATCH'te YOK, yalnızca `yeniden_kur: true` komutuyla sıfırlanır.
+  son_bildirim_ts: string | null
   urun: UrunOzet
 }
 
@@ -191,4 +194,6 @@ export interface IzlemeGuncelleGirdi {
   sustur_gun?: number | null
   dusus_yuzdesi?: number | null
   yeniden_kur_gun?: number | null
+  // BACKLOG E4 — "tek tıkla şimdi yeniden kur" komutu, sütun değil.
+  yeniden_kur?: boolean
 }
