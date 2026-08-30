@@ -1552,3 +1552,39 @@ def test_pazar_verisi_yoksa_satir_cikmiyor(sayfa, sunucu):
     """Toplayıcı olmayan üründe boş bir '🏪' satırı gürültüdür."""
     _detaya_git(sayfa, sunucu)
     assert "satıcı" not in sayfa.locator("section").last.inner_text()
+
+
+def test_kaynak_tablosunda_en_ucuz_isaretli_ve_sebep_yaziyor(sayfa, sunucu):
+    """BACKLOG F3: en ucuz mağaza işaretli, okunamayan her kaynağın sebebi
+    yazıyor (bot duvarı) ve o satırdan doğrudan akakçe araması tetiklenebilir."""
+    def islemci(rota):
+        yanit = rota.fetch()
+        veri = yanit.json()
+        sablon = veri["urun"]["kaynaklar"][0]
+        ortak = {"cikis_url": "", "ortaklik": False, "satici_sayisi": None,
+                 "ikinci_fiyat": None, "son_kontrol": "2026-01-01T00:00:00"}
+        veri["urun"]["kaynaklar"] = [
+            {**sablon, **ortak, "id": 101, "satici": "Ucuz Mağaza",
+             "son_fiyat": 1000.0, "durum": "OK",
+             "host": "ucuz.com", "url": "https://ucuz.com/x"},
+            {**sablon, **ortak, "id": 102, "satici": "Pahalı Mağaza",
+             "son_fiyat": 2000.0, "durum": "OK",
+             "host": "pahali.com", "url": "https://pahali.com/x"},
+            {**sablon, **ortak, "id": 103, "satici": "Engelli Mağaza",
+             "son_fiyat": None, "durum": "ENGELLI",
+             "host": "engelli.com", "url": "https://engelli.com/x"},
+        ]
+        rota.fulfill(response=yanit, json=veri)
+
+    sayfa.route(re.compile(r"/api/izlemeler/\d+$"), islemci)
+    _detaya_git(sayfa, sunucu)
+
+    tablo = sayfa.locator("table")
+    ucuz_satir = tablo.locator("tr", has_text="Ucuz Mağaza")
+    pahali_satir = tablo.locator("tr", has_text="Pahalı Mağaza")
+    engelli_satir = tablo.locator("tr", has_text="Engelli Mağaza")
+
+    expect(ucuz_satir.get_by_text("en ucuz")).to_be_visible()
+    assert "en ucuz" not in pahali_satir.inner_text()
+    assert "bot duvarı" in engelli_satir.inner_text()
+    assert "akakçe kaynağı ara" in engelli_satir.inner_text()

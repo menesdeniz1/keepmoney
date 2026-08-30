@@ -1,9 +1,10 @@
 import { Suspense, lazy, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Trash2 } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 
 import { useIzleme, useIzlemeGuncelle, useIzlemeSil, useSetler } from '../api/kancalar'
 import KaynakOnerileri from '../bilesenler/KaynakOnerileri'
+import KaynakTablosu from '../bilesenler/KaynakTablosu'
 import Onay from '../bilesenler/Onay'
 // Recharts ~400 KB. Panel ve diğer sayfalar bunu indirmesin diye
 // yalnızca bu sayfa açıldığında yüklenir (kod bölme).
@@ -199,32 +200,7 @@ export default function IzlemeDetay() {
         <h2 className="mb-3 text-sm font-medium">
           Kaynaklar ({urun.kaynaklar.length})
         </h2>
-        <ul className="space-y-2 text-sm">
-          {urun.kaynaklar.map((k) => (
-            <li key={k.id} className="flex items-center justify-between gap-3">
-              <a
-                href={k.cikis_url || k.url}
-                target="_blank"
-                rel="noopener noreferrer nofollow sponsored"
-                className="inline-flex min-w-0 items-center gap-1 truncate hover:underline"
-              >
-                <span className="truncate">{k.satici ?? k.host}</span>
-                <ExternalLink size={13} className="shrink-0" />
-                {k.ortaklik && (
-                  <span
-                    title="Bu bağlantıdan alışveriş yaparsan küçük bir komisyon alırız. Fiyatın değişmez ve hangi mağazanın en ucuz seçildiğini etkilemez."
-                    className="shrink-0 rounded bg-slate-100 px-1.5 text-[10px]
-                               font-medium text-slate-600 dark:bg-slate-800
-                               dark:text-slate-400"
-                  >
-                    ortaklık
-                  </span>
-                )}
-              </a>
-              <span className="shrink-0 font-mono">{tl(k.son_fiyat)}</span>
-            </li>
-          ))}
-        </ul>
+        <KaynakTablosu kaynaklar={urun.kaynaklar} izlemeId={izleme.id} />
 
         {/*
           Pazar derinliği. "Kaç mağaza satıyor ve ikincisi kaça" bilgisi,
