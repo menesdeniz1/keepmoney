@@ -47,6 +47,15 @@ def sil(set_id: int, k: Kullanici, db: DB):
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
 
 
+@router.get("/{set_id}/gecmis", response_model=list[semalar.SetGecmisNoktasi])
+def gecmis(set_id: int, k: Kullanici, db: DB):
+    """Setin gün başına toplam geçmişi — bkz. `servisler/setler.py::gecmis`."""
+    try:
+        return svc.gecmis(db, k, set_id)
+    except svc.SetHatasi as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+
+
 @router.post("/{set_id}/uyeler", response_model=semalar.UyelikSonucu)
 def uyeleri_ekle(set_id: int, istek: semalar.UyelikIstegi,
                  k: Kullanici, db: DB):

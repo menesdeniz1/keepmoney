@@ -5,9 +5,12 @@ bütçe yakalanınca haber verilir. Rakiplerde karşılığı yok.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import User, Watch, WatchSet
+from .. import analiz
+from ..models import PriceReading, User, Watch, WatchSet
 from .ortak import alanlari_uygula
 
 # PATCH ile değiştirilebilecek alanlar; gerekçe için bkz. `ortak`.
@@ -128,6 +131,67 @@ def ozet(db: Session, s: WatchSet) -> dict:
             for w in uyeler
         ],
     }
+
+
+def gecmis(db: Session, kullanici: User, set_id: int) -> list[dict]:
+    """Set toplamının GÜN BAŞINA geçmişi (BACKLOG F2).
+
+    `ozet()`teki AYNI fiyat kuralı zaman ekseninde tekrarlanır: kilitli üye
+    sabit `kilitli_fiyat` katkısı yapar, diğerleri o günün en düşük okuması
+    (`analiz.gunluk_minimumlar` — Türkiye takvimi, worker'ın sinyal
+    hesabıyla AYNI gün tanımı).
+
+    ÜYE FİYATI BİLİNMEYEN GÜN EKSİK İŞARETLENİR, sıfır sayılmaz: kısmi
+    toplamı çizmek "bugün ucuzladı" yanılgısı yaratırdı — `ozet()`teki
+    "eksik üyeyle hedefte deme" ilkesiyle aynı gerekçe.
+
+    CANLI HESAPLANIR, hiçbir yerde saklanmaz: üye eklenip çıkarılınca
+    (`s.watches` değişince) bir sonraki çağrıda otomatik yeniden hesaplanır
+    — ayrı bir "geçmişi yeniden kur" adımına gerek yok.
+    """
+    s = getir(db, kullanici, set_id)
+    uyeler = [w for w in s.watches if not w.kilitli]
+    kilitliler = [w for w in s.watches if w.kilitli]
+
+    if not uyeler:
+        return []
+
+    # `izleme.py::kivilcimlar` ile AYNI desen: N üye için N ayrı sorgu
+    # açmak yerine TEK JOIN'li sorgu, sonra bellekte gün gün ayrıştırma.
+    satirlar = (db.query(Watch.id, PriceReading.ts, PriceReading.fiyat)
+                .join(PriceReading, PriceReading.product_id == Watch.product_id)
+                .filter(Watch.id.in_([w.id for w in uyeler]))
+                .all())
+
+    ham: dict[int, list[analiz.Okuma]] = {}
+    for izleme_id, ts, fiyat in satirlar:
+        if not fiyat:
+            continue
+        ham.setdefault(izleme_id, []).append(analiz.Okuma(ts=ts, fiyat=fiyat))
+
+    gunluk = {izleme_id: analiz.gunluk_minimumlar(okumalar)
+             for izleme_id, okumalar in ham.items()}
+
+    tum_gunler: set[date] = set()
+    for seri in gunluk.values():
+        tum_gunler.update(seri.keys())
+
+    kilitli_eksik = any(w.kilitli_fiyat is None for w in kilitliler)
+    kilitli_toplam = sum(w.kilitli_fiyat for w in kilitliler if w.kilitli_fiyat)
+
+    sonuc = []
+    for gun in sorted(tum_gunler):
+        toplam = kilitli_toplam
+        eksik = kilitli_eksik
+        for w in uyeler:
+            fiyat = gunluk.get(w.id, {}).get(gun)
+            if fiyat is None:
+                eksik = True
+            else:
+                toplam += fiyat
+        sonuc.append({"gun": gun, "toplam": None if eksik else round(toplam, 2),
+                      "eksik": eksik})
+    return sonuc
 
 
 def uyeleri_ekle(db: Session, kullanici: User, set_id: int,

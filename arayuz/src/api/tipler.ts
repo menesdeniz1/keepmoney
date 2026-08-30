@@ -163,6 +163,17 @@ export interface KmSet {
   uyeler: SetUyesi[]
 }
 
+/**
+ * BACKLOG F2 — set toplamının bir günkü değeri.
+ * `eksik=true` ⟺ `toplam=null`: bir üyenin o gün fiyatı bilinmiyor, kısmi
+ * toplam yerine grafikte KESİK bırakılır (bkz. `SetGecmisGrafigi`).
+ */
+export interface SetGecmisNoktasi {
+  gun: string
+  toplam: number | null
+  eksik: boolean
+}
+
 /** Toplu üyelik sonucu — KISMİ BAŞARI taşır: eklenenler ve sebepleriyle
  *  atlananlar. "Bir şeyler oldu" demek yerine hangi ürünün neden alınmadığı
  *  söylenir. */

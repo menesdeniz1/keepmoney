@@ -298,6 +298,18 @@ class SetYaniti(BaseModel):
     uyeler: list[SetUyesi] = Field(default_factory=list)
 
 
+class SetGecmisNoktasi(BaseModel):
+    """BACKLOG F2 — set toplamının bir günkü değeri.
+
+    `eksik=True` ⟺ `toplam=None`: o gün en az bir üyenin fiyatı bilinmiyor.
+    Kısmi toplamı sayı olarak dönmek arayüzün bunu yanlışlıkla çizmesine
+    yol açardı — "eksik" gün, "ucuz" gün değildir.
+    """
+    gun: date
+    toplam: float | None = None
+    eksik: bool = False
+
+
 # ─────────────────────────── Uyarı ───────────────────────────
 
 

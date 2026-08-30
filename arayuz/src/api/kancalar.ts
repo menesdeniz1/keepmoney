@@ -23,6 +23,7 @@ import type {
   IzlemeGuncelleGirdi,
   KmSet,
   Kullanici,
+  SetGecmisNoktasi,
   SetGuncelleGirdi,
 } from './tipler'
 
@@ -36,6 +37,7 @@ export const anahtar = {
   kivilcimlarGunle: (gun: number) => ['kivilcimlar', gun] as const,
   firsatlar: ['firsatlar'] as const,
   setler: ['setler'] as const,
+  setGecmis: (id: number) => ['set-gecmis', id] as const,
   uyarilar: (sadeceOkunmamis: boolean) => ['uyarilar', sadeceOkunmamis] as const,
   uyariSayisi: ['uyari-sayisi'] as const,
 }
@@ -103,6 +105,14 @@ export function useIzleme(id: number): UseQueryResult<IzlemeDetay> {
 
 export function useSetler(): UseQueryResult<KmSet[]> {
   return useQuery({ queryKey: anahtar.setler, queryFn: api.setler })
+}
+
+export function useSetGecmis(id: number): UseQueryResult<SetGecmisNoktasi[]> {
+  return useQuery({
+    queryKey: anahtar.setGecmis(id),
+    queryFn: () => api.setGecmis(id),
+    enabled: Number.isFinite(id),
+  })
 }
 
 /** Sayfa boyutu — sunucudaki üst sınırla (100) uyumlu kalmalı. */
@@ -235,10 +245,12 @@ export function useSetUyeEkle() {
   return useMutation({
     mutationFn: ({ setId, idler }: { setId: number; idler: number[] }) =>
       api.setUyeEkle(setId, idler),
-    onSuccess: () => {
+    onSuccess: (_veri, { setId }) => {
       void qc.invalidateQueries({ queryKey: anahtar.setler })
       // İzleme listesi de tazelenir: kartlarda üyelik rozeti gösteriliyor.
       void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
+      // BACKLOG F2: üye eklenince geçmiş grafiği de yeniden hesaplanmalı.
+      void qc.invalidateQueries({ queryKey: anahtar.setGecmis(setId) })
     },
   })
 }
@@ -248,9 +260,10 @@ export function useSetUyeCikar() {
   return useMutation({
     mutationFn: ({ setId, izlemeId }: { setId: number; izlemeId: number }) =>
       api.setUyeCikar(setId, izlemeId),
-    onSuccess: () => {
+    onSuccess: (_veri, { setId }) => {
       void qc.invalidateQueries({ queryKey: anahtar.setler })
       void qc.invalidateQueries({ queryKey: anahtar.izlemeler })
+      void qc.invalidateQueries({ queryKey: anahtar.setGecmis(setId) })
     },
   })
 }

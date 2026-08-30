@@ -793,6 +793,113 @@ def test_set_butcesi_asinca_kirmizi_altindayken_yesil(sayfa, sunucu):
     assert "bütçe altında" not in govde
 
 
+def _iki_uyeli_set_gecmisiyle_kur(sayfa, sunucu, set_adi, hedef_butce):
+    """BACKLOG F2 testleri için ortak kurulum: bütçeli set, 2 üye, ikisinin
+    de en az 2 günlük fiyat geçmişi. `set_id`, iki `Watch.id` ve DB motorunu
+    döner — çağıran ek geçmiş/temizlik için kullanabilir."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+    from sqlalchemy.orm import Session
+
+    from keepmoney.models import PriceReading, Source, User, Watch, WatchSet
+    from keepmoney.zaman import utc_simdi
+
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/f2-a", hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    _urun_ekle(sayfa, url="https://www.example.com/urun/f2-c", hedef="")
+    expect(sayfa.locator("a[href^='/izleme/']")).to_have_count(2, timeout=15000)
+
+    motor = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db = Session(motor)
+    kullanici = db.query(User).filter(User.email == eposta).one()
+    kullanici_id = kullanici.id
+    w_a, w_c = (db.query(Watch).filter(Watch.user_id == kullanici.id)
+               .order_by(Watch.id).all())
+    w_a_id, w_c_id = w_a.id, w_c.id
+    simdi = utc_simdi()
+    for w, satirlar in [(w_a, [(1000, 1), (900, 0)]), (w_c, [(2000, 1), (2200, 0)])]:
+        kaynak = db.query(Source).filter(Source.product_id == w.product_id).one()
+        for fiyat, gun_once in satirlar:
+            db.add(PriceReading(product_id=w.product_id, source_id=kaynak.id,
+                                fiyat=fiyat, ts=simdi - timedelta(days=gun_once)))
+    db.commit()
+    db.close()
+    motor.dispose()
+
+    sayfa.goto(f"{sunucu}/setler", wait_until="networkidle")
+    sayfa.locator("#set-adi").fill(set_adi)
+    sayfa.locator("#set-butce").fill(str(hedef_butce))
+    sayfa.get_by_role("button", name="Set kur").click()
+    sayfa.wait_for_selector(f"text={set_adi}", timeout=15000)
+
+    sayfa.get_by_role("button", name="Ürün ekle").click()
+    sayfa.wait_for_selector("input[type=checkbox]", timeout=15000)
+    kutular = sayfa.locator("input[type=checkbox]")
+    kutular.nth(0).check()
+    kutular.nth(1).check()
+    sayfa.get_by_role("button", name="Ekle (2)").click()
+    sayfa.wait_for_selector("text=2 ürün eklendi", timeout=15000)
+    sayfa.get_by_role("button", name="Kapat").click()
+
+    motor2 = sa.create_engine(f"sqlite:///{sunucu.db_yolu}")
+    db2 = Session(motor2)
+    set_id = (db2.query(WatchSet)
+             .filter(WatchSet.user_id == kullanici_id, WatchSet.ad == set_adi)
+             .one().id)
+    db2.close()
+    motor2.dispose()
+    return set_id, w_a_id, w_c_id
+
+
+def test_set_gecmis_grafigi_acilir_ve_butce_cizgisi_gorunur(sayfa, sunucu):
+    """BACKLOG F2: 'Bütçe hedefi yatay çizgi olarak grafikte' — grafik
+    açılıyor ve bütçe referans çizgisinin etiketi görünüyor."""
+    _iki_uyeli_set_gecmisiyle_kur(sayfa, sunucu, "Geçmiş seti", 2800)
+
+    sayfa.get_by_role("button", name="Geçmiş").click()
+    sayfa.wait_for_selector("svg", timeout=15000)
+    # Sayfada "bütçe" geçen başka metinler de var (girdi etiketi, "Bütçeyi
+    # düzenle" düğmesi) — referans çizgisinin etiketi SVG İÇİNDE arandı.
+    expect(sayfa.locator("svg").get_by_text("bütçe")).to_be_visible()
+
+
+def test_set_gecmis_uye_cikarilinca_ucu_yeniden_hesaplanmis_veri_dondurur(sayfa, sunucu):
+    """Kabul ölçütü: üye eklenip çıkarılınca geçmiş yeniden hesaplanıyor.
+    Grafik canlı hesaplanan sunucu verisini çiziyor; burada asıl ölçülmesi
+    gereken web ucunun ÇIKARMADAN SONRA GÜNCEL veriyi döndürmesi — grafiğin
+    SVG'sini piksel piksel incelemek recharts'ın kendi davranışını test
+    eder, bizim kodumuzu değil."""
+    set_id, _izleme_a, _izleme_c = _iki_uyeli_set_gecmisiyle_kur(
+        sayfa, sunucu, "Yeniden hesaplanan set", 5000)
+
+    sayfa.get_by_role("button", name="Geçmiş").click()
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    once = sayfa.evaluate(
+        f"() => fetch('/api/setler/{set_id}/gecmis').then(r => r.json())")
+    # 1 gün önce: 1000 (a) + 2000 (c) = 3000 · bugün: 900 (a) + 2200 (c) = 3100
+    once_toplam = sorted(n["toplam"] for n in once)
+    assert once_toplam == [3000.0, 3100.0]
+
+    # "Ürün ekle" seti zaten AÇIK bırakıyor (bkz. Setler.tsx — eklenen şeyi
+    # görmeden kapanması az önce ne olduğunu gizlerdi), yani İçindekiler
+    # listesi burada halihazırda görünür — tekrar tıklamak KAPATIRDI.
+    # Hangi üyenin kaldırılacağı DOM sırasına bağlı (ilişki sırası garanti
+    # değil) — bu yüzden ikisi de kabul edilebilir sonuç.
+    sayfa.wait_for_selector("button[aria-label*='setten çıkar']", timeout=15000)
+    sayfa.locator("button[aria-label*='setten çıkar']").first.click()
+    sayfa.wait_for_timeout(600)                 # invalidate + refetch
+
+    sonra = sayfa.evaluate(
+        f"() => fetch('/api/setler/{set_id}/gecmis').then(r => r.json())")
+    assert sonra != once
+    # Tek üye kaldı — geçmiş artık YALNIZCA o üyenin fiyatlarını yansıtmalı.
+    kalan_toplamlar = sorted(n["toplam"] for n in sonra if n["toplam"] is not None)
+    assert kalan_toplamlar in ([900.0, 1000.0], [2000.0, 2200.0])
+
+
 # ── Ayarlar ve hesap ─────────────────────────────────────────────
 
 def test_ayarlar_dogrulama_uyarisi_gosterir(sayfa, sunucu):

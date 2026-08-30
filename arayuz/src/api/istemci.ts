@@ -17,6 +17,7 @@ import type {
   IzlemeGuncelleGirdi,
   KmSet,
   Kullanici,
+  SetGecmisNoktasi,
   SetGuncelleGirdi,
   Uyari,
   UyelikSonucu,
@@ -205,6 +206,9 @@ export const api = {
 
   setUyeCikar: (setId: number, izlemeId: number) =>
     istek<void>(`/setler/${setId}/uyeler/${izlemeId}`, { method: 'DELETE' }),
+
+  setGecmis: (setId: number) =>
+    istek<SetGecmisNoktasi[]>(`/setler/${setId}/gecmis`),
 
   // ── Uyarı ─────────────────────────────────────────────────────
   uyarilar: (sadeceOkunmamis = false, offset = 0, limit = 50) =>

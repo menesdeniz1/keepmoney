@@ -461,6 +461,128 @@ def test_eksik_uyeli_set_hedefte_demez(istemci, db):
     assert y["hedefte"] is False
 
 
+# ─────────────────── set fiyat geçmişi (BACKLOG F2) ───────────────────
+
+def _kaynak_id(db, urun_id):
+    return db.query(Source).filter(Source.product_id == urun_id).one().id
+
+
+def test_set_gecmisi_gun_basina_toplami_dondurur(istemci, db):
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    a = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]}).json()["id"]
+    c = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/c", "set_idler": [s["id"]]}).json()["id"]
+
+    w_a = db.query(Watch).filter(Watch.id == a).one()
+    w_c = db.query(Watch).filter(Watch.id == c).one()
+    _gecmis_ekle(db, w_a.product_id, _kaynak_id(db, w_a.product_id),
+                [(1000, 1), (900, 0)])
+    _gecmis_ekle(db, w_c.product_id, _kaynak_id(db, w_c.product_id),
+                [(2000, 1), (2100, 0)])
+
+    y = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b).json()
+    assert len(y) == 2
+    assert sorted(n["toplam"] for n in y) == [3000.0, 3000.0]
+    assert all(n["eksik"] is False for n in y)
+
+
+def test_set_gecmisi_eksik_gunu_isaretler(istemci, db):
+    """Kabul ölçütü: eksik günler grafikte KESİK — sıfır ya da kısmi toplam
+    değil, `toplam=None` + `eksik=True`."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    a = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]}).json()["id"]
+    c = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/c", "set_idler": [s["id"]]}).json()["id"]
+
+    w_a = db.query(Watch).filter(Watch.id == a).one()
+    w_c = db.query(Watch).filter(Watch.id == c).one()
+    # a: 2 gün önce ve dün var. c: yalnızca dün var — 2 gün önce EKSİK.
+    _gecmis_ekle(db, w_a.product_id, _kaynak_id(db, w_a.product_id),
+                [(1000, 2), (900, 1)])
+    _gecmis_ekle(db, w_c.product_id, _kaynak_id(db, w_c.product_id),
+                [(2000, 1)])
+
+    y = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b).json()
+    by_gun = {n["gun"]: n for n in y}
+    iki_gun_once = min(by_gun)
+    dun = max(by_gun)
+    assert by_gun[iki_gun_once]["eksik"] is True
+    assert by_gun[iki_gun_once]["toplam"] is None
+    assert by_gun[dun]["eksik"] is False
+    assert by_gun[dun]["toplam"] == 2900.0
+
+
+def test_set_gecmisi_uye_cikarilinca_yeniden_hesaplanir(istemci, db):
+    """Kabul ölçütü: üye eklenip çıkarılınca geçmiş yeniden hesaplanıyor.
+    Saklanmıyor — bir sonraki çağrı GÜNCEL üyelikten hesaplar."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    a = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]}).json()["id"]
+    c = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/c", "set_idler": [s["id"]]}).json()["id"]
+
+    w_a = db.query(Watch).filter(Watch.id == a).one()
+    w_c = db.query(Watch).filter(Watch.id == c).one()
+    _gecmis_ekle(db, w_a.product_id, _kaynak_id(db, w_a.product_id), [(1000, 0)])
+    _gecmis_ekle(db, w_c.product_id, _kaynak_id(db, w_c.product_id), [(2000, 0)])
+
+    once = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b).json()
+    assert once[0]["toplam"] == 3000.0
+
+    assert istemci.delete(f"/api/setler/{s['id']}/uyeler/{c}",
+                          headers=b).status_code == 204
+
+    sonra = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b).json()
+    assert sonra[0]["toplam"] == 1000.0
+
+
+def test_set_gecmisi_kilitli_uye_sabit_fiyat_katar(istemci, db):
+    """Kilitli üye — "bunu şu fiyata aldım/ayırdım" — geçmişte de SABİT
+    katkı yapar, kendi fiyat geçmişi (varsa) yok sayılır. `ozet()`teki
+    aynı kural (kilitli_fiyat, canlı fiyat değil)."""
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    a = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/a", "set_idler": [s["id"]]}).json()["id"]
+    kilitli = istemci.post("/api/izlemeler", headers=b, json={
+        "url": "https://magaza.com/kilitli", "set_idler": [s["id"]]}).json()["id"]
+
+    w_a = db.query(Watch).filter(Watch.id == a).one()
+    w_kilitli = db.query(Watch).filter(Watch.id == kilitli).one()
+    w_kilitli.kilitli = True
+    w_kilitli.kilitli_fiyat = 500.0
+    db.commit()
+    _gecmis_ekle(db, w_a.product_id, _kaynak_id(db, w_a.product_id),
+                [(1000, 1), (900, 0)])
+
+    y = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b).json()
+    assert len(y) == 2
+    for nokta in y:
+        assert nokta["eksik"] is False
+    assert sorted(n["toplam"] for n in y) == [1400.0, 1500.0]
+
+
+def test_bos_set_gecmisi_bos_liste_doner(istemci, db):
+    b = kayit_ol(istemci)
+    s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()
+    y = istemci.get(f"/api/setler/{s['id']}/gecmis", headers=b)
+    assert y.status_code == 200
+    assert y.json() == []
+
+
+def test_set_gecmisi_baskasinin_seti_404(istemci, db):
+    b1 = kayit_ol(istemci, eposta="a@ornek.com")
+    b2 = kayit_ol(istemci, eposta="c@ornek.com")
+    s = istemci.post("/api/setler", headers=b1, json={"ad": "Set"}).json()
+    assert istemci.get(f"/api/setler/{s['id']}/gecmis",
+                       headers=b2).status_code == 404
+
+
 def test_set_silinince_uyeler_silinmez(istemci, db):
     b = kayit_ol(istemci)
     s = istemci.post("/api/setler", headers=b, json={"ad": "Set"}).json()

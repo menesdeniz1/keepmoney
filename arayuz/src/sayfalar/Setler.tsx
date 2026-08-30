@@ -1,11 +1,14 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, LineChart, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 import {
   useSetGuncelle, useSetOlustur, useSetSil, useSetUyeCikar, useSetler,
 } from '../api/kancalar'
 import Onay from '../bilesenler/Onay'
+// Recharts ~400 KB (bkz. IzlemeDetay.tsx aynı gerekçe) — Setler sayfası
+// her açılışta indirmesin diye yalnızca "Geçmiş" tıklanınca yüklenir.
+const SetGecmisBolumu = lazy(() => import('../bilesenler/SetGecmisBolumu'))
 import SetUyeSecici from '../bilesenler/SetUyeSecici'
 import SinyalRozeti from '../bilesenler/SinyalRozeti'
 import { kisaTl, tl } from '../yardimcilar/bicim'
@@ -24,6 +27,8 @@ export default function Setler() {
   // Hangi setin içi açık ve hangisine ürün ekleniyor.
   const [acikSet, setAcikSet] = useState<number | null>(null)
   const [eklenenSet, setEklenenSet] = useState<number | null>(null)
+  // BACKLOG F2 — geçmiş grafiği yalnızca açıldığında sorgulanır.
+  const [gecmisAcikSet, setGecmisAcikSet] = useState<number | null>(null)
   const uyeCikar = useSetUyeCikar()
 
   return (
@@ -89,6 +94,7 @@ export default function Setler() {
           const enPahali = enPahaliUye(s.uyeler)
           const acik = acikSet === s.id
           const eklemeAcik = eklenenSet === s.id
+          const gecmisAcik = gecmisAcikSet === s.id
           return (
             <div key={s.id}
                  className="rounded-lg border border-slate-200 bg-white p-4
@@ -221,6 +227,14 @@ export default function Setler() {
                     <Pencil size={13} /> Bütçeyi düzenle
                   </button>
                   <button
+                    onClick={() => setGecmisAcikSet(gecmisAcik ? null : s.id)}
+                    aria-expanded={gecmisAcik}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500
+                               hover:underline"
+                  >
+                    <LineChart size={13} /> Geçmiş
+                  </button>
+                  <button
                     onClick={() => setSilinecek({ id: s.id, ad: s.ad })}
                     className="inline-flex items-center gap-1 text-xs text-red-600
                                hover:underline"
@@ -228,6 +242,17 @@ export default function Setler() {
                     <Trash2 size={13} /> Seti sil (ürünler silinmez)
                   </button>
                 </div>
+              )}
+
+              {gecmisAcik && (
+                <Suspense
+                  fallback={
+                    <div className="mt-3 h-[200px] animate-pulse rounded-lg
+                                    bg-slate-100 dark:bg-slate-800" />
+                  }
+                >
+                  <SetGecmisBolumu setId={s.id} hedefButce={s.hedef_butce} />
+                </Suspense>
               )}
 
               {acik && s.uyeler.length > 0 && (
