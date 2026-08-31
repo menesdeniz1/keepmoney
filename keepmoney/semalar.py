@@ -118,7 +118,10 @@ class KaynakEkleIstegi(BaseModel):
 class FiyatNoktasi(BaseModel):
     """Grafik verisi — gün başına tek nokta (bkz. MIMARI K4)."""
     gun: date
-    fiyat: float
+    # BACKLOG B4 — `None` = o gün stokta yoktu (`stokta=False` ile birlikte
+    # gelir); istemci çizgiyi bu noktada KESER (connectNulls=false).
+    fiyat: float | None
+    stokta: bool = True
 
 
 class BaglamYaniti(BaseModel):

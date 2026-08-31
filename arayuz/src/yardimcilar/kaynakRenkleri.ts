@@ -50,15 +50,16 @@ export function kaynakStili(host: string, toplamKaynakSayisi: number): KaynakSti
 /** Her kaynağın kendi günlerini tek bir geniş tabloya birleştirir —
  *  recharts'ın çoklu-çizgi deseni: `{ gun, k12: 1000, k7: 950 }`. Bir
  *  kaynağın o gün noktası yoksa alan hiç yazılmaz (undefined) — recharts
- *  bunu `connectNulls=false` ile zaten kesik çizer. */
+ *  bunu `connectNulls=false` ile zaten kesik çizer. BACKLOG B4 — nokta VAR
+ *  ama stokta yoksa `fiyat: null` gelir, AYNI şekilde kesik çizilir. */
 export function birlesikVeri(
   seriler: KaynakSerisi[],
-): Record<string, number | string>[] {
+): Record<string, number | string | null>[] {
   const gunler = new Set<string>()
   for (const s of seriler) for (const n of s.noktalar) gunler.add(n.gun)
 
   return Array.from(gunler).sort().map((gun) => {
-    const satir: Record<string, number | string> = { gun }
+    const satir: Record<string, number | string | null> = { gun }
     for (const s of seriler) {
       const nokta = s.noktalar.find((n) => n.gun === gun)
       if (nokta) satir[anahtar(s.kaynak_id)] = nokta.fiyat
@@ -81,22 +82,34 @@ export function gorunurFiyatAraligi(
   seriler: KaynakSerisi[],
   gizliKaynaklar: ReadonlySet<number>,
 ): { enDusuk: number; enYuksek: number } | null {
+  // BACKLOG B4 — stok-yok noktalarının `fiyat: null`i buraya karışırsa
+  // `Math.min(...[10, null])` `null`ı 0'a çevirip aralığı bozar; süzülür.
   const fiyatlar = seriler
     .filter((s) => !gizliKaynaklar.has(s.kaynak_id))
     .flatMap((s) => s.noktalar.map((n) => n.fiyat))
+    .filter((f): f is number => f != null)
   if (fiyatlar.length === 0) return null
   return { enDusuk: Math.min(...fiyatlar), enYuksek: Math.max(...fiyatlar) }
+}
+
+/** Bir serinin EN SON bilinen (null olmayan) fiyatı — BACKLOG B4: dizinin
+ *  son noktası stok-yok boşluğu olabilir, o zaman `fiyat: null` gelir ve
+ *  "en ucuz" karşılaştırması `null < sayı` gibi anlamsız bir işleme düşer. */
+function sonFiyat(s: KaynakSerisi): number | null {
+  for (let i = s.noktalar.length - 1; i >= 0; i--) {
+    const f = s.noktalar[i]!.fiyat
+    if (f != null) return f
+  }
+  return null
 }
 
 /** En son günün en düşük fiyatını taşıyan kaynak — "şu an en ucuz mağaza
  *  hangisi" sorusunun cevabı, F1/F3'teki "en ucuz" tanımıyla aynı ilke
  *  (canlı/güncel duruma bakar, tarihsel en düşüğe değil). */
 export function enUcuzKaynakId(seriler: KaynakSerisi[]): number | null {
-  const doluSeriler = seriler.filter((s) => s.noktalar.length > 0)
+  const doluSeriler = seriler
+    .map((s) => ({ s, fiyat: sonFiyat(s) }))
+    .filter((x): x is { s: KaynakSerisi; fiyat: number } => x.fiyat != null)
   if (doluSeriler.length === 0) return null
-  return doluSeriler.reduce((en, s) => {
-    const sonFiyat = s.noktalar[s.noktalar.length - 1]!.fiyat
-    const enSonFiyat = en.noktalar[en.noktalar.length - 1]!.fiyat
-    return sonFiyat < enSonFiyat ? s : en
-  }).kaynak_id
+  return doluSeriler.reduce((en, x) => (x.fiyat < en.fiyat ? x : en)).s.kaynak_id
 }

@@ -388,7 +388,14 @@ def test_kaynak_serileri_sorgu_sayisini_artirmaz(istemci, db):
     """Kabul ölçütü: sorgu sayısı artmamış. `okumalar()` `source_id`yi
     AYNI sorguya ek bir kolon olarak ekliyor, `kaynak_serileri` ikinci bir
     sorgu açmadan bunu ve zaten yüklü `urun.sources`u kullanıyor — bkz.
-    `test_urun_detayi_gecmisi_tek_kez_okur` (aynı ilke, çağrı sayısı)."""
+    `test_urun_detayi_gecmisi_tek_kez_okur` (aynı ilke, çağrı sayısı).
+
+    BACKLOG B4 — bütçe 6'dan 7'ye ÇIKTI, bilinçli: `stok_yok_gunleri()`
+    "hiç taranmadı" ile "tarandı, stokta yoktu"yu ayırmak için AYRI bir
+    sorgu açıyor (farklı bir WHERE — `okumalar()`in `if f` süzgeciyle aynı
+    satırlara piggyback edilemez, o satırları BİLEREK dışlıyor). N+1 değil:
+    ürün/kaynak sayısından BAĞIMSIZ, sabit tek ek sorgu.
+    """
     from datetime import timedelta
 
     from sqlalchemy import event
@@ -424,9 +431,113 @@ def test_kaynak_serileri_sorgu_sayisini_artirmaz(istemci, db):
 
     assert y.status_code == 200
     assert len(y.json()["urun"]["seriler"]) == 2
-    # kullanıcı + izleme + ürün + kaynaklar + okumalar ≈ 5; B2 öncesi de
-    # bu civardaydı — yeni bir sorgu eklenmediğinin ölçütü budur.
-    assert len(sorgular) <= 6, f"{len(sorgular)} SELECT: {sorgular}"
+    # kullanıcı + izleme + ürün + kaynaklar + okumalar + stok-yok günleri
+    # ≈ 6; B4 bu listeye TEK sabit sorgu ekledi (yukarıdaki docstring).
+    assert len(sorgular) <= 7, f"{len(sorgular)} SELECT: {sorgular}"
+
+
+# ─────────────────── B4: grafikte stok boşlukları ───────────────────
+
+def test_tek_kaynakli_urunde_stok_yok_boslugu_gecmiste_gorunur(istemci, db):
+    """Kabul ölçütü: stoksuz dönem gözle ayırt ediliyor. Tek kaynaklı
+    üründe o kaynak stokta yoksa ürün GERÇEKTEN alınamaz — birleşik
+    `gecmis`te o gün `fiyat: None, stokta: False` olmalı."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import tr_gun, utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    kaynak = db.query(Source).one()
+    simdi = utc_simdi()
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak.id, fiyat=1000,
+                        ts=simdi - timedelta(days=2)))
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak.id, fiyat=None,
+                        stokta_var=False, ts=simdi - timedelta(days=1)))
+    db.commit()
+
+    gecmis = {n["gun"]: n for n in
+             istemci.get(f"/api/izlemeler/{i}", headers=b).json()["urun"]["gecmis"]}
+    dunku_gun = tr_gun(simdi - timedelta(days=1)).isoformat()
+    onceki_gun = tr_gun(simdi - timedelta(days=2)).isoformat()
+    assert gecmis[onceki_gun]["fiyat"] == 1000
+    assert gecmis[onceki_gun]["stokta"] is True
+    assert gecmis[dunku_gun]["fiyat"] is None
+    assert gecmis[dunku_gun]["stokta"] is False
+
+
+def test_bir_kaynak_stokta_yokken_digeri_fiyat_verirse_boslukta_gozukmez(istemci, db):
+    """Çok kaynaklı üründe bir mağaza tükenmiş olabilir ama ürün BAŞKA bir
+    mağazadan hâlâ alınabiliyorsa birleşik grafik bunu boşluk SAYMAMALI —
+    kullanıcı o gün ürünü gerçekten alabiliyordu."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import tr_gun, utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    kaynak_a = db.query(Source).one()
+    kaynak_b = Source(product_id=urun.id, url="https://baska-magaza.com/a",
+                      host="baska-magaza.com")
+    db.add(kaynak_b)
+    db.commit()
+
+    simdi = utc_simdi()
+    onceki_gun_ts = simdi - timedelta(days=2)
+    dun = simdi - timedelta(days=1)
+    # kaynak_a: 2 gün önce fiyatlıydı, dün stokta yoktu.
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak_a.id,
+                        fiyat=1000, ts=onceki_gun_ts))
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak_a.id,
+                        fiyat=None, stokta_var=False, ts=dun))
+    # kaynak_b: dün de fiyatlıydı — ürün o gün GERÇEKTEN alınabiliyordu.
+    db.add(PriceReading(product_id=urun.id, source_id=kaynak_b.id,
+                        fiyat=1500, ts=dun))
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b).json()["urun"]
+    dunku_gun = tr_gun(dun).isoformat()
+    gecmis = {n["gun"]: n for n in y["gecmis"]}
+    assert gecmis[dunku_gun]["fiyat"] == 1500
+    assert gecmis[dunku_gun]["stokta"] is True
+
+    # AMA kaynak_a'nın KENDİ serisinde o gün kendi boşluğu görünmeli —
+    # "her çizgi kendi mağazasının durumunu gösterir" (B4 tasarımı).
+    seriler = {s["host"]: s for s in y["seriler"]}
+    a_noktalari = {n["gun"]: n for n in seriler[kaynak_a.host]["noktalar"]}
+    assert a_noktalari[dunku_gun]["fiyat"] is None
+    assert a_noktalari[dunku_gun]["stokta"] is False
+    b_noktalari = {n["gun"]: n for n in seriler["baska-magaza.com"]["noktalar"]}
+    assert b_noktalari[dunku_gun]["fiyat"] == 1500
+    assert b_noktalari[dunku_gun]["stokta"] is True
+
+
+def test_stok_bilgisi_olmayan_eski_okumalar_stokta_sayilir(istemci, db):
+    """Kabul ölçütü: stok bilgisi olmayan eski okumalar `stokta: true`
+    sayılıyor — geçmiş bozulmuyor. Fiyatlı her satır zaten `stokta_var`
+    varsayılanıyla (True) gelir; hiç stok-yok satırı yoksa boşluk kümesi
+    boş kalmalı."""
+    from datetime import timedelta
+
+    from keepmoney.zaman import utc_simdi
+
+    b = kayit_ol(istemci)
+    i = istemci.post("/api/izlemeler", headers=b,
+                     json={"url": "https://magaza.com/a"}).json()["id"]
+    urun = db.query(Product).one()
+    kaynak = db.query(Source).one()
+    simdi = utc_simdi()
+    for gun, fiyat in enumerate([1000, 950]):
+        db.add(PriceReading(product_id=urun.id, source_id=kaynak.id,
+                            fiyat=fiyat, ts=simdi - timedelta(days=1 - gun)))
+    db.commit()
+
+    y = istemci.get(f"/api/izlemeler/{i}", headers=b).json()["urun"]
+    assert all(n["stokta"] is True for n in y["gecmis"])
 
 
 def test_detay_ucu_kaydedilmis_baglam_sutunlarini_da_dondurur(istemci, db):

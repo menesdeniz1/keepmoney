@@ -211,6 +211,15 @@ class Tarayici:
             kaynak.son_kontrol = utc_simdi()
             self._sonucu_kaydet(kaynak.host, "stok_yok")
             log.info("Stokta yok: %s", kaynak.url)
+            # BACKLOG B4 — bu satır olmadan "stokta yoktu" ile "hiç
+            # taranmadı" grafikte AYNI şeydi: ikisi de sessizce hiçbir kayıt
+            # bırakmıyordu. `fiyat=None, stokta_var=False` grafiğin çizgiyi
+            # KESEN bir boşluk çizebilmesi için gereken tek sinyal
+            # (bkz. servisler/urun.py::stok_yok_gunleri).
+            self.db.add(PriceReading(source_id=kaynak.id,
+                                     product_id=kaynak.product_id,
+                                     fiyat=None, stokta_var=False,
+                                     ts=utc_simdi()))
             return karar.KaynakOkumasi(
                 url=kaynak.url, host=kaynak.host,
                 ekstra={"stok_yok": True, "baslik": c.baslik})

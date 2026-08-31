@@ -20,7 +20,7 @@ import {
 function nokta(gunOnce: number, fiyat: number): FiyatNoktasi {
   const d = new Date()
   d.setDate(d.getDate() - gunOnce)
-  return { gun: d.toISOString().slice(0, 10), fiyat }
+  return { gun: d.toISOString().slice(0, 10), fiyat, stokta: true }
 }
 
 describe('sinirTarihi', () => {

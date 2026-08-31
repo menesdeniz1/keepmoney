@@ -64,7 +64,10 @@ export interface KaynakOnerisi {
 
 export interface FiyatNoktasi {
   gun: string
-  fiyat: number
+  // BACKLOG B4 — `null` = o gün stokta yoktu (`stokta: false` ile birlikte
+  // gelir); grafik çizgiyi bu noktada keser.
+  fiyat: number | null
+  stokta: boolean
 }
 
 /** "Bu iyi bir fiyat mı?" — ürünün kalbi. */

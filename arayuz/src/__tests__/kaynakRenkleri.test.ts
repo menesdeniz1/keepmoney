@@ -35,11 +35,11 @@ describe('anahtar', () => {
 describe('birlesikVeri', () => {
   const seriler: KaynakSerisi[] = [
     { kaynak_id: 1, host: 'a.com', noktalar: [
-      { gun: '2026-01-01', fiyat: 1000 },
-      { gun: '2026-01-02', fiyat: 950 },
+      { gun: '2026-01-01', fiyat: 1000, stokta: true },
+      { gun: '2026-01-02', fiyat: 950, stokta: true },
     ] },
     { kaynak_id: 2, host: 'b.com', noktalar: [
-      { gun: '2026-01-02', fiyat: 1200 },
+      { gun: '2026-01-02', fiyat: 1200, stokta: true },
     ] },
   ]
 
@@ -57,15 +57,28 @@ describe('birlesikVeri', () => {
   it('boş seri listesinde boş tablo döner', () => {
     expect(birlesikVeri([])).toEqual([])
   })
+
+  it('BACKLOG B4: stok-yok noktası (fiyat null) sütuna null olarak yazılır', () => {
+    const stokYokluSeriler: KaynakSerisi[] = [
+      { kaynak_id: 1, host: 'a.com', noktalar: [
+        { gun: '2026-01-01', fiyat: null, stokta: false },
+      ] },
+    ]
+    expect(birlesikVeri(stokYokluSeriler)).toEqual([
+      { gun: '2026-01-01', k1: null },
+    ])
+  })
 })
 
 describe('gorunurFiyatAraligi', () => {
   const seriler: KaynakSerisi[] = [
     { kaynak_id: 1, host: 'ucuz.com', noktalar: [
-      { gun: '2026-01-01', fiyat: 800 }, { gun: '2026-01-02', fiyat: 850 },
+      { gun: '2026-01-01', fiyat: 800, stokta: true },
+      { gun: '2026-01-02', fiyat: 850, stokta: true },
     ] },
     { kaynak_id: 2, host: 'pahali.com', noktalar: [
-      { gun: '2026-01-01', fiyat: 2000 }, { gun: '2026-01-02', fiyat: 2100 },
+      { gun: '2026-01-01', fiyat: 2000, stokta: true },
+      { gun: '2026-01-02', fiyat: 2100, stokta: true },
     ] },
   ]
 
@@ -84,13 +97,26 @@ describe('gorunurFiyatAraligi', () => {
   it('hepsi gizlenince null döner', () => {
     expect(gorunurFiyatAraligi(seriler, new Set([1, 2]))).toBeNull()
   })
+
+  it('BACKLOG B4: stok-yok noktalarının null fiyatı aralık hesabını bozmaz', () => {
+    const stokYokluSeriler: KaynakSerisi[] = [
+      { kaynak_id: 1, host: 'a.com', noktalar: [
+        { gun: '2026-01-01', fiyat: 800, stokta: true },
+        { gun: '2026-01-02', fiyat: null, stokta: false },
+      ] },
+    ]
+    // Mutasyon süzgeci olmasa `Math.min(800, null)` `null`ı 0'a çevirip
+    // `enDusuk: 0` verirdi.
+    expect(gorunurFiyatAraligi(stokYokluSeriler, new Set()))
+      .toEqual({ enDusuk: 800, enYuksek: 800 })
+  })
 })
 
 describe('enUcuzKaynakId', () => {
   it('son günün en düşük fiyatlı kaynağını seçer', () => {
     const seriler: KaynakSerisi[] = [
-      { kaynak_id: 1, host: 'a.com', noktalar: [{ gun: '2026-01-01', fiyat: 1000 }] },
-      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900 }] },
+      { kaynak_id: 1, host: 'a.com', noktalar: [{ gun: '2026-01-01', fiyat: 1000, stokta: true }] },
+      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900, stokta: true }] },
     ]
     expect(enUcuzKaynakId(seriler)).toBe(2)
   })
@@ -98,9 +124,10 @@ describe('enUcuzKaynakId', () => {
   it('sonraki günlerdeki değişimi dikkate alır — SON nokta belirleyici', () => {
     const seriler: KaynakSerisi[] = [
       { kaynak_id: 1, host: 'a.com', noktalar: [
-        { gun: '2026-01-01', fiyat: 500 }, { gun: '2026-01-02', fiyat: 1500 },
+        { gun: '2026-01-01', fiyat: 500, stokta: true },
+        { gun: '2026-01-02', fiyat: 1500, stokta: true },
       ] },
-      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900 }] },
+      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900, stokta: true }] },
     ]
     expect(enUcuzKaynakId(seriler)).toBe(2)
   })
@@ -108,12 +135,40 @@ describe('enUcuzKaynakId', () => {
   it('noktası olmayan kaynağı yok sayar', () => {
     const seriler: KaynakSerisi[] = [
       { kaynak_id: 1, host: 'a.com', noktalar: [] },
-      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900 }] },
+      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900, stokta: true }] },
     ]
     expect(enUcuzKaynakId(seriler)).toBe(2)
   })
 
   it('boş dizide null döner', () => {
     expect(enUcuzKaynakId([])).toBeNull()
+  })
+
+  it('BACKLOG B4: son nokta stok-yok boşluğuysa bir önceki BİLİNEN fiyata bakar', () => {
+    const seriler: KaynakSerisi[] = [
+      // kaynak 1'in son BİLİNEN fiyatı (500) kaynak 2'den (900) ucuz —
+      // doğru cevap kaynak 1 olmalı, ama son NOKTASI stok-yok boşluğu.
+      { kaynak_id: 1, host: 'a.com', noktalar: [
+        { gun: '2026-01-01', fiyat: 500, stokta: true },
+        { gun: '2026-01-02', fiyat: null, stokta: false },
+      ] },
+      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900, stokta: true }] },
+    ]
+    // Kaynak 1 "son noktayı olduğu gibi al" mantığıyla ya YANLIŞLIKLA
+    // dışlanır (boşluğu `null` gördüğü için) ya da `null < 900` JS'te
+    // `0 < 900` olduğu için YANLIŞ biçimde "en ucuz" seçilir — ikisi de
+    // yanlış cevap verirdi. Doğrusu: bilinen SON fiyata (500) bakıp
+    // kaynak 1'i seçmek.
+    expect(enUcuzKaynakId(seriler)).toBe(1)
+  })
+
+  it('BACKLOG B4: TÜM noktaları stok-yok olan kaynağı yok sayar', () => {
+    const seriler: KaynakSerisi[] = [
+      { kaynak_id: 1, host: 'a.com', noktalar: [
+        { gun: '2026-01-01', fiyat: null, stokta: false },
+      ] },
+      { kaynak_id: 2, host: 'b.com', noktalar: [{ gun: '2026-01-01', fiyat: 900, stokta: true }] },
+    ]
+    expect(enUcuzKaynakId(seriler)).toBe(2)
   })
 })

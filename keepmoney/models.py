@@ -192,8 +192,14 @@ class PriceReading(Base):
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False,
                        index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    fiyat = Column(Float, nullable=False)
+    # BACKLOG B4 — STOKTA_YOK okuması da BAŞARILI bir okumadır (worker.py:
+    # "sayfa sağlam, ürünün o an fiyatı yok"), artık `fiyat=None,
+    # stokta_var=False` ile buraya yazılır. Nullable oldu ki "hiç
+    # taranmadı" ile "tarandı, stokta yoktu" ayrılabilsin — ikisi de eskiden
+    # aynı şeydi: hiç satır yok.
+    fiyat = Column(Float, nullable=True)
     ts = Column(DateTime, default=utc_simdi, index=True)
+    stokta_var = Column(Boolean, default=True, nullable=False)
 
     source = relationship("Source", back_populates="readings")
 

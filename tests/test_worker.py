@@ -934,13 +934,22 @@ def test_stok_yok_hata_sayacini_sifirlar(db):
     assert Tarayici._kaynak_bozuk_mu(kaynak) is False
 
 
-def test_stok_yok_fiyat_gecmisine_yazmaz(db):
-    """Fiyat YOK; uydurma bir değer geçmişi bozardı."""
+def test_stok_yok_fiyatsiz_ama_isaretli_satir_yazar(db):
+    """BACKLOG B4 — eskiden STOKTA_YOK hiç satır yazmazdı: "tarandı, stokta
+    yoktu" ile "hiç taranmadı" grafikte AYNI görünüyordu (ikisi de boşluk).
+    Şimdi `fiyat=None, stokta_var=False` ile İŞARETLİ bir satır yazılır —
+    uydurma bir FİYAT değeri hâlâ YOK (`okumalar()`in `if f` süzgeci bu
+    satırı istatistikten dışlar), ama grafiğin çizgiyi KESEBİLMESİ için
+    gereken sinyal artık var."""
     kaynak, t = _stok_yok_kur(db)
     okuma = t.kaynak_oku(kaynak)
     assert okuma.fiyat is None
     assert okuma.ekstra["stok_yok"] is True
-    assert db.query(PriceReading).count() == 0
+
+    satir = db.query(PriceReading).one()
+    assert satir.fiyat is None
+    assert satir.stokta_var is False
+    assert satir.source_id == kaynak.id
 
 
 # ---------- sessiz saatler ----------

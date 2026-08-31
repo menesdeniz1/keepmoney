@@ -25,6 +25,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -49,6 +50,7 @@ import {
   gorunurFiyatAraligi,
   kaynakStili,
 } from '../yardimcilar/kaynakRenkleri'
+import { stokBosluklariniBul } from '../yardimcilar/stokBosluklari'
 
 interface Props {
   gecmis: FiyatNoktasi[]
@@ -139,8 +141,21 @@ export default function FiyatGrafigi({
   const ayrilmisAralik = ayrilmisMi
     ? gorunurFiyatAraligi(suzulmusSeriler, gizliKaynaklar)
     : null
-  const birlesikAralik = { enDusuk: Math.min(...veri.map((n) => n.fiyat)),
-                           enYuksek: Math.max(...veri.map((n) => n.fiyat)) }
+  // BACKLOG B4 — stok-yok günlerinin `fiyat: null`ı buraya karışırsa
+  // `Math.min(...[10, null])` `null`ı 0'a çevirip aralığı bozar; süzülür.
+  const bilinenFiyatlar = veri.map((n) => n.fiyat).filter((f): f is number => f != null)
+  const birlesikAralik = bilinenFiyatlar.length > 0
+    ? { enDusuk: Math.min(...bilinenFiyatlar), enYuksek: Math.max(...bilinenFiyatlar) }
+    : { enDusuk: 0, enYuksek: 0 }
+
+  // BACKLOG B4 — hatch deseni yalnızca BİRLEŞİK görünümde: ayrılmış
+  // görünümde her çizginin KENDİ boşluğu zaten `connectNulls=false` ile
+  // kesik çiziliyor, üstüne taramalı arka plan eklemek hangi boşluğun
+  // hangi mağazaya ait olduğunu belirsizleştirirdi. Açıklama metni ise
+  // HER İKİ görünümde de geçerli — o yüzden ikisini birlikte kontrol eder.
+  const stokBosluklari = ayrilmisMi ? [] : stokBosluklariniBul(veri)
+  const herhangiBirBoslukVar = stokBosluklari.length > 0
+    || suzulmusSeriler.some((s) => s.noktalar.some((n) => !n.stokta))
   const { enDusuk, enYuksek } = ayrilmisMi
     ? (ayrilmisAralik ?? { enDusuk: 0, enYuksek: 0 })
     : birlesikAralik
@@ -197,6 +212,16 @@ export default function FiyatGrafigi({
       <ResponsiveContainer width="100%" height={yukseklik}>
         <LineChart data={ayrilmisMi ? cokluVeri : veri}
                    margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+          <defs>
+            {/* BACKLOG B4 — "arka plana soluk tarama deseni". 45°'lik
+                çizgiler; açık/karanlık temada da okunur kalsın diye orta
+                gri + düşük opaklık (renge değil TEMAYA bağlı bir seçim). */}
+            <pattern id="stokYokDeseni" width="6" height="6"
+                     patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="6" height="6" fill="transparent" />
+              <line x1="0" y1="0" x2="0" y2="6" stroke="#94a3b8" strokeWidth="2.5" />
+            </pattern>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-800" />
           <XAxis
             dataKey="gun"
@@ -211,10 +236,22 @@ export default function FiyatGrafigi({
             width={78}
           />
           <Tooltip
-            formatter={(v, adi) => [tl(Number(v)), ayrilmisMi ? adi : 'Fiyat']}
+            formatter={(v, adi) => [v == null ? 'Stokta yok' : tl(Number(v)), ayrilmisMi ? adi : 'Fiyat']}
             labelFormatter={(g) => `${g}`}
             contentStyle={{ fontSize: 13, borderRadius: 8 }}
           />
+
+          {stokBosluklari.map((a) => (
+            <ReferenceArea
+              key={`${a.baslangic}-${a.bitis}`}
+              x1={a.baslangic}
+              x2={a.bitis}
+              fill="url(#stokYokDeseni)"
+              fillOpacity={0.5}
+              stroke="none"
+              ifOverflow="visible"
+            />
+          ))}
 
           {baglam && (
             <ReferenceLine
@@ -261,6 +298,7 @@ export default function FiyatGrafigi({
               dot={false}
               activeDot={{ r: 4 }}
               isAnimationActive={false}
+              connectNulls={false}
             />
           )}
         </LineChart>
@@ -297,6 +335,12 @@ export default function FiyatGrafigi({
             )
           })}
         </div>
+      )}
+
+      {herhangiBirBoslukVar && (
+        <p className="mt-2 text-xs text-slate-400 dark:text-slate-600">
+          kesik çizgi = stokta yok
+        </p>
       )}
     </div>
   )

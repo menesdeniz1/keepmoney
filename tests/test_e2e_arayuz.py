@@ -2031,8 +2031,8 @@ def _urun_yanitini_gecmis_ve_serilerle_degistir(s: Page, seriler: list):
         yanit = rota.fetch()
         veri = yanit.json()
         veri["urun"]["gecmis"] = [
-            {"gun": "2026-01-01", "fiyat": 1000.0},
-            {"gun": "2026-01-02", "fiyat": 950.0},
+            {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True},
         ]
         veri["urun"]["seriler"] = seriler
         rota.fulfill(response=yanit, json=veri)
@@ -2054,11 +2054,14 @@ def test_uc_kaynakli_urunde_uc_cizgi_ve_renkler_tutarli(sayfa, sunucu):
     """Kabul ölçütü: üç kaynaklı üründe üç ayrı çizgi, renkler tutarlı."""
     seriler = [
         {"kaynak_id": 1, "host": "amazon.com.tr", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 1000.0}, {"gun": "2026-01-02", "fiyat": 950.0}]},
+            {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True}]},
         {"kaynak_id": 2, "host": "hepsiburada.com", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 1100.0}, {"gun": "2026-01-02", "fiyat": 1050.0}]},
+            {"gun": "2026-01-01", "fiyat": 1100.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 1050.0, "stokta": True}]},
         {"kaynak_id": 3, "host": "trendyol.com", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 900.0}, {"gun": "2026-01-02", "fiyat": 890.0}]},
+            {"gun": "2026-01-01", "fiyat": 900.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 890.0, "stokta": True}]},
     ]
     _urun_yanitini_gecmis_ve_serilerle_degistir(sayfa, seriler)
     _detaya_git(sayfa, sunucu)
@@ -2090,11 +2093,14 @@ def test_kaynak_gizle_goster_cizgiyi_kaldirir_ve_geri_getirir(sayfa, sunucu):
     geri getiriyor, sayfa çökmüyor."""
     seriler = [
         {"kaynak_id": 1, "host": "amazon.com.tr", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 1000.0}, {"gun": "2026-01-02", "fiyat": 950.0}]},
+            {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True}]},
         {"kaynak_id": 2, "host": "hepsiburada.com", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 1100.0}, {"gun": "2026-01-02", "fiyat": 1050.0}]},
+            {"gun": "2026-01-01", "fiyat": 1100.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 1050.0, "stokta": True}]},
         {"kaynak_id": 3, "host": "trendyol.com", "noktalar": [
-            {"gun": "2026-01-01", "fiyat": 900.0}, {"gun": "2026-01-02", "fiyat": 890.0}]},
+            {"gun": "2026-01-01", "fiyat": 900.0, "stokta": True},
+            {"gun": "2026-01-02", "fiyat": 890.0, "stokta": True}]},
     ]
     _urun_yanitini_gecmis_ve_serilerle_degistir(sayfa, seriler)
     _detaya_git(sayfa, sunucu)
@@ -2110,4 +2116,55 @@ def test_kaynak_gizle_goster_cizgiyi_kaldirir_ve_geri_getirir(sayfa, sunucu):
 
     rozetler.first.click()
     expect(cizgiler).to_have_count(3, timeout=15000)
+    assert not sayfa.sunucu_hatalari
+
+
+def _urun_yanitini_gecmisle_degistir(s: Page, gecmis: list):
+    """`_urun_yanitini_gecmis_ve_serilerle_degistir`in tekil hâli — B4
+    testleri `seriler`e değil, birleşik `gecmis`teki `stokta` alanına
+    bakıyor."""
+    def islemci(rota):
+        yanit = rota.fetch()
+        veri = yanit.json()
+        veri["urun"]["gecmis"] = gecmis
+        veri["urun"]["seriler"] = []
+        rota.fulfill(response=yanit, json=veri)
+
+    s.route(re.compile(r"/api/izlemeler/\d+$"), islemci)
+
+
+def test_stok_yok_boslugu_aciklama_gosterir(sayfa, sunucu):
+    """BACKLOG B4 kabul ölçütü: stoksuz dönem gözle ayırt ediliyor. Grafik
+    çizgi kırılmasını piksel piksel doğrulamak recharts'ın kendi render
+    davranışını test eder (ölçüm mantığı zaten `stokBosluklari.test.ts`
+    ile kanıtlı); burada arayüzün stok-yok noktasını GERÇEKTEN "kesik
+    çizgi" açıklamasıyla ve taramalı arka planla işaretlediği doğrulanıyor."""
+    gecmis = [
+        {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+        {"gun": "2026-01-02", "fiyat": None, "stokta": False},
+        {"gun": "2026-01-03", "fiyat": 1050.0, "stokta": True},
+    ]
+    _urun_yanitini_gecmisle_degistir(sayfa, gecmis)
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    expect(sayfa.get_by_text("kesik çizgi = stokta yok")).to_be_visible()
+    # Taramalı arka plan: `<pattern id="stokYokDeseni">` yalnızca gerçekten
+    # bir boşluk aralığı hesaplanınca `ReferenceArea` tarafından kullanılır.
+    assert sayfa.locator("pattern#stokYokDeseni").count() == 1
+    assert not sayfa.sunucu_hatalari
+
+
+def test_stok_bosluğu_yoksa_aciklama_gorunmez(sayfa, sunucu):
+    """Gürültü olmasın: hiç stok-yok günü yoksa açıklama metni hiç
+    basılmamalı — her ürün detayında görünen sabit bir dipnot değil."""
+    gecmis = [
+        {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+        {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True},
+    ]
+    _urun_yanitini_gecmisle_degistir(sayfa, gecmis)
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    assert sayfa.get_by_text("kesik çizgi = stokta yok").count() == 0
     assert not sayfa.sunucu_hatalari

@@ -36,6 +36,10 @@ BAGLAM_SUTUNLARI = "c7e5a92f1b4d"
 # (BACKLOG E1) — bir öncesi BAGLAM_SUTUNLARI.
 YUZDE_ESIGI = "a9edb33fc2b8"
 
+# `price_readings.fiyat`i nullable yapan + `stokta_var` ekleyen göç
+# (BACKLOG B4) — bir öncesi YUZDE_ESIGI.
+STOK_BOSLUKLARI = "864f6f6e8aa7"
+
 
 @pytest.fixture
 def gecici_veritabani(tmp_path, monkeypatch):
@@ -240,3 +244,73 @@ def test_yuzde_esigi_gocu_izleme_verisini_korur(gecici_veritabani):
     assert uyelikler == [(10, 1)], "geri almada set üyeliği kayboldu"
     for sutun in ("dusus_yuzdesi", "yeniden_kur_gun"):
         assert sutun not in sutunlar, f"geri almada sütun düşürülmemiş: {sutun}"
+
+
+def test_stok_bosluklari_gocu_fiyatli_okumalari_korur(gecici_veritabani):
+    """B4 — göçten ÖNCE yazılmış (hepsi fiyatlı) okumalar bozulmamalı ve
+    hepsi `stokta_var=True` almalı — "eski okumalar stokta sayılır" kabul
+    ölçütü. `batch_alter_table` burada GEREKLİ (`fiyat`in NOT NULL kısıtı
+    kaldırılıyor); testin var oluş sebebi tam da `alembic check`in bunu
+    DOĞRULAMAMASI (şemayı kontrol eder, veriyi değil)."""
+    cfg, yol = gecici_veritabani
+
+    command.upgrade(cfg, YUZDE_ESIGI)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi) "
+            "VALUES (1, 'a@b.c', 'x', 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO sources (id, product_id, url, host, durum) "
+            "VALUES (1, 1, 'https://m.com/u', 'm.com', 'OK')"))
+        b.execute(sa.text(
+            "INSERT INTO price_readings (id, source_id, product_id, fiyat, ts) "
+            "VALUES (100, 1, 1, 45000, '2026-08-20 10:00:00'), "
+            "(101, 1, 1, 44000, '2026-08-21 10:00:00')"))
+
+    command.upgrade(cfg, STOK_BOSLUKLARI)
+
+    with motor.begin() as b:
+        okumalar = list(b.execute(sa.text(
+            "SELECT id, fiyat, stokta_var FROM price_readings ORDER BY id")))
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('price_readings')"))]
+    motor.dispose()
+
+    assert okumalar == [(100, 45000, 1), (101, 44000, 1)], \
+        "fiyatlı okumalar göçte bozuldu/kayboldu"
+    assert "stokta_var" in sutunlar, "beklenen sütun eksik: stokta_var"
+
+
+def test_stok_bosluklari_gocu_geri_alinca_stok_yok_satirlari_siler(gecici_veritabani):
+    """Geri alma `fiyat`i yeniden NOT NULL yapıyor — göçten SONRA yazılmış
+    `fiyat IS NULL` (stokta yok) satırlar bu kısıtla var olamaz, bilinçli
+    olarak silinir. Fiyatlı satırlar dokunulmadan kalır."""
+    cfg, yol = gecici_veritabani
+
+    command.upgrade(cfg, STOK_BOSLUKLARI)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi) "
+            "VALUES (1, 'a@b.c', 'x', 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO sources (id, product_id, url, host, durum) "
+            "VALUES (1, 1, 'https://m.com/u', 'm.com', 'STOKTA_YOK')"))
+        b.execute(sa.text(
+            "INSERT INTO price_readings (id, source_id, product_id, fiyat, stokta_var, ts) "
+            "VALUES (100, 1, 1, 45000, 1, '2026-08-20 10:00:00'), "
+            "(101, 1, 1, NULL, 0, '2026-08-21 10:00:00')"))
+
+    command.downgrade(cfg, YUZDE_ESIGI)
+
+    with motor.begin() as b:
+        kalanlar = list(b.execute(sa.text("SELECT id, fiyat FROM price_readings")))
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('price_readings')"))]
+    motor.dispose()
+
+    assert kalanlar == [(100, 45000)], "fiyatlı satır geri almada kaybolmamalı"
+    assert "stokta_var" not in sutunlar, "geri almada sütun düşürülmemiş: stokta_var"
