@@ -16,6 +16,12 @@ export type SiralamaSecenegi =
   | 'son_degisim'
   | 'ad'
   | 'eklenme'
+  // BACKLOG C3 — tablo görünümünün "medyana fark" ve "son kontrol"
+  // sütunları da C1'in AYNI sıralama durumunu kullanır (ayrı bir
+  // tablo-sıralaması icat edilmedi) — bu yüzden yeni seçenekler burada,
+  // dropdown'a da otomatik eklenir.
+  | 'medyan_fark'
+  | 'son_kontrol'
 
 export const SIRALAMA_SECENEKLERI: { deger: SiralamaSecenegi; etiket: string }[] = [
   { deger: 'firsat', etiket: 'En iyi fırsat' },
@@ -23,6 +29,8 @@ export const SIRALAMA_SECENEKLERI: { deger: SiralamaSecenegi; etiket: string }[]
   { deger: 'fiyat_azalan', etiket: 'Fiyat: yüksekten düşüğe' },
   { deger: 'hedef_yakinlik', etiket: 'Hedefe yakınlık' },
   { deger: 'son_degisim', etiket: 'Son değişim' },
+  { deger: 'medyan_fark', etiket: 'Medyana göre fark' },
+  { deger: 'son_kontrol', etiket: 'Son kontrol' },
   { deger: 'ad', etiket: 'Ad (A-Z)' },
   { deger: 'eklenme', etiket: 'Son eklenen' },
 ]
@@ -114,6 +122,35 @@ export function izlemeleriSirala(
       // olduğu için "en son eklenen" için güvenilir bir vekil — büyük id
       // = sonra eklendi.
       return sayiylaSirala(izlemeler, (i) => i.id, 'azalan')
+
+    case 'medyan_fark':
+      // `IzlemeKarti.tsx`'teki "medyana göre % fark" hesabıyla AYNI —
+      // en negatif (medyandan en ucuz) en üstte, 'son_degisim' ile aynı
+      // ilke: en ilginç/en iyi fırsat önce.
+      return sayiylaSirala(
+        izlemeler,
+        (i) =>
+          i.urun.medyan90 != null && i.urun.guncel_fiyat != null
+            ? ((i.urun.guncel_fiyat - i.urun.medyan90) / i.urun.medyan90) * 100
+            : null,
+        'artan',
+      )
+
+    case 'son_kontrol':
+      // En son taranan en üstte — 'eklenme' ile aynı yön mantığı (yeni/
+      // güncel önce). Hiç taranmamış ürün (`son_kontrol` null) sona gider.
+      // `bicim.ts::tarih`/`goreliZaman` ile AYNI 'Z' ekleme kuralı:
+      // sunucu naive UTC gönderiyor, eksiz bırakılırsa tarayıcı YEREL saat
+      // sanıp yanlış ayrıştırır.
+      return sayiylaSirala(
+        izlemeler,
+        (i) => {
+          if (i.urun.son_kontrol == null) return null
+          const iso = i.urun.son_kontrol
+          return new Date(iso.endsWith('Z') ? iso : `${iso}Z`).getTime()
+        },
+        'azalan',
+      )
 
     case 'ad':
       // TÜRKÇE SIRALAMA: `localeCompare('tr')` şart — düz JS `<`/`>`

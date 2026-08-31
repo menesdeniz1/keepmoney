@@ -9,8 +9,11 @@ import {
   useSetler,
 } from '../api/kancalar'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
+import IzlemeTablosu from '../bilesenler/IzlemeTablosu'
 import ListeKontrol from '../bilesenler/ListeKontrol'
 import UstKutucuklar from '../bilesenler/UstKutucuklar'
+import { useGenisEkran } from '../yardimcilar/genisEkran'
+import { efektifGorunum, gorunumBaslangici, GORUNUM_ANAHTARI, type GorunumTercihi } from '../yardimcilar/gorunum'
 import {
   baslangicSiralamasi,
   izlemeleriSirala,
@@ -18,6 +21,11 @@ import {
   type SiralamaSecenegi,
 } from '../yardimcilar/siralama'
 import { izlemeleriSuz, SUZGEC_BOS, suzgecBosMu, type SuzgecDurumu } from '../yardimcilar/suzme'
+
+// BACKLOG C3 — "768px altında her zaman kart". Tailwind'in `md:` eşiğiyle
+// AYNI değer — sayfanın başka yerlerindeki `md:` kesme noktasıyla tutarlı
+// kalsın diye JS tarafında da bu sayı kullanılıyor.
+const TABLO_ESIGI_PX = 768
 
 export default function Panel() {
   const { data: izlemeler, isLoading } = useIzlemeler()
@@ -37,11 +45,25 @@ export default function Panel() {
   const [hedef, setHedef] = useState('')
   const [siralama, setSiralama] = useState<SiralamaSecenegi>(baslangicSiralamasi)
   const [suzgec, setSuzgec] = useState<SuzgecDurumu>(SUZGEC_BOS)
+  const [gorunum, setGorunum] = useState<GorunumTercihi>(gorunumBaslangici)
+  // BACKLOG C3 — tercih SAKLI kalır (localStorage), ama dar ekranda EFEKTİF
+  // görünüm her zaman kart'a düşer (bkz. yardimcilar/gorunum.ts).
+  const genisEkran = useGenisEkran(TABLO_ESIGI_PX)
+  const efektifGorunumDegeri = efektifGorunum(gorunum, genisEkran)
 
   function siralamaDegistir(secenek: SiralamaSecenegi) {
     setSiralama(secenek)
     try {
       localStorage.setItem(SIRALAMA_ANAHTARI, secenek)
+    } catch {
+      // Depolama kapalıysa seçim yalnızca bu oturumda kalır — sorun değil.
+    }
+  }
+
+  function gorunumDegistir(secenek: GorunumTercihi) {
+    setGorunum(secenek)
+    try {
+      localStorage.setItem(GORUNUM_ANAHTARI, secenek)
     } catch {
       // Depolama kapalıysa seçim yalnızca bu oturumda kalır — sorun değil.
     }
@@ -185,6 +207,9 @@ export default function Panel() {
           onSuzgecDegistir={setSuzgec}
           magazalar={magazalar}
           setler={setler ?? []}
+          gorunum={gorunum}
+          onGorunumDegistir={gorunumDegistir}
+          gorunumSecimiGorunurMu={genisEkran}
         />
       )}
 
@@ -209,11 +234,24 @@ export default function Panel() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {siraliIzlemeler.map((i) => (
-          <IzlemeKarti key={i.id} izleme={i} />
-        ))}
-      </div>
+      {/* BACKLOG C3 — masaüstünde iki kolon kart yatay alanı boşa
+          harcıyor; tablo daha çok bilgi taşır. `efektifGorunum` dar
+          ekranda HER ZAMAN 'kart' döner, `gorunum` tercihi ne olursa
+          olsun (kabul ölçütü). */}
+      {efektifGorunumDegeri === 'tablo' ? (
+        <IzlemeTablosu
+          izlemeler={siraliIzlemeler}
+          kivilcimlar={kivilcimlar}
+          siralama={siralama}
+          onSiralaDegistir={siralamaDegistir}
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {siraliIzlemeler.map((i) => (
+            <IzlemeKarti key={i.id} izleme={i} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

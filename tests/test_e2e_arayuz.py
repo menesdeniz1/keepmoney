@@ -1646,6 +1646,83 @@ def test_panel_siralama_secimi_yenilemede_korunur(sayfa, sunucu):
     assert fiyatlar == ["₺300,00", "₺200,00", "₺100,00"]
 
 
+# ── Panel görünüm: kart / tablo (BACKLOG C3) ──────────────────────
+
+def test_panel_gorunum_varsayilan_kart_masaustunde_tabloya_gecilebilir(sayfa, sunucu):
+    """Kabul ölçütü: varsayılan kart, masaüstünde tablo düğmesiyle
+    geçilebiliyor."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    assert sayfa.locator("table").count() == 0
+    sayfa.get_by_role("button", name="Tablo görünümü").click()
+    expect(sayfa.locator("table")).to_be_visible(timeout=5000)
+    govde = sayfa.locator("thead").inner_text()
+    for baslik in ("Sinyal", "Ürün", "Eğilim", "Fiyat", "Medyana fark", "Hedef", "Son kontrol"):
+        assert baslik in govde
+
+
+def test_panel_tablo_kolon_basligina_tiklayinca_siralanir(sayfa, sunucu):
+    """Kabul ölçütü: sütun başlığına tıklayınca o sütuna göre sıralanır —
+    C1'in AYNI durumu (bkz. IzlemeTablosu.tsx). Fiyat sütunu tekrar
+    tıklanınca yön DEĞİŞİR."""
+    _uc_urun_farkli_fiyatla_kur(sayfa, sunucu)
+    sayfa.get_by_role("button", name="Tablo görünümü").click()
+    expect(sayfa.locator("table")).to_be_visible(timeout=5000)
+
+    def fiyat_sutunu():
+        return sayfa.locator("tbody tr td:nth-child(4)").all_inner_texts()
+
+    sayfa.get_by_role("button", name="Fiyat", exact=True).click()
+    sayfa.wait_for_timeout(300)
+    assert fiyat_sutunu() == ["₺100,00", "₺200,00", "₺300,00"]
+    assert sayfa.locator("#panel-siralama").input_value() == "fiyat_artan"
+
+    sayfa.get_by_role("button", name="Fiyat", exact=True).click()
+    sayfa.wait_for_timeout(300)
+    assert fiyat_sutunu() == ["₺300,00", "₺200,00", "₺100,00"]
+    assert sayfa.locator("#panel-siralama").input_value() == "fiyat_azalan"
+
+
+def test_panel_gorunum_tercihi_kalici(sayfa, sunucu):
+    """Kabul ölçütü: tercih localStorage'da kalıcı — C1'in sıralama
+    kalıcılığıyla AYNI ilke."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.get_by_role("button", name="Tablo görünümü").click()
+    expect(sayfa.locator("table")).to_be_visible(timeout=5000)
+
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    expect(sayfa.locator("table")).to_be_visible(timeout=5000)
+
+
+def test_768_altinda_tablo_secenegi_hic_gorunmuyor_ve_kart_zorunlu(sayfa, sunucu):
+    """Kabul ölçütü: telefonda tablo seçeneği hiç görünmüyor — "768px
+    altında her zaman kart", SAKLI tercih 'tablo' olsa bile."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.get_by_role("button", name="Tablo görünümü").click()
+    expect(sayfa.locator("table")).to_be_visible(timeout=5000)
+
+    # Tercih 'tablo' olarak SAKLI kalırken dar ekrana geçiliyor (taze
+    # yükleme — canlı pencere daraltması AYRI bir endişe, bkz.
+    # yardimcilar/genisEkran.ts'in kendi yorumu).
+    sayfa.set_viewport_size({"width": 375, "height": 812})
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    assert sayfa.locator("table").count() == 0
+    assert sayfa.get_by_role("button", name="Tablo görünümü").count() == 0
+    assert sayfa.get_by_role("button", name="Kart görünümü").count() == 0
+    assert not sayfa.sunucu_hatalari
+
+
 # ── Panel süzme (BACKLOG C2) ──────────────────────────────────────
 
 def test_panel_suzme_duraklatilmislar_tek_urun_birakir(sayfa, sunucu):

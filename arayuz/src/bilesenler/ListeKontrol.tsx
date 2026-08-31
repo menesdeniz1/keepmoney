@@ -1,6 +1,7 @@
-import { X } from 'lucide-react'
+import { LayoutGrid, Table2, X } from 'lucide-react'
 
 import type { KmSet } from '../api/tipler'
+import type { GorunumTercihi } from '../yardimcilar/gorunum'
 import {
   aktifCipler,
   DURUM_SECENEKLERI,
@@ -14,9 +15,9 @@ import type { SiralamaSecenegi } from '../yardimcilar/siralama'
 import { SIRALAMA_SECENEKLERI } from '../yardimcilar/siralama'
 
 /**
- * Panel liste kontrolü: sıralama (BACKLOG C1) + süzme (BACKLOG C2) aynı
- * satırda — ilk yazıldığında (C1) bilerek genel "ListeKontrol" adı
- * verilmişti, tam bunun için.
+ * Panel liste kontrolü: sıralama (BACKLOG C1) + süzme (BACKLOG C2) +
+ * kart/tablo görünüm seçimi (BACKLOG C3) aynı satırda — ilk yazıldığında
+ * (C1) bilerek genel "ListeKontrol" adı verilmişti, tam bunun için.
  */
 export default function ListeKontrol({
   secili,
@@ -25,6 +26,9 @@ export default function ListeKontrol({
   onSuzgecDegistir,
   magazalar,
   setler,
+  gorunum,
+  onGorunumDegistir,
+  gorunumSecimiGorunurMu,
 }: {
   secili: SiralamaSecenegi
   onDegistir: (secenek: SiralamaSecenegi) => void
@@ -32,6 +36,11 @@ export default function ListeKontrol({
   onSuzgecDegistir: (suzgec: SuzgecDurumu) => void
   magazalar: string[]
   setler: KmSet[]
+  gorunum: GorunumTercihi
+  onGorunumDegistir: (secenek: GorunumTercihi) => void
+  // BACKLOG C3 kabul ölçütü: "telefonda tablo seçeneği hiç görünmüyor" —
+  // düğmenin kendisi DOM'a hiç girmiyor, yalnızca CSS ile gizlenmiyor.
+  gorunumSecimiGorunurMu: boolean
 }) {
   function setAdi(id: number): string | undefined {
     return setler.find((s) => s.id === id)?.ad
@@ -178,6 +187,43 @@ export default function ListeKontrol({
               </option>
             ))}
           </select>
+
+          {gorunumSecimiGorunurMu && (
+            <div
+              role="group"
+              aria-label="Görünüm"
+              className="flex overflow-hidden rounded-md border border-slate-300 dark:border-slate-700"
+            >
+              <button
+                type="button"
+                aria-pressed={gorunum === 'kart'}
+                onClick={() => onGorunumDegistir('kart')}
+                title="Kart görünümü"
+                className={`p-1.5 ${
+                  gorunum === 'kart'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-white text-slate-500 dark:bg-slate-950 dark:text-slate-400'
+                }`}
+              >
+                <LayoutGrid size={15} />
+                <span className="sr-only">Kart görünümü</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={gorunum === 'tablo'}
+                onClick={() => onGorunumDegistir('tablo')}
+                title="Tablo görünümü"
+                className={`p-1.5 ${
+                  gorunum === 'tablo'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-white text-slate-500 dark:bg-slate-950 dark:text-slate-400'
+                }`}
+              >
+                <Table2 size={15} />
+                <span className="sr-only">Tablo görünümü</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

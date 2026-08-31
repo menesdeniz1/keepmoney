@@ -145,6 +145,33 @@ describe('izlemeleriSirala — ad (Türkçe)', () => {
   })
 })
 
+describe('izlemeleriSirala — medyan_fark (BACKLOG C3)', () => {
+  it('medyandan en ucuz (en negatif %) en üstte, medyansız/fiyatsız ürün sonda', () => {
+    const liste = [
+      izleme({ urun: urun({ id: 1, ad: 'A', guncel_fiyat: 900, medyan90: 1000 }) }), // -%10
+      izleme({ urun: urun({ id: 2, ad: 'B', guncel_fiyat: 500, medyan90: 1000 }) }), // -%50
+      izleme({ urun: urun({ id: 3, ad: 'C', guncel_fiyat: 100, medyan90: null }) }), // medyan yok
+      izleme({ urun: urun({ id: 4, ad: 'D', guncel_fiyat: null, medyan90: 1000 }) }), // fiyat yok
+    ]
+    const sonuc = izlemeleriSirala(liste, 'medyan_fark', undefined).map((i) => i.id)
+    expect(sonuc[0]).toBe(2)
+    expect(sonuc[1]).toBe(1)
+    expect(sonuc.slice(2).sort()).toEqual([3, 4])
+  })
+})
+
+describe('izlemeleriSirala — son_kontrol (BACKLOG C3)', () => {
+  it('en son taranan en üstte, hiç taranmamış ürün sonda', () => {
+    const liste = [
+      izleme({ urun: urun({ id: 1, ad: 'A', son_kontrol: '2026-08-20T10:00:00' }) }),
+      izleme({ urun: urun({ id: 2, ad: 'B', son_kontrol: null }) }),
+      izleme({ urun: urun({ id: 3, ad: 'C', son_kontrol: '2026-08-30T10:00:00' }) }),
+    ]
+    const sonuc = izlemeleriSirala(liste, 'son_kontrol', undefined).map((i) => i.id)
+    expect(sonuc).toEqual([3, 1, 2])
+  })
+})
+
 describe('izlemeleriSirala — girdi mutasyona uğramaz', () => {
   it('orijinal dizi DEĞİŞMEZ — React state doğrudan mutasyona uğramamalı', () => {
     const liste = [
