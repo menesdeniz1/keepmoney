@@ -8,7 +8,9 @@ import Duzen from './bilesenler/Duzen'
 import Ayarlar from './sayfalar/Ayarlar'
 import EpostaDogrula from './sayfalar/EpostaDogrula'
 import Firsatlar from './sayfalar/Firsatlar'
+import Gizlilik from './sayfalar/Gizlilik'
 import Giris from './sayfalar/Giris'
+import Kosullar from './sayfalar/Kosullar'
 import ParolaSifirla from './sayfalar/ParolaSifirla'
 import IzlemeDetay from './sayfalar/IzlemeDetay'
 import Panel from './sayfalar/Panel'
@@ -57,6 +59,11 @@ export default function App() {
             bağlantısını kullanılamaz hâle getirirdi. */}
         <Route path="/parola-sifirla" element={<ParolaSifirla />} />
         <Route path="/eposta-dogrula" element={<EpostaDogrula />} />
+        {/* Gizlilik metni GİRİŞ DUVARININ ARKASINDA OLAMAZ: kişi hesap
+            açmadan ÖNCE neyin toplandığını okuyabilmeli ve kayıt
+            ekranındaki onay bağlantısı buraya gidiyor. */}
+        <Route path="/gizlilik" element={<Gizlilik />} />
+        <Route path="/kosullar" element={<Kosullar />} />
         <Route path="*" element={<Navigate to="/giris" replace />} />
       </Routes>
     )
@@ -74,6 +81,8 @@ export default function App() {
       </Route>
       <Route path="/eposta-dogrula" element={<EpostaDogrula />} />
       <Route path="/parola-sifirla" element={<ParolaSifirla />} />
+      <Route path="/gizlilik" element={<Gizlilik />} />
+      <Route path="/kosullar" element={<Kosullar />} />
       <Route path="/giris" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

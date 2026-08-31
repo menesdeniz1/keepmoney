@@ -9,12 +9,14 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import JSONResponse
 
 from ... import semalar
 from ...ayarlar import ayarlar
 from ...eposta import postaci
 from ...guvenlik import jwt_uret
 from ...servisler import kullanici as svc
+from ...zaman import tr_bugun
 from ..deps import DB, Kullanici, oturum_cerezi_sil, oturum_cerezi_yaz
 from ..koruma import (
     giris_basarili,
@@ -203,6 +205,31 @@ def dogrulama_yeniden_gonder(k: Kullanici, arka: BackgroundTasks, db: DB):
     token = svc.dogrulama_tokeni_uret(db, k)
     arka.add_task(_dogrulama_epostasi, k.email, token)
     return {"durum": "Doğrulama bağlantısı gönderildi"}
+
+
+# ─────────────────── veri dışa aktarma (KVKK) ───────────────────
+
+
+@router.get("/verilerim")
+def verilerim(k: Kullanici, db: DB):
+    """Kullanıcının kendisiyle ilgili sakladığımız her şey — tek JSON.
+
+    KVKK m.11 erişme ve taşınabilirlik haklarının teknik karşılığı. Silme
+    hakkı (`DELETE /hesap`) zaten vardı, erişme hakkının karşılığı yoktu.
+
+    `Content-Disposition: attachment`: tarayıcı sekmede JSON göstermek
+    yerine indirsin — bu bir dosya, bir API cevabı değil.
+
+    `no-store`: kişisel verinin tamamı tek yanıtta; ara belleklerde ve
+    tarayıcı disk önbelleğinde kalmasının hiçbir faydası yok.
+    """
+    veri = svc.kisisel_verileri_disa_aktar(db, k)
+    ad = f"keepmoney-verilerim-{tr_bugun().isoformat()}.json"
+    return JSONResponse(
+        content=veri,
+        headers={"Content-Disposition": f'attachment; filename="{ad}"',
+                 "Cache-Control": "no-store"},
+    )
 
 
 # ─────────────────── hesap silme (KVKK) ───────────────────

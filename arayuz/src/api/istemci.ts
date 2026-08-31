@@ -250,6 +250,12 @@ export const api = {
  * tercihinin gerekçesi orada). Yine de `TABAN` buradan geliyor ki API
  * kökü değişirse tek yerden değişsin.
  */
+/**
+ * KVKK veri dışa aktarma adresi. `csvAdresleri` ile aynı gerekçe: bu bir
+ * `fetch` hedefi değil, tarayıcının kendi indirmesine verilen adres.
+ */
+export const verilerimAdresi = () => `${TABAN}/auth/verilerim`
+
 export const csvAdresleri = {
   liste: () => `${TABAN}/izlemeler.csv`,
   gecmis: (izlemeId: number) => `${TABAN}/izlemeler/${izlemeId}/gecmis.csv`,

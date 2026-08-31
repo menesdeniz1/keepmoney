@@ -438,16 +438,30 @@ açılıyorlardı; uygulama düz HTTP konuşuyor ve hız sınırı ters vekil ar
 olmayı varsayıyor, yani o kurulum TLS'siz ve frensiz bir sunucu demekti.
 Dışarıdan erişim ters vekil üzerinden olur (aşağıda).
 
-### Önüne ters vekil koy
+### Ters vekil ve TLS — YIĞININ İÇİNDE GELİYOR
 
-Konteyner düz HTTP konuşur. TLS sonlandırma, HTTP/2 ve gerçek istemci IP'si
-için önüne Caddy/nginx koy:
+`docker compose up -d` artık bir `vekil` servisi (Caddy) de kaldırıyor.
+Ayrıca bir şey kurman gerekmiyor:
 
+- **TLS sertifikasını kendi alır ve yeniler** (Let's Encrypt). `certbot`
+  kurmak ve yenilemeyi zamanlamak gerekmez — unutulan bir yenileme, sitenin
+  bir sabah aniden kapanması demektir.
+- **Gerçek istemci IP'sini `X-Forwarded-For`a yazar** ve istemcinin
+  gönderdiğini EZER; atlatma denemesi vekilde ölür.
+- **`/metrics`, `/docs`, `/redoc`, `/openapi.json` dışarıya kapalıdır.**
+  Uygulama `/metrics` için ayrıca token istiyor; savunma tek katmana
+  bırakılmadı.
+- `api` ve `tarayici` **host'a hiç port açmaz**. Dışarıya çıkan tek kapı
+  vekildir.
+
+Gereken tek ayar alan adı:
+
+```bash
+KEEPMONEY_ALAN_ADI=alanadin.com     # yerel deneme için: localhost
 ```
-alanadin.com {
-    reverse_proxy localhost:8000
-}
-```
+
+Yapılandırma [`dagitim/Caddyfile`](../dagitim/Caddyfile) dosyasında.
+Kendi vekilini kullanmak istersen bu dosyadaki dört maddeyi karşıla.
 
 > **`KEEPMONEY_GUVENILEN_VEKILLER` DOLDURULMALI.** Hız sınırı gerçek
 > istemci IP'sini `X-Forwarded-For`dan okuyor ama başlığa **yalnızca bu
@@ -542,9 +556,15 @@ Bunlar bilinçli kararlar, eksik değil — ama bilmeden canlıya çıkma:
   gerektirir.
 - **Seçici bakımı süreklidir.** Siteler HTML'ini haber vermeden değiştirir.
   Ayda bir `kaynak_dene.py` çalıştır.
-- **KVKK/gizlilik metni yok.** Kullanıcı verisi (e-posta) topluyorsun;
-  yayına açmadan önce hukuki metin gerekli. Bu repo hukuki metin üretmez.
-  **Yayına açmanın önündeki tek kod-dışı engel budur.**
+- **KVKK: teknik altyapı HAZIR, metnin hukuki onayı DIŞ GEREKSİNİM.**
+  Uygulamada artık `/gizlilik` ve `/kosullar` sayfaları (giriş istemez),
+  kayıtta zorunlu onay kutusu, `GET /api/auth/verilerim` ile tam veri
+  dışa aktarma ve `DELETE /api/auth/hesap` ile silme var; dördü de
+  testlerle bağlı. Metinler sistemin ne yaptığını DOĞRU anlatıyor
+  (her cümlenin karşılığı kodda) ama **hukukçu incelemesinden
+  geçmemiştir** — yayın öncesi bir hukukçuya okutulmalı ve şirket
+  bilgileri/iletişim adresi gerçekleriyle değiştirilmelidir. Bu bir kod
+  eksiği değil, dış gereksinimdir.
 - **SMTP'siz üretimde parola sıfırlama ÇALIŞMAZ ve bunu kimse fark etmez.**
   Açılışta uyarılıyor ama başlatma engellenmiyor. Bu durumda uç
   "gönderildi" der, e-posta hiç gitmez. (Token'ın loga yazılması AYRI bir

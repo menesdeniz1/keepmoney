@@ -1,5 +1,5 @@
 import { Bell, LayoutGrid, LogOut, Package, Settings, Tag } from 'lucide-react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { api } from '../api/istemci'
@@ -113,6 +113,19 @@ export default function Duzen() {
       <main className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
       </main>
+
+      {/* Hukuki metinlere HER SAYFADAN erişilebilmeli — yalnızca kayıt
+          ekranındaki onay satırında bulunmaları, hesap açtıktan sonra
+          metni bir daha bulmayı imkânsız kılardı. */}
+      <footer className="mx-auto max-w-5xl px-4 pb-8 text-xs text-slate-400">
+        <Link to="/gizlilik" className="hover:underline">
+          Gizlilik
+        </Link>
+        <span aria-hidden="true"> · </span>
+        <Link to="/kosullar" className="hover:underline">
+          Kullanım koşulları
+        </Link>
+      </footer>
     </div>
   )
 }

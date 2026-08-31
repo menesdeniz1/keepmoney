@@ -16,6 +16,7 @@ sessizce yanlış şeyi doğrulamaktansa açıkça atlamak doğrudur.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import pathlib
 import re
@@ -192,6 +193,11 @@ def _kayit_ol(s: Page, taban: str) -> str:
     s.get_by_text("Hesabım yok, oluştur").click()
     s.locator("input[type=email]").fill(eposta)
     s.locator("input[type=password]").fill("parola12345")
+    # Kayıt onayı ZORUNLU (KVKK aydınlatma) — kutu işaretlenmeden düğme
+    # kilitli. `check()` değil `click()`: kontrollü kutuda işaret ancak
+    # React durumu güncellenince döner ve `check()` "durumu değişmedi" diye
+    # patlar (bkz. BACKLOG §1'in bilinen tuzakları).
+    s.locator("input[type=checkbox]").click()
     s.get_by_role("button", name="Hesap oluştur").click()
     s.wait_for_selector("text=Takip listem", timeout=15000)
     return eposta
@@ -2522,3 +2528,87 @@ def test_ilk_urun_eklenince_rehber_kayboluyor_ve_geri_gelmiyor(sayfa, sunucu):
     sayfa.wait_for_selector("text=Henüz ürün eklemedin", timeout=15000)
     expect(sayfa.get_by_text("Üç adımda başla")).to_have_count(0)
     assert not sayfa.sunucu_hatalari
+
+
+# ── Hukuki metinler ve kayıt onayı ───────────────────────────────
+#
+# KVKK aydınlatma yükümlülüğünün TEKNİK karşılığı. Metnin hukuken yeterli
+# olup olmadığı ayrı bir değerlendirme; burada sınanan, mekanizmanın
+# gerçekten çalıştığı.
+
+@pytest.mark.parametrize("yol,baslik", [
+    ("/gizlilik", "Gizlilik ve Kişisel Verilerin Korunması"),
+    ("/kosullar", "Kullanım Koşulları"),
+])
+def test_hukuki_sayfalar_GIRIS_YAPMADAN_aciliyor(sayfa, sunucu, yol, baslik):
+    """ASIL ÖLÇÜT. Giriş duvarının arkasındaki gizlilik metni işe yaramaz:
+    kişi hesap açmadan ÖNCE neyin toplandığını okuyabilmeli — kayıt
+    ekranındaki onay bağlantısı da oraya gidiyor."""
+    sayfa.goto(f"{sunucu}{yol}", wait_until="networkidle")
+    expect(sayfa.get_by_role("heading", name=baslik)).to_be_visible(timeout=10000)
+    # Giriş ekranına YÖNLENDİRİLMEMELİ
+    assert sayfa.locator("input[type=password]").count() == 0
+    assert not sayfa.sunucu_hatalari
+
+
+def test_kayit_onay_kutusu_ISARETLENMEDEN_hesap_acilmiyor(sayfa, sunucu):
+    """Onay hem `required` hem düğme kilidi ile korunuyor: tek başına
+    `required`e güvenmek, formu programatik gönderen bir yolda onayı
+    atlatılabilir kılardı."""
+    eposta = f"e2e-{uuid.uuid4().hex[:10]}@ornek.com"
+    sayfa.goto(sunucu, wait_until="networkidle")
+    sayfa.get_by_text("Hesabım yok, oluştur").click()
+    sayfa.locator("input[type=email]").fill(eposta)
+    sayfa.locator("input[type=password]").fill("parola12345")
+
+    dugme = sayfa.get_by_role("button", name="Hesap oluştur")
+    expect(dugme).to_be_disabled()
+
+    sayfa.locator("input[type=checkbox]").check()
+    expect(dugme).to_be_enabled()
+    dugme.click()
+    sayfa.wait_for_selector("text=Takip listem", timeout=15000)
+    assert not sayfa.sunucu_hatalari
+
+
+def test_kayit_ekraninda_iki_hukuki_baglanti_da_var(sayfa, sunucu):
+    sayfa.goto(sunucu, wait_until="networkidle")
+    sayfa.get_by_text("Hesabım yok, oluştur").click()
+    expect(sayfa.locator("a[href='/kosullar']")).to_have_count(1)
+    expect(sayfa.locator("a[href='/gizlilik']")).to_have_count(1)
+
+
+def test_giris_kipinde_onay_kutusu_YOK(sayfa, sunucu):
+    """Var olan kullanıcıya her girişte onay kutusu göstermek anlamsız."""
+    sayfa.goto(sunucu, wait_until="networkidle")
+    expect(sayfa.locator("input[type=checkbox]")).to_have_count(0)
+
+
+def test_verilerimi_indir_gercekten_iniyor(sayfa, sunucu):
+    """KVKK m.11 erişme/taşınabilirlik — düğmenin varlığı değil DOSYANIN
+    kendisi ölçülüyor."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    sayfa.goto(f"{sunucu}/ayarlar", wait_until="networkidle")
+    with sayfa.expect_download(timeout=15000) as indirme_bilgisi:
+        sayfa.get_by_role("link", name="Verilerimi indir").click()
+    indirme = indirme_bilgisi.value
+
+    assert indirme.suggested_filename.startswith("keepmoney-verilerim-")
+    veri = json.loads(pathlib.Path(indirme.path()).read_text(encoding="utf-8"))
+    assert set(veri) == {"hesap", "izlemeler", "setler", "bildirimler", "aciklama"}
+    assert len(veri["izlemeler"]) == 1
+    assert "password_hash" not in json.dumps(veri)
+    assert not sayfa.sunucu_hatalari
+
+
+def test_altbilgide_hukuki_baglantilar_her_sayfada(sayfa, sunucu):
+    """Hesap açtıktan sonra metni bir daha bulamamak, "kabul ettim"i
+    anlamsız kılar."""
+    _kayit_ol(sayfa, sunucu)
+    for yol in ("/", "/setler", "/uyarilar"):
+        sayfa.goto(f"{sunucu}{yol}", wait_until="networkidle")
+        expect(sayfa.locator("footer a[href='/gizlilik']")).to_have_count(1)
+        expect(sayfa.locator("footer a[href='/kosullar']")).to_have_count(1)

@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
+import { Download } from 'lucide-react'
 
-import { ApiHatasi, api } from '../api/istemci'
+import { ApiHatasi, api, verilerimAdresi } from '../api/istemci'
 import { anahtar, useBen } from '../api/kancalar'
 
 export default function Ayarlar() {
@@ -146,6 +148,38 @@ export default function Ayarlar() {
             {hata && <p className="text-sm text-red-600">{hata}</p>}
           </div>
         )}
+      </section>
+
+      {/* KVKK m.11 — ERİŞME ve TAŞINABİLİRLİK. Silme hakkı aşağıda zaten
+          vardı; kullanıcının sistemin kendisi hakkında ne tuttuğunu
+          GÖREBİLMESİ eksikti. Silmenin HEMEN ÜSTÜNDE duruyor: hesabını
+          silmeye gelen kişi, verisini önce indirebileceğini burada görür. */}
+      <section className="rounded-lg border border-slate-200 bg-white p-4
+                          dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="font-medium">Verilerim</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Hesabına bağlı olarak sakladığımız her şeyi (hesap bilgin,
+          izlemelerin, setlerin, bildirim geçmişin) tek bir JSON dosyası
+          olarak indirebilirsin. Ürünlerin fiyat geçmişi kişisel veri
+          olmadığı için burada yer almaz; onu ürün sayfalarından CSV olarak
+          indirebilirsin.
+        </p>
+        <a
+          href={verilerimAdresi()}
+          download
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md border
+                     border-slate-300 px-3 py-1.5 text-sm text-slate-700
+                     hover:bg-slate-50 dark:border-slate-700
+                     dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          <Download size={15} aria-hidden="true" />
+          Verilerimi indir
+        </a>
+        <p className="mt-3 text-xs text-slate-400">
+          <Link to="/gizlilik" className="underline">Gizlilik metni</Link>
+          {' · '}
+          <Link to="/kosullar" className="underline">Kullanım koşulları</Link>
+        </p>
       </section>
 
       {/* Yıkıcı işlem en altta ve görsel olarak ayrı: yanlışlıkla tıklanmasın.

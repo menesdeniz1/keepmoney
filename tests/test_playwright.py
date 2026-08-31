@@ -351,3 +351,60 @@ def test_saglam_tarayici_hata_sonrasi_ATILMIYOR(sunucu, cekici,
 
     assert cekici._sayfa is onceki_sayfa, (
         "sağlam tarayıcı gereksiz yere kapatıldı")
+
+
+# ── Tarayıcı yenileme: sınırsız bellek büyümesi ──────────────────
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): tek chromium sayfası yeniden kullanılarak 60
+# gezinme yapıldı, RSS 366 MB'den 761 MB'ye çıktı — gezinme başına ~6,6 MB,
+# PLATO YOK, büyüme baştan sona doğrusal. 35 ürünün saatlik taranmasında
+# günde ~5,5 GB demek: `tarayici` konteyneri bir günü doldurmadan OOM.
+#
+# Düzeltmeden sonra aynı ölçüm 120 gezinmede 367-510 MB bandında kaldı.
+# Buradaki test bellek ÖLÇMÜYOR (kırılgan olurdu) — MEKANİZMAYI ölçüyor:
+# sayaç eşiğe gelince tarayıcı gerçekten atılıyor ve yenisi açılıyor mu.
+
+def test_tarayici_belirli_gezinmeden_sonra_YENILENIYOR(sunucu, cekici,
+                                                       yerel_ag_serbest,
+                                                       monkeypatch):
+    """Eşik testte küçültülüyor: 40 gezinme koşturmak testi yavaşlatırdı,
+    ölçülen şey sayacın davranışı."""
+    from keepmoney import cekici as modul
+
+    monkeypatch.setattr(modul, "AZAMI_GEZINME", 3)
+
+    assert cekici._playwright(f"{sunucu}/js", {"render": True}).html
+    ilk_sayfa = cekici._sayfa
+    assert cekici._gezinme == 1
+
+    cekici._playwright(f"{sunucu}/js", {"render": True})
+    cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert cekici._sayfa is ilk_sayfa, "eşiğe gelmeden yenilenmemeli"
+    assert cekici._gezinme == 3
+
+    # 4. çekim: eşik aşıldı → tarayıcı yenilenir
+    sonuc = cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert sonuc.html, "yenileme çekimi başarısız olmamalı"
+    assert cekici._sayfa is not ilk_sayfa, "tarayıcı yenilenmedi"
+    assert cekici._gezinme == 1, "sayaç yeni tarayıcıda sıfırdan başlamalı"
+
+
+def test_yenileme_kesintisiz_calisiyor(sunucu, cekici, yerel_ag_serbest,
+                                       monkeypatch):
+    """Yenileme kullanıcıya HATA olarak yansımamalı: tarama turu ortasında
+    tarayıcı değişse de o turdaki her çekim başarılı dönmeli."""
+    from keepmoney import cekici as modul
+
+    monkeypatch.setattr(modul, "AZAMI_GEZINME", 2)
+    for _ in range(7):
+        sonuc = cekici._playwright(f"{sunucu}/js", {"render": True})
+        assert sonuc.html, f"yenileme sırasında çekim düştü: {sonuc.hata}"
+
+
+def test_kapatinca_sayac_sifirlaniyor(sunucu, cekici, yerel_ag_serbest):
+    """Aksi hâlde çökme sonrası açılan taze tarayıcı, eski sayaçla hemen
+    yeniden kapatılırdı."""
+    cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert cekici._gezinme == 1
+    cekici.kapat()
+    assert cekici._gezinme == 0

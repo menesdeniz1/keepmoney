@@ -17,6 +17,12 @@ services:
       test: ["CMD-SHELL", "pg_isready -U keepmoney"]
       interval: 10s
       retries: 5
+    # Veritabanı da yeniden başlamalı. Politikası YOKTU: makine yeniden
+    # başladığında ya da postgres çökünce diğer üç servis `unless-stopped`
+    # ile geri gelir, veritabanı gelmez — hepsi bağlanamayan servislere
+    # dönerdi. `/saglik` artık bu durumda 503 döndüğü için sessiz de
+    # kalmazdı, ama düzelmesi elle müdahale isterdi.
+    restart: unless-stopped
 
   gocler:
     build: .
@@ -38,7 +44,11 @@ services:
       # tüm istekler vekilin IP'sinden geliyormuş gibi görünür. Başlığa
       # koşulsuz güvenmek ise hız sınırını tamamen etkisiz kılıyordu
       # (ölçüldü) — bu yüzden güvenilecek kaynak AÇIKÇA yazılır.
-      KEEPMONEY_GUVENILEN_VEKILLER: ${KEEPMONEY_GUVENILEN_VEKILLER:-}
+      # Varsayılan, Docker'ın kendi köprü ağ aralığı: `vekil` konteyneri
+      # oradan bağlanıyor. BOŞ bırakılsaydı `X-Forwarded-For` yok sayılır
+      # ve tüm istekler vekilin IP'sinden geliyormuş gibi görünürdü — hız
+      # sınırı çalışır ama yanlış anahtarla sayardı.
+      KEEPMONEY_GUVENILEN_VEKILLER: ${KEEPMONEY_GUVENILEN_VEKILLER:-172.16.0.0/12}
       # /metrics kimliksiz açıktı. Token yoksa üretimde uç KAPALI (404).
       KEEPMONEY_METRIK_TOKENI: ${KEEPMONEY_METRIK_TOKENI:-}
     depends_on:
@@ -48,14 +58,42 @@ services:
   api:
     build: .
     environment: *ortak
-    # YALNIZCA LOCALHOST. Önceden "8000:8000" idi, yani konteyner tüm ağ
-    # arayüzlerinde dinliyordu: TLS'siz, ters vekilsiz, doğrudan internete
-    # açılabilir bir kurulum. Uygulama HTTP konuşuyor (TLS sonlandırması
-    # vekilin işi) ve hız sınırı vekil arkasında olmayı varsayıyor.
-    # Vekil (nginx/Caddy) bu porta 127.0.0.1 üzerinden bağlanır.
-    ports: ["127.0.0.1:8000:8000"]
+    # HOST'A PORT AÇILMIYOR. Uygulama düz HTTP konuşuyor ve hız sınırı ters
+    # vekil arkasında olmayı varsayıyor; host'a açılan her port o iki
+    # varsayımı da atlatılabilir kılar. Dışarıya çıkan tek kapı `vekil`.
+    # Aynı Docker ağındaki servisler `api:8000` ile erişir.
+    expose: ["8000"]
     depends_on:
       gocler: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  # ── TLS + ters vekil ────────────────────────────────────────────
+  #
+  # ZORUNLU BİR PARÇA, "isteğe bağlı ek" DEĞİL. Uygulama üç şeyi vekile
+  # devrediyor ve vekilsiz üçü de eksik kalıyor:
+  #   • TLS sonlandırma (uygulama düz HTTP konuşur),
+  #   • gerçek istemci IP'si (hız sınırı buna göre sayar),
+  #   • dışarıya açılan tek kapı olmak.
+  #
+  # Caddy seçildi: sertifikayı Let's Encrypt'ten KENDİ alır ve yeniler.
+  # nginx ile aynı işi kurmak ayrıca certbot + yenileme işi demek — ve
+  # unutulan bir yenileme, sitenin bir sabah aniden kapanması demektir.
+  #
+  # KEEPMONEY_ALAN_ADI zorunlu: Caddy sertifikayı bu ada göre alır.
+  # Yerel denemede `localhost` yazılırsa Caddy kendi imzaladığı sertifikayı
+  # kullanır (tarayıcı uyarır, akış çalışır).
+  vekil:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    environment:
+      KEEPMONEY_ALAN_ADI: "${KEEPMONEY_ALAN_ADI:?alan adi gerekli - yerel deneme icin localhost yaz}"
+    volumes:
+      - ./dagitim/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Sertifikalar KALICI olmalı: her yeniden başlatmada yeniden almak
+      # Let's Encrypt hız sınırına takılır ve site sertifikasız kalır.
+      - caddy_veri:/data
+      - caddy_yapilandirma:/config
+    depends_on: [api]
     restart: unless-stopped
 
   # Tarama worker'ı — API'den AYRI süreç. Playwright bellek yiyor ve uzun
@@ -85,3 +123,5 @@ services:
 
 volumes:
   veri:
+  caddy_veri:
+  caddy_yapilandirma:

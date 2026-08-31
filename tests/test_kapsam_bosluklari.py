@@ -203,3 +203,87 @@ def test_telegram_kaldirma_bagli_degilken_de_204(istemci):
 ])
 def test_telegram_uclari_kimliksiz_401(istemci, yontem, yol):
     assert istemci.request(yontem, yol).status_code == 401
+
+
+# ═══════════ KVKK: veri dışa aktarma (GET /api/auth/verilerim) ═══════════
+#
+# Silme hakkı (`DELETE /hesap`) zaten vardı; ERİŞME ve TAŞINABİLİRLİK
+# haklarının teknik karşılığı yoktu — kullanıcı sistemin kendisi hakkında
+# ne tuttuğunu göremiyordu.
+
+def _veri_kur(istemci, basliklar):
+    istemci.post("/api/izlemeler", headers=basliklar,
+                 json={"url": "https://magaza.com/urun", "hedef_fiyat": 900})
+    istemci.post("/api/setler", headers=basliklar,
+                 json={"ad": "PC Toplama", "hedef_butce": 50000})
+
+
+def test_verilerim_kisisel_verinin_tamamini_donuyor(istemci, db):
+    b = kayit_ol(istemci)
+    _veri_kur(istemci, b)
+
+    y = istemci.get("/api/auth/verilerim", headers=b)
+    assert y.status_code == 200
+    d = y.json()
+    assert d["hesap"]["eposta"] == "a@ornek.com"
+    assert len(d["izlemeler"]) == 1
+    assert d["izlemeler"][0]["hedef_fiyat"] == 900
+    assert d["izlemeler"][0]["urun_linkleri"] == ["https://magaza.com/urun"]
+    assert [s["ad"] for s in d["setler"]] == ["PC Toplama"]
+
+
+def test_verilerim_KIMLIK_SIRLARINI_sizdirmiyor(istemci, db):
+    """Dosya indirilip paylaşılabilir. Parola karması ya da sıfırlama
+    token'ı içerseydi, kullanıcının kendi verisini indirmesi hesabını
+    devretme aracına dönerdi."""
+    b = kayit_ol(istemci)
+    _veri_kur(istemci, b)
+    k = db.query(User).filter(User.email == "a@ornek.com").one()
+    k.parola_sifirlama_hash = "GIZLI-SIFIRLAMA-HASH"
+    k.telegram_token = "GIZLI-TELEGRAM-TOKEN"
+    db.commit()
+
+    ham = istemci.get("/api/auth/verilerim", headers=b).text
+    assert "GIZLI-SIFIRLAMA-HASH" not in ham
+    assert "GIZLI-TELEGRAM-TOKEN" not in ham
+    assert "password_hash" not in ham
+    assert k.password_hash not in ham
+
+
+def test_verilerim_BASKASININ_verisini_icermiyor(istemci, db):
+    a = kayit_ol(istemci, "a@ornek.com")
+    _veri_kur(istemci, a)
+    b = kayit_ol(istemci, "b@ornek.com")
+    istemci.post("/api/izlemeler", headers=b,
+                 json={"url": "https://baskasi.com/gizli-urun"})
+
+    d = istemci.get("/api/auth/verilerim", headers=a).json()
+    ham = istemci.get("/api/auth/verilerim", headers=a).text
+    assert len(d["izlemeler"]) == 1
+    assert "baskasi.com" not in ham
+
+
+def test_verilerim_dosya_olarak_iniyor(istemci):
+    """Sekmede JSON göstermek yerine indirilmeli; kişisel verinin tamamı
+    tek yanıtta olduğu için ara belleklerde de kalmamalı."""
+    b = kayit_ol(istemci)
+    y = istemci.get("/api/auth/verilerim", headers=b)
+    assert y.headers["content-disposition"].startswith("attachment;")
+    assert "keepmoney-verilerim-" in y.headers["content-disposition"]
+    assert y.headers["cache-control"] == "no-store"
+
+
+def test_verilerim_kimliksiz_401(istemci):
+    assert istemci.get("/api/auth/verilerim").status_code == 401
+
+
+def test_hesap_silinince_disa_aktarilacak_veri_de_gidiyor(istemci, db):
+    """İki ucun SINIRI AYNI olmalı: silinen bir şey dışa aktarımda
+    görünmeye devam ederse "sildim ama duruyor" gibi açıklanamaz bir
+    tutarsızlık olur."""
+    b = kayit_ol(istemci)
+    _veri_kur(istemci, b)
+    assert istemci.request("DELETE", "/api/auth/hesap", headers=b,
+                           json={"parola": "parola1234"}).status_code == 204
+    assert istemci.get("/api/auth/verilerim", headers=b).status_code == 401
+    assert db.query(User).filter(User.email == "a@ornek.com").count() == 0

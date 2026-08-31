@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..ayarlar import ayarlar
 from ..guvenlik import (
@@ -208,6 +208,85 @@ def epostayi_dogrula(db: Session, token: str) -> User:
     db.commit()
     db.refresh(k)
     return k
+
+
+# ─────────────────── Veri dışa aktarma (KVKK) ───────────────────
+
+
+def kisisel_verileri_disa_aktar(db: Session, kullanici: User) -> dict:
+    """Kullanıcının KİŞİYE BAĞLANABİLEN tüm verisi — tek JSON.
+
+    KVKK m.11 "veri taşınabilirliği"nin teknik karşılığı. Silme hakkı
+    (`hesabi_sil`) zaten vardı ama ERİŞME/TAŞIMA hakkının karşılığı yoktu:
+    kullanıcı sistemin kendisi hakkında ne tuttuğunu göremiyordu.
+
+    NE VAR: hesap alanları, izlemeler (hedefler dahil), setler, üyelikler,
+    bildirim geçmişi. Yani kişiye bağlanabilen her şey.
+
+    NE YOK: küresel ürün kataloğu ve fiyat geçmişi. Bunlar kişisel veri
+    DEĞİL (bir ekran kartının dünkü fiyatı kimseye ait değildir) ve
+    `hesabi_sil`de de aynı gerekçeyle silinmiyor — iki uç aynı sınırı
+    çizmeli, yoksa "sildim ama dışa aktarımda hâlâ görünüyor" gibi
+    açıklanamaz bir tutarsızlık olur. Kullanıcının İZLEDİĞİ ürünlerin
+    fiyat geçmişi CSV uçlarından ayrıca indirilebiliyor (BACKLOG H1).
+
+    PAROLA HASH'İ VE TOKEN'LAR YOK: bunlar kullanıcının verisi değil,
+    kimlik doğrulama sırrıdır. Dışa aktarıma koymak, indirilen dosyayı
+    hesap devralma aracına çevirirdi.
+    """
+    from ..models import Alert, Watch
+
+    izlemeler = (db.query(Watch)
+                 .options(selectinload(Watch.product), selectinload(Watch.setler))
+                 .filter(Watch.user_id == kullanici.id)
+                 .order_by(Watch.id)
+                 .all())
+    uyarilar = (db.query(Alert)
+                .filter(Alert.user_id == kullanici.id)
+                .order_by(Alert.created_at)
+                .all())
+
+    def zaman(d):
+        return d.isoformat() if d else None
+
+    return {
+        "hesap": {
+            "eposta": kullanici.email,
+            "eposta_dogrulandi": bool(kullanici.eposta_dogrulandi),
+            "telegram_bagli": bool(kullanici.telegram_chat_id),
+            "olusturulma": zaman(kullanici.created_at),
+        },
+        "izlemeler": [
+            {
+                "urun_adi": w.product.ad if w.product else None,
+                "urun_linkleri": [k.url for k in (w.product.sources if w.product else [])],
+                "hedef_fiyat": w.hedef_fiyat,
+                "acil_fiyat": w.acil_fiyat,
+                "dusus_yuzdesi": w.dusus_yuzdesi,
+                "yeniden_kur_gun": w.yeniden_kur_gun,
+                "aktif": bool(w.aktif),
+                "setler": [s.ad for s in w.setler],
+                "eklenme": zaman(w.created_at),
+            }
+            for w in izlemeler
+        ],
+        "setler": [
+            {"ad": s.ad, "hedef_butce": s.hedef_butce, "sablon": s.sablon,
+             "olusturulma": zaman(s.created_at)}
+            for s in sorted(kullanici.sets, key=lambda x: x.id)
+        ],
+        "bildirimler": [
+            {"tur": a.tur, "baslik": a.baslik, "mesaj": a.mesaj,
+             "okundu": bool(a.okundu), "zaman": zaman(a.created_at)}
+            for a in uyarilar
+        ],
+        "aciklama": (
+            "Bu dosya KeepMoney'nin hesabınıza bağlı olarak sakladığı tüm "
+            "kişisel veriyi içerir. Ürün kataloğu ve fiyat geçmişi kişiye "
+            "bağlı olmadığı için burada yer almaz; izlediğiniz ürünlerin "
+            "fiyat geçmişini CSV olarak ayrıca indirebilirsiniz."
+        ),
+    }
 
 
 # ─────────────────── Hesap silme (KVKK) ───────────────────

@@ -28,11 +28,23 @@ class DomainSagligi(BaseModel):
 
 
 @router.get("/saglik")
-def saglik(db: DB):
+def saglik(db: DB, yanit: Response):
     """Yük dengeleyici/konteyner sağlık kontrolü.
 
     Veritabanına GERÇEKTEN dokunur: yalnızca 'ayakta' dönen bir uç, DB
     düşmüşken de sağlıklı görünür ve trafiği ölü instance'a yollar.
+
+    DB ERİŞİLEMEZKEN 503 DÖNER — 200 DEĞİL. Gövdede "erisilemiyor" yazmak
+    YETMİYORDU: ÖLÇÜLDÜ, veritabanı düşükken uç gövdesinde durumu doğru
+    bildiriyor ama HTTP 200 dönüyordu. Bu ucu okuyan hiçbir otomatik
+    tüketici gövdeye bakmaz:
+      • Dockerfile'daki `curl -fsS` yalnızca HTTP durumuna bakar → sağlıklı,
+      • yük dengeleyici / k8s probe → sağlıklı,
+      • yani hiçbir şeye hizmet veremeyen bir instance'a trafik akmaya
+        devam ederdi.
+    Tam olarak bu ucun önlemek için var olduğu durum.
+
+    Gövde KORUNUYOR: 503'ün sebebini söyleyen tek şey o.
     """
     from sqlalchemy import text
 
@@ -41,7 +53,9 @@ def saglik(db: DB):
         vt = "ayakta"
     except Exception:
         vt = "erisilemiyor"
-    return {"durum": "ayakta", "veritabani": vt, "ortam": ayarlar().ortam}
+        yanit.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"durum": "ayakta" if vt == "ayakta" else "bozuk",
+            "veritabani": vt, "ortam": ayarlar().ortam}
 
 
 @router.get("/metrics", include_in_schema=False)

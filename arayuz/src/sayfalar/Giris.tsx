@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { ApiHatasi, api } from '../api/istemci'
@@ -14,6 +14,7 @@ export default function Giris() {
   const [hata, setHata] = useState<string | null>(null)
   const [bilgi, setBilgi] = useState<string | null>(null)
   const [bekliyor, setBekliyor] = useState(false)
+  const [onay, setOnay] = useState(false)
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -24,6 +25,9 @@ export default function Giris() {
     setKip(yeni)
     setHata(null)
     setBilgi(null)
+    // Onay her kip değişiminde SIFIRLANIR: "giriş"ten "kayıt"a geçen
+    // kullanıcı kutuyu bir daha görmeden hesap açmış olmasın.
+    setOnay(false)
   }
 
   async function gonder(e: React.FormEvent) {
@@ -76,6 +80,34 @@ export default function Giris() {
                          dark:border-slate-700 dark:bg-slate-950"
             />
           )}
+          {/* KAYIT ONAYI. Yalnızca hesap AÇARKEN sorulur; giriş yapan
+              kullanıcıya her seferinde onay kutusu göstermek anlamsız.
+              Kutu ZORUNLU (`required`) ve düğme de ayrıca kilitli: tek
+              başına `required`e güvenmek, formu programatik gönderen bir
+              yolda onayı atlatılabilir kılardı.
+              Bağlantılar yeni sekmede açılıyor — okumaya giden kullanıcı
+              doldurduğu formu kaybetmesin. */}
+          {kayitMi && (
+            <label className="flex items-start gap-2 text-xs text-slate-500
+                              dark:text-slate-400">
+              <input
+                type="checkbox" required checked={onay}
+                onChange={(e) => setOnay(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300
+                           dark:border-slate-700"
+              />
+              <span>
+                <Link to="/kosullar" target="_blank" className="underline">
+                  Kullanım Koşulları
+                </Link>
+                'nı ve{' '}
+                <Link to="/gizlilik" target="_blank" className="underline">
+                  Gizlilik Metni
+                </Link>
+                'ni okudum, kabul ediyorum.
+              </span>
+            </label>
+          )}
           {hata && (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700
                           dark:bg-red-950/50 dark:text-red-300">{hata}</p>
@@ -85,7 +117,7 @@ export default function Giris() {
                           dark:bg-emerald-950/50 dark:text-emerald-300">{bilgi}</p>
           )}
           <button
-            type="submit" disabled={bekliyor}
+            type="submit" disabled={bekliyor || (kayitMi && !onay)}
             className="w-full rounded-md bg-slate-900 py-2 text-sm font-medium text-white
                        disabled:opacity-50 dark:bg-white dark:text-slate-900"
           >

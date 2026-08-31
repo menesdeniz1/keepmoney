@@ -365,3 +365,77 @@ def test_gelistirmede_baglanti_HALA_loglaniyor(monkeypatch, ayar_sifirla):
     yolu log satırındaki bağlantı."""
     kayit = _postaci_loglari(monkeypatch, "gelistirme")
     assert any("GIZLI_TOKEN_123" in str(kw) for _, kw in kayit)
+
+
+# ══════════ 5. Sağlık ucu DB düşükken "sağlıklı" diyordu ══════════
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): veritabanı erişilemezken `/saglik` gövdesinde
+# `"veritabani": "erisilemiyor"` yazıyor ama HTTP **200** dönüyordu.
+# Gövdeye bakan yok: Dockerfile'ın `curl -fsS`i, yük dengeleyici ve k8s
+# probe'u yalnızca HTTP durumuna bakar. Yani hiçbir isteğe cevap veremeyen
+# bir instance "sağlıklı" sayılıp trafik almaya devam ederdi — bu ucun var
+# oluş sebebi tam olarak bunu önlemek.
+
+class _OluOturum:
+    def execute(self, *a, **k):
+        raise RuntimeError("veritabanına erişilemiyor")
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def db_kesintili(oturum_fabrikasi):
+    """DB'yi düşürüp geri getirebilen uygulama."""
+    from keepmoney.api.app import uygulama_olustur
+
+    kesinti = {"var": False}
+    app = uygulama_olustur()
+
+    def test_db():
+        if kesinti["var"]:
+            yield _OluOturum()
+            return
+        d = oturum_fabrikasi()
+        try:
+            yield d
+        finally:
+            d.close()
+
+    app.dependency_overrides[get_db] = test_db
+    with TestClient(app) as c:
+        yield c, kesinti
+
+
+def test_saglik_db_dusukken_503_donuyor(db_kesintili):
+    c, kesinti = db_kesintili
+    assert c.get("/saglik").status_code == 200
+
+    kesinti["var"] = True
+    y = c.get("/saglik")
+    assert y.status_code == 503, (
+        "DB erişilemezken 200 dönüyor — Docker healthcheck ve yük "
+        "dengeleyici bu instance'ı sağlıklı sayıp trafik yollamaya devam eder")
+    assert y.json()["veritabani"] == "erisilemiyor"
+    assert y.json()["durum"] == "bozuk"
+
+
+def test_saglik_db_donunce_yeniden_200(db_kesintili):
+    """Kalıcı bozuk kalmamalı: kesinti bitince uç normale dönmeli, yoksa
+    yük dengeleyici düzelen instance'ı geri almaz."""
+    c, kesinti = db_kesintili
+    kesinti["var"] = True
+    assert c.get("/saglik").status_code == 503
+    kesinti["var"] = False
+    y = c.get("/saglik")
+    assert y.status_code == 200
+    assert y.json()["veritabani"] == "ayakta"
+
+
+def test_saglik_govdesi_503te_de_sebebi_soyluyor(db_kesintili):
+    """503'ün sebebini söyleyen tek şey gövde; boş bir 503 teşhis
+    edilemez."""
+    c, kesinti = db_kesintili
+    kesinti["var"] = True
+    d = c.get("/saglik").json()
+    assert set(d) == {"durum", "veritabani", "ortam"}

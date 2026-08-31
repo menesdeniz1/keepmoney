@@ -1,0 +1,50 @@
+# KeepMoney ters vekil yapılandırması.
+#
+# NE YAPAR:
+#   • TLS sonlandırır (sertifikayı Let's Encrypt'ten kendi alır/yeniler),
+#   • HTTP'yi HTTPS'e yönlendirir,
+#   • gerçek istemci IP'sini `X-Forwarded-For`a YAZAR — uygulamanın hız
+#     sınırı bu başlığa yalnızca güvenilen bir kaynaktan gelirse bakıyor
+#     (bkz. KEEPMONEY_GUVENILEN_VEKILLER),
+#   • uygulamayı doğrudan internete açık bırakmaz.
+#
+# ALAN ADI ORTAMDAN GELİR. Yerel denemede `KEEPMONEY_ALAN_ADI=localhost`
+# yazılırsa Caddy kendi imzaladığı sertifikayı kullanır.
+
+{$KEEPMONEY_ALAN_ADI} {
+	encode zstd gzip
+
+	# `/metrics` DIŞARIYA KAPALI. Uygulama ayrıca token istiyor ama
+	# savunma tek katmana bırakılmaz: token yanlış yapılandırılırsa
+	# (ya da üretimde boş bırakılırsa) bu kural yine de kapıyı tutar.
+	# Prometheus aynı Docker ağından `api:8000/metrics` ile toplar.
+	@olcum path /metrics
+	respond @olcum 404
+
+	# API dokümanı üretimde kapalı: tüm uç yüzeyini yayınlamanın
+	# kullanıcıya faydası yok, saldırgana keşif kolaylığı var.
+	@dokuman path /docs /redoc /openapi.json /docs/*
+	respond @dokuman 404
+
+	reverse_proxy api:8000 {
+		# Caddy bu üç başlığı KENDİ yazar ve istemcinin gönderdiğini
+		# EZER — atlatma denemesi vekilde ölür.
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# Uygulama kendi güvenlik başlıklarını gönderiyor (api/koruma.py);
+	# burada yalnızca vekil katmanının ekleyebileceği olan HSTS var ve
+	# `defer` ile uygulamanınkiyle çakışmıyor.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+		defer
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

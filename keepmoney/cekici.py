@@ -42,6 +42,20 @@ VARSAYILAN_ZAMAN_ASIMI = 25
 # tüketmeyelim — fiyatı GERÇEKTEN olmayan sayfa da var ve o durumda bu süre
 # tamamen boşa gider. `render: true` olan sayfalarda en kötü senaryo
 # bekleme_sn + bu değer.
+# TARAYICI KAÇ GEZİNMEDE BİR YENİLENİR.
+#
+# ÖLÇÜLDÜ, tahmin edilmedi: tek bir chromium sayfası yeniden kullanılarak
+# 60 gezinme yapıldı ve RSS 366 MB'den 761 MB'ye çıktı — gezinme başına
+# ~6,6 MB, PLATO YOK, büyüme baştan sona doğrusal. 35 ürünün saatlik
+# taranmasında bu günde ~5,5 GB demek: `tarayici` konteyneri bir günü
+# doldurmadan OOM ile ölür. Süreç ölmeden de zarar verir — bellek baskısı
+# altında sayfa yüklemeleri yavaşlar ve zaman aşımına düşer.
+#
+# 40 seçildi: ölçülen eğimle ~264 MB büyüme, yani taban (~366 MB) ile
+# birlikte tepe ~630 MB. Yeniden başlatma maliyeti 1-2 sn ve 40 gezinmeye
+# bölünüyor — tarama turu yanında görünmez.
+AZAMI_GEZINME = 40
+
 FIYAT_EK_BEKLEME_SN = 6
 
 # HTML gövdesinden karakter kodlaması sezme. requests, `Content-Type` başlığı
@@ -171,6 +185,7 @@ class HttpCekici:
         self._cloudscraper = None
         self._pw = None
         self._sayfa = None
+        self._gezinme = 0
 
     def cek(self, url: str, kural: dict | None = None) -> Cekim:
         """Zinciri sırayla dener, İŞE YARAR ilk yanıtı döndürür.
@@ -325,7 +340,9 @@ class HttpCekici:
             return Cekim(hata="playwright kurulu değil", yontem="playwright")
         try:
             dogrula(url)
+            self._tarayiciyi_gerekirse_yenile()
             self._playwright_baslat(sync_playwright)
+            self._gezinme += 1
             yanit = self._sayfa.goto(url, wait_until="domcontentloaded",
                                      timeout=self.zaman_asimi * 1000)
             self._sayfa.wait_for_timeout(int(kural.get("bekleme_sn", 2)) * 1000)
@@ -412,6 +429,23 @@ class HttpCekici:
         # Yönlendirme dahil HER istek burada süzülür.
         self._sayfa.route("**/*", _pw_istek_suz)
 
+    def _tarayiciyi_gerekirse_yenile(self) -> None:
+        """Belirli sayıda gezinmeden sonra tarayıcıyı YENİDEN AÇAR.
+
+        Chromium tek bir sayfada gezindikçe belleği bırakmıyor (ÖLÇÜLDÜ:
+        gezinme başına ~6,6 MB, 60 gezinmede +395 MB, plato yok). Sayfayı
+        süreç ömrü boyunca yeniden kullanmak doğru — her sayfa için chromium
+        açmak kabul edilemez — ama SINIRSIZ yeniden kullanmak worker'ı
+        OOM'a götürüyordu.
+
+        `kapat()` yeterli: bir sonraki çekim `_playwright_baslat` ile
+        yenisini açar.
+        """
+        if self._sayfa is not None and self._gezinme >= AZAMI_GEZINME:
+            log.info("Tarayıcı yenileniyor (%s gezinme) — bellek sınırlanıyor",
+                     self._gezinme)
+            self.kapat()
+
     def _cokmusse_at(self) -> None:
         """Tarayıcı hâlâ ayakta mı? Değilse kaynakları bırak — sonraki
         çağrı `_playwright_baslat` ile YENİSİNİ açar.
@@ -444,3 +478,4 @@ class HttpCekici:
                 pass
             self._pw = None
             self._sayfa = None
+            self._gezinme = 0
