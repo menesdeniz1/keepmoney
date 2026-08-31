@@ -386,6 +386,20 @@ class Alert(Base):
     # worker uyarıyı yazar, gönderici ayrı bir döngüde iletir. Böylece
     # Telegram kesintisi taramayı durdurmaz ve uyarı kaybolmaz.
     telegram_gonderildi = Column(Boolean, default=False, index=True)
+
+    # KAÇ KEZ DENENDİ. Sonsuz yeniden deneme, kuyruğun başını tıkıyordu.
+    # ÖLÇÜLDÜ: bir kullanıcı botu bloklarsa (Telegram kalıcı olarak hata
+    # döner) o kullanıcının uyarıları hiç temizlenmiyor; `created_at`e göre
+    # sıralı ve `limit`li sorgu bir süre sonra YALNIZCA o uyarıları
+    # çekmeye başlıyor ve DİĞER kullanıcıların bildirimleri hiç
+    # gönderilmiyor. 30 tıkalı uyarı + 1 yeni uyarıyla 5 tur koşuldu:
+    # yeni uyarı bir kez bile denenmedi.
+    #
+    # Sayaç eşiği aşınca uyarı denemeden ÇIKARILIR ama `telegram_gonderildi`
+    # BAYRAĞI ÇEVRİLMEZ: gönderilmedi, "gönderildi" demek veriyi yalan
+    # yapardı. Uyarı web arayüzünde durmaya devam eder.
+    telegram_deneme = Column(Integer, nullable=False, default=0,
+                             server_default="0")
     created_at = Column(DateTime, default=utc_simdi, index=True)
 
     user = relationship("User", back_populates="alerts")

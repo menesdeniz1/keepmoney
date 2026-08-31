@@ -518,3 +518,123 @@ def test_hedef_kondu_metni_kalan_farki_soyler(db):
 def test_hedef_kondu_metni_hedefteyse_soyler(db):
     w = izleme(db, urun(db, "Kulaklık", fiyat=4000), hedef=5000)
     assert "HEDEFTE" in kartlar.hedef_kondu_metni(w, 5000)
+
+
+# ── Kuyruk tıkanması: kalıcı başarısızlık herkesi durduruyordu ────
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): gönderici başarısız uyarıyı sonsuza kadar
+# yeniden deniyor, sorgu ise `created_at`e göre sıralı ve `limit`li. Bir
+# kullanıcı botu bloklarsa Telegram KALICI hata döner; o uyarılar hiç
+# temizlenmez ve zamanla kuyruğun başını doldurur. 30 tıkalı uyarı + 1 yeni
+# uyarıyla 5 tur koşuldu: yeni uyarı BİR KEZ BİLE denenmedi.
+#
+# Yani tek bir kullanıcının davranışı, ürünün ana değer teslimini HERKES
+# için durduruyordu — üstelik sessizce: süreç çalışmaya devam ediyor.
+
+class _SecmeliPostaci:
+    """Belirli bir chat'e gönderim HER ZAMAN başarısız (bot bloklanmış)."""
+
+    def __init__(self, basarisiz_chat: str):
+        self.basarisiz_chat = basarisiz_chat
+        self.gonderilenler: list[tuple[str, str]] = []
+
+    async def gonder(self, chat_id: str, metin: str) -> bool:
+        if chat_id == self.basarisiz_chat:
+            return False
+        self.gonderilenler.append((chat_id, metin))
+        return True
+
+
+def _tikali_kuyruk(db):
+    """Kuyruğun başı, botu bloklamış kullanıcının ESKİ uyarılarıyla dolu."""
+    from datetime import timedelta
+
+    from keepmoney.bot.gonderici import TUR_BASINA_LIMIT
+    from keepmoney.zaman import utc_simdi
+
+    engelleyen = User(email="engel@o.com", password_hash="x",
+                      telegram_chat_id="111")
+    normal = User(email="normal@o.com", password_hash="x",
+                  telegram_chat_id="222")
+    db.add_all([engelleyen, normal])
+    db.commit()
+
+    simdi = utc_simdi()
+    for i in range(TUR_BASINA_LIMIT):
+        db.add(Alert(user_id=engelleyen.id, tur="DIP", baslik=f"eski{i}",
+                     mesaj="m", okundu=False, telegram_gonderildi=False,
+                     created_at=simdi - timedelta(days=10, minutes=i)))
+    db.add(Alert(user_id=normal.id, tur="DIP", baslik="YENI", mesaj="m",
+                 okundu=False, telegram_gonderildi=False, created_at=simdi))
+    db.commit()
+    return normal
+
+
+async def test_bir_kullanicinin_engellemesi_digerlerini_DURDURMUYOR(db):
+    """Asıl regresyon. Deneme sayacı olmadan `gonderilenler` boş kalır."""
+    from keepmoney.bot.gonderici import TELEGRAM_AZAMI_DENEME, bekleyenleri_gonder
+
+    _tikali_kuyruk(db)
+    p = _SecmeliPostaci("111")
+
+    for _ in range(TELEGRAM_AZAMI_DENEME + 1):
+        await bekleyenleri_gonder(db, p)
+
+    assert p.gonderilenler, (
+        "tıkalı kuyruk yüzünden diğer kullanıcının uyarısı hiç denenmedi")
+    assert p.gonderilenler[0][0] == "222"
+
+
+async def test_esigi_asan_uyari_GONDERILDI_isaretlenmiyor(db):
+    """Veri dürüstlüğü: gönderilmedi. Uyarı web arayüzünde durmalı."""
+    from keepmoney.bot.gonderici import TELEGRAM_AZAMI_DENEME, bekleyenleri_gonder
+
+    _tikali_kuyruk(db)
+    p = _SecmeliPostaci("111")
+    for _ in range(TELEGRAM_AZAMI_DENEME + 2):
+        await bekleyenleri_gonder(db, p)
+
+    engelli = (db.query(Alert)
+               .filter(Alert.baslik.like("eski%")).all())
+    assert all(a.telegram_gonderildi is False for a in engelli)
+    assert all(a.telegram_deneme >= TELEGRAM_AZAMI_DENEME for a in engelli)
+
+
+async def test_gecici_hata_hemen_birakilmiyor(db):
+    """Eşiğin diğer yarısı: kısa bir Telegram kesintisi kaybolmamalı.
+    İlk denemede bırakılsaydı geçici hata kalıcı kayıp olurdu."""
+    from keepmoney.bot.gonderici import bekleyenleri_gonder
+
+    u = User(email="a@o.com", password_hash="x", telegram_chat_id="333")
+    db.add(u)
+    db.commit()
+    db.add(Alert(user_id=u.id, tur="DIP", baslik="b", mesaj="m",
+                 okundu=False, telegram_gonderildi=False))
+    db.commit()
+
+    kesinti = _SecmeliPostaci("333")
+    await bekleyenleri_gonder(db, kesinti)          # 1. deneme: başarısız
+    uyari = db.query(Alert).one()
+    assert uyari.telegram_deneme == 1
+    assert uyari.telegram_gonderildi is False
+
+    duzeldi = _SecmeliPostaci("yok")                # kesinti bitti
+    await bekleyenleri_gonder(db, duzeldi)
+    db.expire_all()
+    assert db.query(Alert).one().telegram_gonderildi is True
+
+
+async def test_basarili_gonderim_sayaci_ARTIRMIYOR(db):
+    from keepmoney.bot.gonderici import bekleyenleri_gonder
+
+    u = User(email="b@o.com", password_hash="x", telegram_chat_id="444")
+    db.add(u)
+    db.commit()
+    db.add(Alert(user_id=u.id, tur="DIP", baslik="b", mesaj="m",
+                 okundu=False, telegram_gonderildi=False))
+    db.commit()
+
+    await bekleyenleri_gonder(db, _SecmeliPostaci("yok"))
+    uyari = db.query(Alert).one()
+    assert uyari.telegram_gonderildi is True
+    assert uyari.telegram_deneme == 0

@@ -44,6 +44,9 @@ STOK_BOSLUKLARI = "864f6f6e8aa7"
 # Bir öncesi STOK_BOSLUKLARI.
 OTURUM_SURUMU = "c5f2a71e8d40"
 
+# `alerts.telegram_deneme` — iletim kuyruğunun tıkanmasını önleyen sayaç.
+TELEGRAM_DENEME = "846b4730b906"
+
 
 @pytest.fixture
 def gecici_veritabani(tmp_path, monkeypatch):
@@ -391,4 +394,57 @@ def test_oturum_surumu_gocu_veri_varken_geri_alinabiliyor(gecici_veritabani):
         assert b.execute(sa.text("SELECT count(*) FROM watches")).scalar() == 1
         assert b.execute(sa.text("SELECT count(*) FROM watch_sets")).scalar() == 1
         assert b.execute(sa.text("SELECT count(*) FROM alerts")).scalar() == 1
+    motor.dispose()
+
+
+def test_telegram_deneme_gocu_bekleyen_uyarilari_dusurmuyor(gecici_veritabani):
+    """Sayaç 0'dan başlamalı: göç, o an kuyrukta bekleyen bildirimlerin
+    hiçbirini iptal etmemeli."""
+    cfg, yol = gecici_veritabani
+    command.upgrade(cfg, OTURUM_SURUMU)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi, "
+            "oturum_surumu) VALUES (1, 'a@b.c', 'x', 0, 0)"))
+        b.execute(sa.text(
+            "INSERT INTO alerts (id, user_id, tur, baslik, mesaj, "
+            "telegram_gonderildi) VALUES (1, 1, 'DIP', 'b', 'm', 0)"))
+
+    command.upgrade(cfg, TELEGRAM_DENEME)
+
+    with motor.begin() as b:
+        satir = b.execute(sa.text(
+            "SELECT telegram_deneme, telegram_gonderildi FROM alerts")).one()
+    motor.dispose()
+    assert satir == (0, 0), "bekleyen uyarı göçte bırakılmış sayılmamalı"
+
+
+def test_telegram_deneme_gocu_veri_varken_geri_alinabiliyor(gecici_veritabani):
+    """`c5f2a71e8d40` ile aynı tuzak: batch modu `alerts` tablosunu yeniden
+    kurmaya kalkarsa gerçek veri varken patlar. Yerel ALTER kullanılıyor."""
+    cfg, yol = gecici_veritabani
+    command.upgrade(cfg, TELEGRAM_DENEME)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi, "
+            "oturum_surumu) VALUES (1, 'a@b.c', 'x', 0, 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO watches (id, user_id, product_id) VALUES (1, 1, 1)"))
+        b.execute(sa.text(
+            "INSERT INTO alerts (id, user_id, watch_id, tur, baslik, mesaj) "
+            "VALUES (1, 1, 1, 'DIP', 'b', 'm')"))
+
+    command.downgrade(cfg, OTURUM_SURUMU)
+
+    with motor.begin() as b:
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('alerts')"))]
+        assert "telegram_deneme" not in sutunlar
+        assert b.execute(sa.text("SELECT count(*) FROM alerts")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM watches")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM users")).scalar() == 1
     motor.dispose()

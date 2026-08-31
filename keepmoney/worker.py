@@ -262,7 +262,27 @@ class Tarayici:
         olcumler.fiyat_guveni.labels(guven=c.guven).inc()
 
         if not guvenilir:
-            kaynak.durum = "HATA" if sebep == "bozuk" else "BEKLEMEDE"
+            # "fiyat-yok" AYRI ELE ALINIR — eskiden "beklemede" ile aynı
+            # kefeye giriyordu ve ÜRÜNÜN EN OLASI ÜRETİM ARIZASI SESSİZ
+            # KALIYORDU. ÖLÇÜLDÜ: mağaza HTML'ini değiştirip fiyatı sayfadan
+            # kaldırdığında 5 tur üst üste okuma başarısız oldu, `hata_serisi`
+            # 0'da kaldı, `_kaynak_bozuk_mu` hiç tetiklenmedi ve kullanıcıya
+            # TEK BİR bildirim gitmedi. Üstelik `son_kontrol` her turda
+            # tazeleniyor: ekranda haftalarca eski bir fiyat "az önce kontrol
+            # edildi" etiketiyle duruyordu. Bu üründe güvenilirliğin dayandığı
+            # şey tam olarak o etiket.
+            #
+            # AYRIM ÖNEMLİ:
+            #   "beklemede" → fiyat OKUNDU, ikinci okuma bekleniyor (geçici,
+            #                 sayaç artmamalı yoksa sağlam kaynak bozuk sayılır)
+            #   "fiyat-yok" → sayfa indi, fiyat YOK. Bu bir OKUMA
+            #                 BAŞARISIZLIĞIDIR; seçici bozulmuşsa üç turda
+            #                 kullanıcı haber almalı (BOZUK_HATA_ESIGI).
+            if sebep == "fiyat-yok":
+                kaynak.durum = "HATA"
+                kaynak.hata_serisi = (kaynak.hata_serisi or 0) + 1
+            else:
+                kaynak.durum = "HATA" if sebep == "bozuk" else "BEKLEMEDE"
             self._sonucu_kaydet(kaynak.host, "reddedildi")
             log.info("%s okuması kullanılmadı (%s): %s",
                      kaynak.host, sebep, tl(c.fiyat))
@@ -433,6 +453,13 @@ class Tarayici:
             return "sayfa kaldırılmış"
         if (kaynak.asiri_supheli_seri or 0) >= BOZUK_SUPHE_ESIGI:
             return "okunan fiyat gerçekçi değil"
+        # `son_guven` YALNIZCA sayfa indirilip ayrıştırıldığında yazılır
+        # (indirilemeyen sayfada eski değeri kalır). "yok" görmek, sayfanın
+        # AÇILDIĞI ama fiyatın bulunamadığı anlamına gelir — kullanıcıyı
+        # "sayfaya erişilemiyor" diye yanlış yere yollamamak için ayrıldı:
+        # biri ağ/erişim sorunu, diğeri mağazanın sayfa değiştirmesi.
+        if kaynak.son_guven == "yok":
+            return "sayfa açılıyor ama fiyat bulunamıyor"
         return "sayfaya erişilemiyor"
 
     def tur_calistir(self, limit: int = 100) -> TaramaSonucu:

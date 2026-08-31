@@ -532,11 +532,23 @@ Bunlar bilinçli kararlar, eksik değil — ama bilmeden canlıya çıkma:
 - **Tek instance varsayımı.** Hız sınırı süreç belleğinde tutuluyor. İki API
   kopyası çalıştırırsan efektif limit iki katına çıkar. Çok instance'a
   geçince Redis'e taşınmalı ([MIMARI.md K24](MIMARI.md)).
+- **`tarayici` servisini ÇOĞALTMA.** `docker compose up --scale tarayici=2`
+  tek satır ama sessizce zarar verir: tarama kuyruğunda (`Product.
+  sonraki_kontrol`) kilit ya da sahiplenme YOK, iki worker aynı ürünleri
+  seçer. Sonuç: aynı okuma iki kez `price_readings`e yazılır (geçmiş
+  bozulur), mağazalara giden istek iki katına çıkar (IP engeli riski) ve
+  aynı uyarı iki kez üretilebilir. Ölçekleme önce kuyruğa sahiplenme
+  (`SELECT ... FOR UPDATE SKIP LOCKED` ya da bir kiralama sütunu) eklemeyi
+  gerektirir.
 - **Seçici bakımı süreklidir.** Siteler HTML'ini haber vermeden değiştirir.
   Ayda bir `kaynak_dene.py` çalıştır.
 - **KVKK/gizlilik metni yok.** Kullanıcı verisi (e-posta) topluyorsun;
   yayına açmadan önce hukuki metin gerekli. Bu repo hukuki metin üretmez.
   **Yayına açmanın önündeki tek kod-dışı engel budur.**
+- **SMTP'siz üretimde parola sıfırlama ÇALIŞMAZ ve bunu kimse fark etmez.**
+  Açılışta uyarılıyor ama başlatma engellenmiyor. Bu durumda uç
+  "gönderildi" der, e-posta hiç gitmez. (Token'ın loga yazılması AYRI bir
+  açıktı ve kapatıldı — üretimde gövde artık loglanmıyor.)
 - **E-posta doğrulama zorunlu değil.** `eposta_dogrulandi` bayrağı var,
   Ayarlar sayfasında gösteriliyor ve yeniden gönderilebiliyor — ama hiçbir
   ucu kapatmıyor. Bilinçli: bildirimler Telegram'dan gidiyor, e-posta yalnızca

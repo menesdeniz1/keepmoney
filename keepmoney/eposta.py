@@ -43,6 +43,19 @@ class GunlukPostaci:
 
     SMTP yapılandırılmadan da tüm akış uçtan uca denenebilsin diye var.
     Bağlantı log satırından kopyalanıp tarayıcıya yapıştırılabilir.
+
+    ÜRETİMDE GÖVDE LOGA YAZILMAZ. Gövde, parola sıfırlama ve e-posta
+    doğrulama bağlantılarını TAŞIR; o bağlantılardaki token parolaya
+    eşdeğer yetkidir — token'ı eline geçiren hesabı devralır. Token'lar
+    veritabanında tam bu yüzden HASH'Lİ saklanıyor (guvenlik.token_hashle);
+    ham hâllerini loga yazmak o korumayı tamamen anlamsız kılar, üstelik
+    daha kötü bir yere: loglar çoğu kurulumda merkezî bir toplayıcıya
+    akar ve veritabanından DAHA GENİŞ bir kitleye açıktır.
+
+    ÖLÇÜLDÜ: `KEEPMONEY_ORTAM=uretim` + SMTP tanımsızken sıfırlama
+    token'ı düz metin olarak log satırına düşüyordu. Bu yapılandırma
+    yalnızca UYARI veriyor, açılışı engellemiyor — yani gerçekten
+    oluşabilir bir durum.
     """
 
     def __init__(self) -> None:
@@ -50,6 +63,13 @@ class GunlukPostaci:
 
     def gonder(self, alici: str, konu: str, govde: str) -> bool:
         self.gonderilenler.append((alici, konu, govde))
+        if ayarlar().uretim_mi:
+            # Gövde YOK. Operatör eksik yapılandırmayı görsün ama token
+            # loga girmesin. `False` dönüyor: gönderim gerçekten olmadı,
+            # çağıran tarafın buna "başarılı" demesi yanlış olurdu.
+            logger.warning("eposta_gonderilemedi_smtp_yok",
+                           alici=alici, konu=konu)
+            return False
         logger.info("eposta_gonderilmedi_gelistirme",
                     alici=alici, konu=konu, govde=govde)
         return True

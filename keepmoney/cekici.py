@@ -30,6 +30,9 @@ from .aglar import (
     guvenli_mi,
 )
 from .ayarlar import ayarlar
+from .gunluk import log as _log
+
+log = _log("keepmoney.cekici")
 from .ayikla import engel_mi
 
 VARSAYILAN_ZAMAN_ASIMI = 25
@@ -333,6 +336,19 @@ class HttpCekici:
         except GuvensizHedef as e:
             return Cekim(hata=f"guvensiz_hedef: {e}", yontem="playwright")
         except Exception as e:
+            # ÇÖKEN TARAYICI ATILIR. Tarayıcı süreç ömrü boyunca yeniden
+            # kullanılıyor (`_playwright_baslat` `_sayfa` doluysa erken
+            # dönüyor) — bu doğru, her sayfa için chromium açmak kabul
+            # edilemez. AMA çöktüğünde kimse temizlemiyordu.
+            #
+            # ÖLÇÜLDÜ: tarayıcı dışarıdan kapatıldıktan sonra art arda üç
+            # çekim de `TargetClosedError` verdi ve KENDİNİ TOPARLAMADI.
+            # Üretimdeki karşılığı ağır: `render: true` isteyen siteler
+            # (Amazon, Trendyol, akakçe, n11, Hepsiburada, cimri, tebilon —
+            # yani pazarın çoğu) worker ELLE yeniden başlatılana kadar hiç
+            # okunmaz. Süreç ölmediği için `restart: unless-stopped` da
+            # devreye girmez: konteyner "sağlıklı" görünürken tarama durur.
+            self._cokmusse_at()
             return Cekim(hata=f"{type(e).__name__}: {e}", yontem="playwright")
 
     def _fiyati_bekle(self, kural: dict) -> None:
@@ -395,6 +411,30 @@ class HttpCekici:
         # kendi alt istekleri (img/xhr/iframe) de keyfi hedeflere gidebilir.
         # Yönlendirme dahil HER istek burada süzülür.
         self._sayfa.route("**/*", _pw_istek_suz)
+
+    def _cokmusse_at(self) -> None:
+        """Tarayıcı hâlâ ayakta mı? Değilse kaynakları bırak — sonraki
+        çağrı `_playwright_baslat` ile YENİSİNİ açar.
+
+        Hata SINIFINA bakılmıyor (`TargetClosedError` gibi adlar Playwright
+        sürümleri arasında değişiyor); doğrudan bağlantı DURUMU sorgulanıyor.
+        Sorgunun kendisi patlıyorsa da cevap zaten "ölü".
+
+        Sağlam tarayıcı ASLA atılmaz: zaman aşımı ya da tek bir bozuk sayfa
+        yüzünden chromium'u yeniden başlatmak, düzelttiğinden çok maliyet
+        getirirdi.
+        """
+        if self._sayfa is None:
+            return
+        try:
+            tarayici = self._sayfa.context.browser
+            if (tarayici is not None and tarayici.is_connected()
+                    and not self._sayfa.is_closed()):
+                return
+        except Exception:
+            pass
+        log.warning("Tarayıcı çökmüş — kapatılıyor, sonraki çekimde yeniden açılacak")
+        self.kapat()
 
     def kapat(self) -> None:
         if self._pw is not None:

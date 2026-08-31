@@ -1084,3 +1084,145 @@ def test_setten_cikarilan_urun_digerinde_kalir(db):
     assert set_svc.uye_cikar(db, u, s1.id, w.id) is True
     db.refresh(w)
     assert [s.id for s in w.setler] == [s2.id]
+
+
+# ── Sessiz bozulma: sayfa açılıyor ama fiyat okunamıyor ──────────
+#
+# ÜRÜNÜN EN OLASI ÜRETİM ARIZASI BUDUR: mağaza HTML'ini haber vermeden
+# değiştirir, seçici tutmaz, fiyat çıkmaz. Sayfa 200 döner, "ölü" değildir,
+# "stokta yok" değildir, bot koruması da yoktur.
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): 5 tur üst üste böyle bir sayfa okundu ve
+#   • `hata_serisi` 0'da kaldı (artıran tek yer "sayfa hiç inmedi" dalıydı),
+#   • `durum` BEKLEMEDE'ye düştü — arayüzde "bekliyor" diye görünür,
+#   • `_kaynak_bozuk_mu` hiç tetiklenmedi, KAYNAK_BOZUK uyarısı ÜRETİLMEDİ,
+#   • `son_kontrol` her turda tazelendi.
+# Yani kullanıcı haftalarca eski bir fiyata, "az önce kontrol edildi"
+# etiketiyle bakmaya devam ediyordu. Bu üründe güven tam da o etikete
+# dayanıyor.
+#
+# Kök sebep: `karar.dogrula` bu durumda "fiyat-yok" diyor ama worker onu
+# "beklemede" ile aynı kefeye koyuyordu — oysa "beklemede" fiyatın OKUNDUĞU
+# (ikinci teyit beklenen) hâldir ve sayaç orada artmamalıdır.
+
+FIYATSIZ_SAYFA = ('<html><head><title>Ürün</title></head><body>'
+                  '<h1>Ürün</h1><div id="app">Yükleniyor…</div>'
+                  '<p>Stoklarımızda! Hemen sepete ekleyin.</p></body></html>')
+
+
+def _fiyatsiz_kurulum(db):
+    u = User(email="a@x.com", password_hash="x")
+    p = Product(ad="Ürün", izleyen_sayisi=1)
+    db.add_all([u, p])
+    db.commit()
+    url = "https://magaza.com/u"
+    s = Source(product_id=p.id, url=url, host="magaza.com")
+    db.add(s)
+    db.add(Watch(user_id=u.id, product_id=p.id, hedef_fiyat=1.0))
+    db.commit()
+    cekici = SahteCekici({url: FIYATSIZ_SAYFA})
+    return p, s, Tarayici(db, cekici, HostThrottle(min_gap=0))
+
+
+def test_fiyat_okunamayinca_hata_serisi_artiyor(db):
+    """Asıl regresyon. `BEKLEMEDE` bırakılırsa sayaç hiç artmaz ve kaynak
+    sonsuza kadar "bekliyor" görünür."""
+    p, s, t = _fiyatsiz_kurulum(db)
+
+    t.urun_tara(p)
+    assert s.durum == "HATA", "sayfa indi ama fiyat yok — bu bir okuma hatasıdır"
+    assert s.hata_serisi == 1
+
+    t.urun_tara(p)
+    assert s.hata_serisi == 2
+
+
+def test_ucuncu_basarisiz_okumada_kullanici_haber_aliyor(db):
+    """Kabul ölçütü: sessiz kalmasın. `BOZUK_HATA_ESIGI` (3) turda
+    KAYNAK_BOZUK uyarısı üretilmeli."""
+    p, _, t = _fiyatsiz_kurulum(db)
+
+    for _ in range(2):
+        t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 0
+
+    t.urun_tara(p)                       # 3. başarısız okuma → eşik
+    uyarilar = db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").all()
+    assert len(uyarilar) == 1
+    assert "fiyat okunamıyor" in uyarilar[0].baslik
+
+
+def test_bozuk_kaynak_uyarisi_her_turda_TEKRARLANMIYOR(db):
+    """Bildirim yorgunluğu: aynı arıza için tek uyarı yeter. `bozuk_uyarildi`
+    bayrağı bunu sağlıyor — beş tur daha koşuyoruz."""
+    p, _, t = _fiyatsiz_kurulum(db)
+    for _ in range(8):
+        t.urun_tara(p)
+    assert db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").count() == 1
+
+
+def test_fiyat_okunamayinca_ESKI_FIYAT_ve_gecmis_korunuyor(db):
+    """Okunamayan tarama geçmişi BOZMAMALI: ne satır yazılmalı ne de
+    ekrandaki fiyat sıfırlanmalı."""
+    p, _, t = _fiyatsiz_kurulum(db)
+    p.guncel_fiyat = 45999.90
+    db.commit()
+
+    for _ in range(4):
+        t.urun_tara(p)
+
+    assert p.guncel_fiyat == 45999.90
+    assert db.query(PriceReading).count() == 0
+
+
+def test_kaynak_duzelince_sayac_sifirlaniyor(db):
+    """Geçici arıza kalıcı sayılmamalı: fiyat yeniden okunduğunda sayaç
+    sıfırlanır ve bir dahaki bozulmada kullanıcı YENİDEN uyarılabilir."""
+    p, s, t = _fiyatsiz_kurulum(db)
+    for _ in range(3):
+        t.urun_tara(p)
+    assert s.hata_serisi >= 3
+    assert s.bozuk_uyarildi is True
+
+    t.cekici.sayfalar["https://magaza.com/u"] = urun_sayfasi("42000")
+    t.urun_tara(p)
+
+    assert s.durum == "OK"
+    assert s.hata_serisi == 0
+    assert s.bozuk_uyarildi is False
+    assert p.guncel_fiyat == 42000.0
+
+
+def test_beklemede_hali_sayaci_ARTIRMIYOR(db):
+    """Ayrımın diğer yarısı. "beklemede" fiyatın OKUNDUĞU ama ikinci teyidin
+    beklendiği hâldir; orada sayaç artsaydı sağlam bir kaynak üç turda
+    "bozuk" ilan edilirdi. `%60 düşüş` şüpheli sayılıp teyit bekletir."""
+    u = User(email="b@x.com", password_hash="x")
+    p = Product(ad="Ürün", izleyen_sayisi=1, guncel_fiyat=50000.0)
+    db.add_all([u, p])
+    db.commit()
+    url = "https://magaza.com/v"
+    s = Source(product_id=p.id, url=url, host="magaza.com", son_fiyat=50000.0,
+               durum="OK")
+    db.add(s)
+    db.add(Watch(user_id=u.id, product_id=p.id, hedef_fiyat=1.0))
+    db.commit()
+
+    t = Tarayici(db, SahteCekici({url: urun_sayfasi("20000")}),
+                 HostThrottle(min_gap=0))
+    t.urun_tara(p)
+
+    assert s.durum == "BEKLEMEDE", "şüpheli fiyat teyit bekliyor"
+    assert s.hata_serisi == 0, "teyit bekleyen okuma HATA sayılmamalı"
+
+
+def test_bozuk_sebebi_erisim_ile_ayristirma_hatasini_AYIRIYOR(db):
+    """Kullanıcıya doğru yeri göstermek: "sayfaya erişilemiyor" mesajı,
+    sayfa açılıyorken yanlış yönlendirir."""
+    p, _, t = _fiyatsiz_kurulum(db)
+    for _ in range(3):
+        t.urun_tara(p)
+
+    uyari = db.query(Alert).filter(Alert.tur == "KAYNAK_BOZUK").one()
+    assert "fiyat bulunamıyor" in uyari.mesaj
+    assert "sayfaya erişilemiyor" not in uyari.mesaj

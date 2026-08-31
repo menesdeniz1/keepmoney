@@ -306,3 +306,48 @@ def test_fiyati_olmayan_sayfa_ek_beklemeden_sonra_yine_doner(sunucu, cekici,
                         "fiyat_secici": "#asla-olmayan-secici"})
     assert cekim.yontem == "playwright", cekim.hata
     assert cekim.html                                       # gövde YİNE geldi
+
+
+# ── Çöken tarayıcıdan toparlanma ─────────────────────────────────
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): tarayıcı bir kez çöktüğünde art arda üç çekim
+# de `TargetClosedError` verdi ve süreç KENDİNİ TOPARLAMADI. `HttpCekici`
+# tarayıcıyı süreç ömrü boyunca yeniden kullanıyor (`_playwright_baslat`,
+# `_sayfa` doluysa erken dönüyor) ve çöken örneği kimse temizlemiyordu.
+#
+# Üretimdeki karşılığı ağır: `render: true` isteyen siteler — Amazon,
+# Trendyol, akakçe, n11, Hepsiburada, cimri, tebilon, yani pazarın çoğu —
+# worker ELLE yeniden başlatılana kadar hiç okunmaz. Süreç ölmediği için
+# `restart: unless-stopped` da devreye girmez: konteyner sağlıklı görünür,
+# tarama durur.
+
+def test_coken_tarayici_sonraki_cekimde_yeniden_aciliyor(
+        sunucu, cekici, yerel_ag_serbest):
+    """Asıl regresyon. Çökme BİR çekime mal olur, kalıcı arızaya değil."""
+    ilk = cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert ilk.html, f"ilk çekim başarısız: {ilk.hata}"
+
+    # Gerçek çökmenin taklidi: tarayıcı ayağımızın altından kapanıyor.
+    cekici._sayfa.context.browser.close()
+
+    cokerken = cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert cokerken.html is None, "çökme anındaki çekim başarısız olmalı"
+
+    sonraki = cekici._playwright(f"{sunucu}/js", {"render": True})
+    assert sonraki.html, (
+        "tarayıcı çökmesinden sonra toparlanmadı — worker elle yeniden "
+        f"başlatılana kadar render:true siteler okunamaz. Hata: {sonraki.hata}")
+
+
+def test_saglam_tarayici_hata_sonrasi_ATILMIYOR(sunucu, cekici,
+                                                yerel_ag_serbest):
+    """Ayrımın diğer yarısı: tek bir bozuk sayfa ya da zaman aşımı yüzünden
+    chromium'u yeniden başlatmak, düzelttiğinden çok maliyet getirirdi.
+    Var olmayan bir yol 404 verir; tarayıcı sağlamdır ve KORUNMALI."""
+    assert cekici._playwright(f"{sunucu}/js", {"render": True}).html
+    onceki_sayfa = cekici._sayfa
+
+    cekici._playwright(f"{sunucu}/olmayan-yol", {"render": True})
+
+    assert cekici._sayfa is onceki_sayfa, (
+        "sağlam tarayıcı gereksiz yere kapatıldı")

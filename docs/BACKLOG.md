@@ -1016,6 +1016,37 @@ Ayrıca `compose.yaml` 8000 ve 9100'ü tüm arayüzlere yayınlıyordu; ikisi de
 veritabanında hiç görünmüyor. Yeni göç iki yönde de yerel `ALTER TABLE`
 kullanıyor; `tests/test_gocler.py` bunu veriyle kalıcı olarak sınıyor.
 
+### Bağımsız üretim denetimi (aynı gün, ikinci tur)
+
+Yukarıdaki denetim API/veri katmanına bakıyordu. İkinci tur ÜRÜNÜN
+ÇEKİRDEĞİNİ gerçek çalıştırarak izledi (gerçek HTTP sunucusu → çekici →
+worker → veritabanı → uyarı → Telegram kuyruğu) ve **dört P1 daha** çıktı.
+Dördü de ölçüldü, düzeltildi, mutasyonla doğrulandı:
+
+1. **Fiyat okunamadığında kullanıcı HİÇ haber almıyordu.** Ürünün en olası
+   üretim arızası bu: mağaza HTML'ini değiştirir, seçici tutmaz. 5 tur üst
+   üste okuma başarısız oldu, `hata_serisi` 0'da kaldı, `KAYNAK_BOZUK`
+   uyarısı üretilmedi — üstelik `son_kontrol` her turda tazelendiği için
+   ekranda haftalarca eski fiyat "az önce kontrol edildi" etiketiyle
+   duruyordu. Kök sebep: `karar.dogrula`nın "fiyat-yok" cevabı, fiyatın
+   OKUNDUĞU "beklemede" hâliyle aynı kefeye konuyordu.
+2. **Çöken tarayıcı kalıcı arızaya dönüyordu.** Chromium süreç ömrü boyunca
+   yeniden kullanılıyor ama çöktüğünde temizlenmiyordu: art arda üç çekim de
+   `TargetClosedError` verdi ve toparlanmadı. `render: true` isteyen siteler
+   (Amazon, Trendyol, akakçe, n11, Hepsiburada — pazarın çoğu) worker ELLE
+   yeniden başlatılana kadar okunmaz; süreç ölmediği için
+   `restart: unless-stopped` de devreye girmez.
+3. **Parola sıfırlama token'ı loga sızıyordu.** Üretimde SMTP tanımsızsa
+   (yalnızca uyarı, engelleme yok) gövde loglanıyor ve gövde ham token
+   taşıyor. Token'lar veritabanında tam bu yüzden hash'li tutuluyor;
+   loglar çoğu kurulumda veritabanından geniş erişimli.
+4. **Bir kullanıcı botu bloklayınca HERKESİN bildirimi duruyordu.** İletim
+   kuyruğu `created_at` sıralı + `limit`li, başarısız uyarı sonsuza kadar
+   yeniden deneniyordu. 30 tıkalı uyarı + 1 yeni uyarıyla 5 tur koşuldu:
+   yeni uyarı bir kez bile denenmedi. `alerts.telegram_deneme` sayacı geldi
+   (göç `846b4730b906`); eşiği aşan uyarı denemeden çıkar ama
+   `telegram_gonderildi` bayrağı ÇEVRİLMEZ — gönderilmedi.
+
 ### Ürün olarak yayına açmadan önce kalanlar — KOD İŞİ DEĞİL
 
 - **KVKK/gizlilik metni ve kullanım şartları yok.** E-posta topluyoruz; bu

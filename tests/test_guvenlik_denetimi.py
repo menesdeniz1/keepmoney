@@ -298,3 +298,70 @@ def test_uretimde_tokensiz_metrics_kapali(istemci, monkeypatch, ayar_sifirla):
 def test_saglik_ucu_her_zaman_acik(istemci):
     """Yük dengeleyici token taşımaz; sağlık ucu korumaya girmemeli."""
     assert istemci.get("/saglik").status_code == 200
+
+
+# ══════════ 4. Parola sıfırlama token'ı loga sızıyordu ══════════
+#
+# ÖLÇÜLDÜ (düzeltmeden önce): `KEEPMONEY_ORTAM=uretim` + SMTP tanımsızken
+# `postaci()` geliştirme postacısına düşüyor ve e-posta GÖVDESİNİ loga
+# yazıyordu — gövde sıfırlama bağlantısını, bağlantı da ham token'ı taşır.
+#
+# Token'lar veritabanında HASH'Lİ saklanıyor (guvenlik.token_hashle) tam da
+# "yedek sızarsa hesap devralınmasın" diye. Ham token'ı loga yazmak o
+# korumayı anlamsız kılıyordu, üstelik daha geniş erişimli bir yere: loglar
+# çoğu kurulumda merkezî toplayıcıya akar.
+#
+# Bu yapılandırma yalnızca UYARI veriyor, açılışı ENGELLEMİYOR — yani
+# gerçekten oluşabilir.
+
+def _postaci_loglari(monkeypatch, ortam: str) -> list[tuple[str, dict]]:
+    from keepmoney import eposta
+
+    monkeypatch.setenv("KEEPMONEY_ORTAM", ortam)
+    monkeypatch.setenv("KEEPMONEY_SMTP_SUNUCU", "")
+    if ortam == "uretim":
+        monkeypatch.setenv("KEEPMONEY_CORS_KAYNAKLARI", "https://ornek.test")
+    ayarlar.cache_clear()
+
+    kayit: list[tuple[str, dict]] = []
+
+    class Yakala:
+        def info(self, olay, **kw):
+            kayit.append((olay, kw))
+
+        def warning(self, olay, **kw):
+            kayit.append((olay, kw))
+
+    monkeypatch.setattr(eposta, "logger", Yakala())
+    eposta.postaci().gonder(
+        "kurban@ornek.com", "Parola sıfırlama",
+        "Bağlantı:\nhttps://site/parola-sifirla?token=GIZLI_TOKEN_123")
+    return kayit
+
+
+def test_uretimde_sifirlama_tokeni_loga_YAZILMIYOR(monkeypatch, ayar_sifirla):
+    kayit = _postaci_loglari(monkeypatch, "uretim")
+    assert kayit, "eksik yapılandırma en azından loglanmalı"
+    assert not any("GIZLI_TOKEN_123" in str(kw) for _, kw in kayit), (
+        "parola sıfırlama token'ı düz metin olarak loga yazıldı — "
+        "log erişimi olan herkes hesabı devralabilir")
+    assert not any("govde" in kw for _, kw in kayit), "gövde loglanmamalı"
+
+
+def test_uretimde_gonderilemeyen_eposta_BASARILI_sayilmiyor(monkeypatch,
+                                                            ayar_sifirla):
+    """`True` dönmek "gönderildi" demektir; gönderilmedi."""
+    from keepmoney import eposta
+
+    monkeypatch.setenv("KEEPMONEY_ORTAM", "uretim")
+    monkeypatch.setenv("KEEPMONEY_SMTP_SUNUCU", "")
+    monkeypatch.setenv("KEEPMONEY_CORS_KAYNAKLARI", "https://ornek.test")
+    ayarlar.cache_clear()
+    assert eposta.postaci().gonder("a@b.c", "k", "g") is False
+
+
+def test_gelistirmede_baglanti_HALA_loglaniyor(monkeypatch, ayar_sifirla):
+    """Geliştirme kolaylığı KORUNMALI: SMTP kurmadan akışı denemenin tek
+    yolu log satırındaki bağlantı."""
+    kayit = _postaci_loglari(monkeypatch, "gelistirme")
+    assert any("GIZLI_TOKEN_123" in str(kw) for _, kw in kayit)
