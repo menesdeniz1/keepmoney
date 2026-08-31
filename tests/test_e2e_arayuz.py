@@ -231,7 +231,12 @@ def test_acilista_giris_ekrani(sayfa, sunucu):
 def test_kayit_ve_panel(sayfa, sunucu):
     _kayit_ol(sayfa, sunucu)
     assert sayfa.get_by_role("heading", name="Takip listem").is_visible()
-    assert "Henüz ürün eklemedin" in sayfa.content()      # boş durum
+    # BACKLOG H2 — HENİZ HİÇ ÜRÜNÜ OLMAMIŞ kullanıcının boş paneli artık
+    # tek satırlık "Henüz ürün eklemedin" kutusu değil, üç adımlı rehber.
+    # O kısa satır KALDIRILMADI: rehber bir kez bittiğinde (ürün eklenip
+    # sonra hepsi silindiğinde) geri geliyor — bkz.
+    # `test_takipten_cikarma_onay_ister`, o test hâlâ o metni bekliyor.
+    assert "Üç adımda başla" in sayfa.content()          # boş durum
 
 
 def test_cikis_oturumu_gercekten_kapatir(sayfa, sunucu):
@@ -2414,5 +2419,106 @@ def test_bos_panelde_csv_dugmesi_yok(sayfa, sunucu):
     """Yalnızca başlık satırından ibaret bir dosya indirmek "bir şey ters
     gitti" hissi verir; hiç ürün yokken düğme DOM'a girmiyor."""
     _kayit_ol(sayfa, sunucu)
-    sayfa.wait_for_selector("text=Henüz ürün eklemedin", timeout=15000)
+    # H2'den beri yeni kullanıcının boş paneli rehberi gösteriyor.
+    sayfa.wait_for_selector("text=Üç adımda başla", timeout=15000)
     expect(sayfa.get_by_role("link", name="CSV indir")).to_have_count(0)
+
+
+# ── BACKLOG H2: panel ilk açılış rehberi ─────────────────────────
+
+def _ornek_link() -> str:
+    """Rehberdeki örnek adresi KAYNAKTAN okur.
+
+    Testin içine ikinci bir kopya yazmak, sabit değiştiğinde testin
+    "geçmeye devam ederken yanlış şeyi doğruladığı" hâle gelmesi demekti.
+    `tests/test_siteler.py` aynı sabiti kural dosyalarıyla eşliyor; ikisi
+    birlikte sabiti hem geçerli hem desteklenen tutuyor."""
+    kaynak = (KOK / "arayuz" / "src" / "yardimcilar" / "rehber.ts"
+              ).read_text(encoding="utf-8")
+    eslesme = re.search(r"export const ORNEK_LINK\s*=\s*\n?\s*'([^']+)'", kaynak)
+    assert eslesme, "rehber.ts içinde ORNEK_LINK bulunamadı"
+    return eslesme.group(1)
+
+
+def test_yeni_kullanicida_uc_adimli_rehber_gorunuyor(sayfa, sunucu):
+    """BACKLOG H2 — "üç adım: link yapıştır → sinyal birikirken bekle →
+    uyarı kur". Üçünün de EKRANDA olduğu doğrulanıyor; ikinci adım A7'nin
+    bulgusunu önceden söylediği için asıl değerli olan o."""
+    _kayit_ol(sayfa, sunucu)
+    sayfa.wait_for_selector("text=Üç adımda başla", timeout=15000)
+
+    icerik = sayfa.content()
+    assert "Bir ürün linki yapıştır" in icerik
+    assert "Fiyat hafızası birikirken bekle" in icerik
+    assert "Uyarı kur" in icerik
+    # Adımlar SIRALI bir liste olmalı: ekran okuyucu "3 öğeden 2." desin.
+    expect(sayfa.locator("section[aria-labelledby='rehber-basligi'] ol li")
+           ).to_have_count(3)
+    assert not sayfa.sunucu_hatalari
+
+
+def test_ornek_link_url_kutusunu_dolduruyor(sayfa, sunucu):
+    """BACKLOG H2 — "örnek link (tıklayınca kutuya dolar)". Kutuyu DOLDURUR
+    ama GÖNDERMEZ: kullanıcı ne eklediğini görmeden "Takibe al"a basılmış
+    olmamalı."""
+    _kayit_ol(sayfa, sunucu)
+    sayfa.wait_for_selector("text=Üç adımda başla", timeout=15000)
+
+    kutu = sayfa.locator("input[type=url]")
+    expect(kutu).to_have_value("")
+
+    sayfa.get_by_role("button", name="Elimde link yok, örnekle dene").click()
+    expect(kutu).to_have_value(_ornek_link())
+    # Kendiliğinden EKLENMEDİ: liste hâlâ boş, rehber duruyor.
+    expect(sayfa.locator("a[href^='/izleme/']")).to_have_count(0)
+    assert "Üç adımda başla" in sayfa.content()
+    assert not sayfa.sunucu_hatalari
+
+
+def test_ilk_urun_eklenince_rehber_kayboluyor_ve_geri_gelmiyor(sayfa, sunucu):
+    """BACKLOG H2 kabul ölçütü: "ilk ürün eklenince rehber kaybolur, GERİ
+    GELMEZ".
+
+    Dört aşama birden sınanıyor çünkü her biri BAŞKA bir mekanizmayı
+    yakalıyor:
+      1. ürün eklenince kaybolur,
+      2. liste doluyken yenilenince gelmez,
+      3. ürünün HEPSİ silinip liste boşalınca gelmez (aynı SPA oturumu),
+      4. BİR DE boş listeyle YENİDEN YÜKLENİNCE gelmez.
+
+    4. ŞART: 1-3 arası tek başına, kalıcılık TAMAMEN BOZUKKEN de GEÇİYOR
+    — ÖLÇÜLDÜ. Sebebi: 3. aşamada React durumu (`rehberBitti`) aynı SPA
+    oturumunda zaten `true` olmuş oluyor, localStorage'a hiç bakılmıyor.
+    localStorage yolunu gerçekten koşturan tek adım, LİSTE BOŞKEN yapılan
+    sayfa yenilemesi.
+    """
+    _kayit_ol(sayfa, sunucu)
+    sayfa.wait_for_selector("text=Üç adımda başla", timeout=15000)
+
+    _urun_ekle(sayfa, hedef="")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    expect(sayfa.get_by_text("Üç adımda başla")).to_have_count(0)
+
+    # 2. Yenileme: tercih localStorage'da, sunucuda değil.
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+    expect(sayfa.get_by_text("Üç adımda başla")).to_have_count(0)
+
+    # 3. Tek ürünü de sil → liste yine boş, ama rehber DÖNMEMELİ.
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("text=Takipten çıkar", timeout=15000)
+    sayfa.get_by_role("button", name="Takipten çıkar").first.click()
+    sayfa.wait_for_selector("dialog[open]", timeout=5000)
+    sayfa.locator("dialog[open]").get_by_role(
+        "button", name="Takipten çıkar").click()
+
+    sayfa.wait_for_selector("text=Henüz ürün eklemedin", timeout=15000)
+    expect(sayfa.get_by_text("Üç adımda başla")).to_have_count(0)
+
+    # 4. Boş listeyle YENİDEN YÜKLE: React durumu sıfırlanır, karar artık
+    # yalnızca localStorage'dan gelir. Kalıcılığı gerçekten sınayan
+    # TEK adım budur (bkz. docstring).
+    sayfa.reload(wait_until="networkidle")
+    sayfa.wait_for_selector("text=Henüz ürün eklemedin", timeout=15000)
+    expect(sayfa.get_by_text("Üç adımda başla")).to_have_count(0)
+    assert not sayfa.sunucu_hatalari

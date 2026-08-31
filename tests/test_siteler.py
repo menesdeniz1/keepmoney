@@ -282,3 +282,28 @@ def test_bozuk_kural_dosyasi_sessizce_atlanmaz(tmp_path, monkeypatch):
         assert ("site_kurali_domainsiz", "adsiz_com.yaml") in olaylar
     finally:
         s._tum_kurallar.cache_clear()                   # gerçek kurallara dön
+
+
+# ── Arayüzdeki örnek link ile kural dosyaları arasındaki bağ ─────
+
+def test_rehberdeki_ornek_link_kurali_tanimli_bir_magazayi_gosteriyor():
+    """BACKLOG H2 — panel rehberindeki "örnekle dene" bağlantısı.
+
+    Yeni kullanıcının SİSTEMDEKİ İLK ÜRÜNÜ bu link oluyor; kuralı olmayan
+    bir mağazaya çevrilirse varsayılan zincire kalır ve fiyat okunamayan
+    bir üründen ibaret bir ilk deneyim üretir. Sabit arayüzde (TypeScript)
+    yaşıyor, kurallar burada (YAML) — iki tarafı hiçbir derleyici
+    bağlamıyor, bağlayan tek şey bu test.
+    """
+    import pathlib
+    import re
+
+    kaynak = (pathlib.Path(__file__).resolve().parents[1]
+              / "arayuz" / "src" / "yardimcilar" / "rehber.ts"
+              ).read_text(encoding="utf-8")
+    eslesme = re.search(r"export const ORNEK_LINK\s*=\s*\n?\s*'([^']+)'", kaynak)
+    assert eslesme, "rehber.ts içinde ORNEK_LINK bulunamadı"
+
+    host = host_cikar(eslesme.group(1))
+    assert host in tanimli_siteler(), (
+        f"{host} için keepmoney/siteler/ altında kural dosyası yok")

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 
 import {
@@ -10,6 +10,7 @@ import {
 } from '../api/kancalar'
 import { csvAdresleri } from '../api/istemci'
 import CsvIndir from '../bilesenler/CsvIndir'
+import IlkAcilisRehberi from '../bilesenler/IlkAcilisRehberi'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
 import IzlemeTablosu from '../bilesenler/IzlemeTablosu'
 import ListeKontrol from '../bilesenler/ListeKontrol'
@@ -22,6 +23,7 @@ import {
   SIRALAMA_ANAHTARI,
   type SiralamaSecenegi,
 } from '../yardimcilar/siralama'
+import { rehberBaslangici, rehberGorunurMu, rehberiBitir } from '../yardimcilar/rehber'
 import { izlemeleriSuz, SUZGEC_BOS, suzgecBosMu, type SuzgecDurumu } from '../yardimcilar/suzme'
 
 // BACKLOG C3 — "768px altında her zaman kart". Tailwind'in `md:` eşiğiyle
@@ -52,6 +54,32 @@ export default function Panel() {
   // görünüm her zaman kart'a düşer (bkz. yardimcilar/gorunum.ts).
   const genisEkran = useGenisEkran(TABLO_ESIGI_PX)
   const efektifGorunumDegeri = efektifGorunum(gorunum, genisEkran)
+
+  // BACKLOG H2 — rehber "ilk ürün eklenince kaybolur, GERİ GELMEZ".
+  // Bayrak, listede ürün GÖRÜLDÜĞÜ anda yazılır; kullanıcı sonradan
+  // hepsini silse bile rehber dönmez. `izlemeler` değişmedikçe efekt
+  // yeniden koşmuyor, `rehberiBitir()` de idempotent — her render'da
+  // localStorage'a yazma riski yok.
+  const [rehberBitti, setRehberBitti] = useState(rehberBaslangici)
+  const urlKutusu = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (izlemeler && izlemeler.length > 0 && !rehberBitti) {
+      rehberiBitir()
+      setRehberBitti(true)
+    }
+  }, [izlemeler, rehberBitti])
+
+  const rehberGorunur = rehberGorunurMu(rehberBitti, izlemeler?.length)
+
+  // Örnek link kutuyu doldurur ama GÖNDERMEZ: kullanıcı ne eklediğini
+  // görmeden "Takibe al"a basılmış olmasın. Odak kutuya taşınıyor —
+  // mobilde rehber formun ALTINDA kalıyor ve odak olmadan kutunun
+  // dolduğu ekranda hiç görünmezdi.
+  function ornekLinkiKullan(ornek: string) {
+    setUrl(ornek)
+    urlKutusu.current?.focus()
+  }
 
   function siralamaDegistir(secenek: SiralamaSecenegi) {
     setSiralama(secenek)
@@ -150,6 +178,7 @@ export default function Panel() {
                    sm:flex-row dark:border-slate-800 dark:bg-slate-900"
       >
         <input
+          ref={urlKutusu}
           type="url"
           required
           value={url}
@@ -207,7 +236,14 @@ export default function Panel() {
 
       {isLoading && <p className="text-sm text-slate-500">Yükleniyor…</p>}
 
-      {izlemeler?.length === 0 && (
+      {rehberGorunur && <IlkAcilisRehberi onOrnekLink={ornekLinkiKullan} />}
+
+      {/* BACKLOG H2 — rehber GÖRÜNÜYORKEN bu kutu ÇİZDİRİLMEZ: ikisi
+          aynı şeyi söylüyor ("bir link yapıştır") ve alt alta iki kez
+          okumak, rehberi bir hata mesajı gibi gösterirdi. Rehber bir kez
+          bittiğinde (ürün eklenip sonra hepsi silindiğinde) bu kısa
+          satır geri gelir — artık kullanıcı akışı biliyor. */}
+      {izlemeler?.length === 0 && !rehberGorunur && (
         <div className="rounded-lg border border-dashed border-slate-300 p-8
                         text-center text-sm text-slate-500 dark:border-slate-700">
           Henüz ürün eklemedin. Yukarıya bir link yapıştırarak başla.
