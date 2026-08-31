@@ -2168,3 +2168,99 @@ def test_stok_bosluğu_yoksa_aciklama_gorunmez(sayfa, sunucu):
 
     assert sayfa.get_by_text("kesik çizgi = stokta yok").count() == 0
     assert not sayfa.sunucu_hatalari
+
+
+def _urun_yanitini_tooltip_icin_hazirla(s: Page, gecmis: list, tum_zamanlar_dibi_tarih: str):
+    """BACKLOG B5 — `_urun_yanitini_gecmisle_degistir`in tekil hâli: tam bir
+    `baglam` (medyana göre fark ve tüm zamanlar dibi tooltip'te okunabilsin
+    diye) ve TEK bir kaynak (birleşik görünümde "hangi mağaza" bilinsin
+    diye) enjekte eder."""
+    def islemci(rota):
+        yanit = rota.fetch()
+        veri = yanit.json()
+        veri["urun"]["gecmis"] = gecmis
+        veri["urun"]["seriler"] = []
+        veri["urun"]["baglam"] = {
+            "sinyal": "ucuz", "emoji": "🟡", "yorum": "test", "dip90": 900.0,
+            "medyan90": 1000.0, "yuzdelik": 80, "tum_zamanlar_dibi": 900.0,
+            "tum_zamanlar_dibi_tarih": tum_zamanlar_dibi_tarih, "en_dusuk_gun": 0,
+            "gun_sayisi": len(gecmis), "sahte_indirim": False,
+            "trend_yonu": "sabit", "iyi_firsat": False,
+        }
+        sablon = veri["urun"]["kaynaklar"][0]
+        ortak = {"cikis_url": "", "ortaklik": False, "satici_sayisi": None,
+                 "ikinci_fiyat": None, "son_kontrol": "2026-01-01T00:00:00"}
+        veri["urun"]["kaynaklar"] = [
+            {**sablon, **ortak, "id": 101, "satici": "Test Mağazası",
+             "son_fiyat": gecmis[-1]["fiyat"], "durum": "OK",
+             "host": "test-magaza.com", "url": "https://test-magaza.com/x"},
+        ]
+        rota.fulfill(response=yanit, json=veri)
+
+    s.route(re.compile(r"/api/izlemeler/\d+$"), islemci)
+
+
+def test_grafik_tooltipi_dokununca_sabitlenir_ve_kaybolmaz(sayfa, sunucu):
+    """BACKLOG B5 kabul ölçütü: telefonda dokununca tooltip çıkıyor ve
+    kaybolmuyor. recharts'ın kendi hover/dokunma durumuna güvenilmiyor
+    (bkz. FiyatGrafigi.tsx yorumu) — tıklama (dokunuşun tarayıcıda ürettiği
+    olay) noktayı SABİTLER, fare imleci başka yere gitse de kutu kalır."""
+    gecmis = [
+        {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+        {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True},
+        {"gun": "2026-01-03", "fiyat": 900.0, "stokta": True},
+    ]
+    _urun_yanitini_tooltip_icin_hazirla(sayfa, gecmis, "2026-01-03")
+    sayfa.set_viewport_size({"width": 375, "height": 812})
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    grafik = sayfa.locator(".recharts-surface")
+    kutu = grafik.bounding_box()
+    assert kutu is not None
+    # Son nokta: sağ kenara yakın bir yere dokunmak en yakın (son) noktayı
+    # seçer — recharts kategorik eksende en yakın indekse yuvarlar.
+    sayfa.mouse.click(kutu["x"] + kutu["width"] * 0.95, kutu["y"] + kutu["height"] * 0.5)
+
+    kapat = sayfa.get_by_role("button", name="kapat ✕")
+    expect(kapat).to_be_visible(timeout=5000)
+    assert "Test Mağazası" in sayfa.content()
+
+    # Fare/dokunuş BAŞKA bir yere gitse de kutu KALIR (asıl kabul ölçütü).
+    sayfa.mouse.move(kutu["x"] - 50, kutu["y"] - 50)
+    sayfa.wait_for_timeout(300)
+    expect(kapat).to_be_visible()
+
+    kapat.click()
+    expect(kapat).to_have_count(0)
+    assert not sayfa.sunucu_hatalari
+
+
+def test_tum_zamanlar_dibi_gunu_tooltipte_isaretli(sayfa, sunucu):
+    """BACKLOG B5 kabul ölçütü: tüm zamanlar dibi olan gün ayrıca
+    işaretli."""
+    gecmis = [
+        {"gun": "2026-01-01", "fiyat": 1000.0, "stokta": True},
+        {"gun": "2026-01-02", "fiyat": 950.0, "stokta": True},
+        {"gun": "2026-01-03", "fiyat": 900.0, "stokta": True},
+    ]
+    _urun_yanitini_tooltip_icin_hazirla(sayfa, gecmis, "2026-01-03")
+    _detaya_git(sayfa, sunucu)
+    sayfa.wait_for_selector("svg", timeout=15000)
+
+    grafik = sayfa.locator(".recharts-surface")
+    kutu = grafik.bounding_box()
+    assert kutu is not None
+    sayfa.mouse.click(kutu["x"] + kutu["width"] * 0.95, kutu["y"] + kutu["height"] * 0.5)
+    # Fareyi grafikten UZAĞA taşı: geçici hover kutusu bunula kaybolur,
+    # kalan HER ŞEY sabitlenmiş (tıklamayla açılan) kutudan gelmeli — aksi
+    # hâlde bu test hover yoluyla YANLIŞLIKLA geçebilir (sabitleme
+    # tamamen bozulsa bile).
+    sayfa.mouse.move(kutu["x"] - 50, kutu["y"] - 50)
+    sayfa.wait_for_timeout(300)
+
+    # Sayfada BAŞKA bir cümle de "...tüm zamanların dibini..." geçiriyor
+    # (E3 uyarı kurulumu açıklaması) — rozet emojisiyle birlikte aranır,
+    # aksi hâlde strict mode iki eşleşme bulup patlar.
+    expect(sayfa.get_by_text("🏆 tüm zamanların dibi")).to_be_visible(timeout=5000)
+    assert not sayfa.sunucu_hatalari

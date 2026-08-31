@@ -78,6 +78,7 @@ export default function IzlemeDetay() {
             hedefFiyat={izleme.hedef_fiyat}
             baglam={urun.baglam}
             seriler={urun.seriler}
+            kaynaklar={urun.kaynaklar}
           />
         </Suspense>
       </section>

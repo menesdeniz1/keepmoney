@@ -33,8 +33,8 @@ import {
   YAxis,
 } from 'recharts'
 
-import type { Baglam, FiyatNoktasi, KaynakSerisi } from '../api/tipler'
-import { kisaTl, tl } from '../yardimcilar/bicim'
+import type { Baglam, FiyatNoktasi, Kaynak, KaynakSerisi } from '../api/tipler'
+import { kisaTl, tl, yuzde } from '../yardimcilar/bicim'
 import {
   GRAFIK_ARALIK_ANAHTARI,
   GRAFIK_ARALIK_SECENEKLERI,
@@ -51,6 +51,7 @@ import {
   kaynakStili,
 } from '../yardimcilar/kaynakRenkleri'
 import { stokBosluklariniBul } from '../yardimcilar/stokBosluklari'
+import { magazaAdi, tooltipVerisiOlustur, type TooltipVerisi } from '../yardimcilar/tooltipVerisi'
 
 interface Props {
   gecmis: FiyatNoktasi[]
@@ -58,6 +59,56 @@ interface Props {
   baglam?: Baglam | null
   yukseklik?: number
   seriler?: KaynakSerisi[]
+  // BACKLOG B5 — tooltip'te "hangi mağaza" göstermek için. Tek kaynaklı
+  // üründe (`seriler` boş) BİRLEŞİK görünümde de kullanılır; çok kaynaklı
+  // üründe her çizginin adı zaten kendi mağazasını taşıyor.
+  kaynaklar?: Kaynak[]
+}
+
+/**
+ * BACKLOG B5 — hover (fare) ve "sabitlenmiş" (dokunmatik tık) tooltip AYNI
+ * kutuyu paylaşır: ıraksama olursa masaüstünde görülen ile telefonda
+ * görülen farklı bilgi taşırdı.
+ */
+function TooltipKutusu({ gun, veriler }: { gun: string; veriler: TooltipVerisi[] }) {
+  if (veriler.length === 0) return null
+  return (
+    <div
+      className="min-w-[150px] rounded-lg border border-slate-200 bg-white p-2.5
+                 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
+    >
+      <div className="font-medium text-slate-700 dark:text-slate-300">{gun}</div>
+      {veriler[0]!.tumZamanlarDibiMi && (
+        <div
+          className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5
+                     text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+        >
+          🏆 tüm zamanların dibi
+        </div>
+      )}
+      <div className="mt-1.5 space-y-1.5">
+        {veriler.map((v, i) => (
+          <div key={i}>
+            {v.magaza && (
+              <div className="text-[11px] text-slate-400 dark:text-slate-500">{v.magaza}</div>
+            )}
+            <div className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+              {v.fiyat == null ? 'Stokta yok' : tl(v.fiyat)}
+            </div>
+            {v.medyanFarki != null && (
+              <div
+                className={v.medyanFarki < 0
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-slate-500 dark:text-slate-400'}
+              >
+                medyana göre {yuzde(v.medyanFarki)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 const SINYAL_RENGI: Record<string, string> = {
@@ -77,13 +128,21 @@ export default function FiyatGrafigi({
   baglam,
   yukseklik = 280,
   seriler = [],
+  kaynaklar = [],
 }: Props) {
   const [araligi, setAraligi] = useState<GrafikAraligi>(grafikBaslangicAraligi)
   const [ayrilmisMi, setAyrilmisMi] = useState(false)
   const [gizliKaynaklar, setGizliKaynaklar] = useState<Set<number>>(new Set())
+  // BACKLOG B5 — "telefonda dokununca tooltip çıkıyor ve kaybolmuyor".
+  // recharts'ın kendi hover/dokunma durumuna GÜVENMİYORUZ (dokunuşta
+  // `touchend` çoğu tarayıcıda `mouseleave` gibi davranıp tooltip'i hemen
+  // kapatıyor) — tıklama recharts'ta hem fare hem dokunma için AYNI, tek
+  // ve güvenilir olay. Sabitlenen nokta yalnızca elle kapatılır.
+  const [sabitNokta, setSabitNokta] = useState<{ gun: string; x: number; y: number } | null>(null)
 
   function araligiSec(yeni: GrafikAraligi) {
     setAraligi(yeni)
+    setSabitNokta(null)
     try {
       localStorage.setItem(GRAFIK_ARALIK_ANAHTARI, yeni)
     } catch {
@@ -92,12 +151,22 @@ export default function FiyatGrafigi({
   }
 
   function kaynagiAcKapa(kaynakId: number) {
+    setSabitNokta(null)
     setGizliKaynaklar((onceki) => {
       const yeni = new Set(onceki)
       if (yeni.has(kaynakId)) yeni.delete(kaynakId)
       else yeni.add(kaynakId)
       return yeni
     })
+  }
+
+  function grafigeTiklandi(state: { activeLabel?: string; activeCoordinate?: { x: number; y: number } }) {
+    if (state?.activeLabel == null || !state.activeCoordinate) return
+    const gun = state.activeLabel
+    const { x, y } = state.activeCoordinate
+    // Aynı noktaya tekrar dokununca kapanır — sabitlemeyi kaldırmanın en
+    // doğal yolu, ayrı bir "kapat" düğmesi aramaya gerek kalmaz.
+    setSabitNokta((onceki) => (onceki?.gun === gun ? null : { gun, x, y }))
   }
 
   const secilenGun = GRAFIK_ARALIK_SECENEKLERI.find((s) => s.deger === araligi)?.gun ?? null
@@ -163,6 +232,35 @@ export default function FiyatGrafigi({
   // görünmez yapar ve grafiği işe yaramaz hâle getirir.
   const pay = Math.max((enYuksek - enDusuk) * 0.15, enDusuk * 0.02)
 
+  // BACKLOG B5 — hover VE sabitlenmiş tooltip AYNI günü AYNI şekilde
+  // çözer. Ayrılmış görünümde görünür her çizgi için bir satır; birleşik
+  // görünümde tek satır, mağaza YALNIZCA tek kaynaklı üründe biliniyor
+  // (bkz. tooltipVerisi.ts — çok kaynaklı üründe "Mağazalara ayır" bu
+  // soruyu zaten cevaplıyor).
+  function noktaVerileriniOlustur(gun: string): TooltipVerisi[] {
+    if (ayrilmisMi) {
+      return gorunurSeriler
+        .map((s) => {
+          const nokta = s.noktalar.find((n) => n.gun === gun)
+          if (!nokta) return null
+          const kaynakBilgisi = kaynaklar.find((k) => k.id === s.kaynak_id)
+          return tooltipVerisiOlustur(nokta, {
+            medyan90: baglam?.medyan90,
+            tumZamanlarDibiTarih: baglam?.tum_zamanlar_dibi_tarih,
+            magaza: kaynakBilgisi ? magazaAdi(kaynakBilgisi) : s.host,
+          })
+        })
+        .filter((v): v is TooltipVerisi => v !== null)
+    }
+    const nokta = veri.find((n) => n.gun === gun)
+    if (!nokta) return []
+    return [tooltipVerisiOlustur(nokta, {
+      medyan90: baglam?.medyan90,
+      tumZamanlarDibiTarih: baglam?.tum_zamanlar_dibi_tarih,
+      magaza: kaynaklar.length === 1 ? magazaAdi(kaynaklar[0]!) : null,
+    })]
+  }
+
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -209,9 +307,13 @@ export default function FiyatGrafigi({
         )}
       </div>
 
-      <ResponsiveContainer width="100%" height={yukseklik}>
-        <LineChart data={ayrilmisMi ? cokluVeri : veri}
-                   margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+      {/* `relative` — sabitlenmiş tooltip (B5) recharts'ın verdiği piksel
+          koordinatına göre BU kutunun içinde konumlanıyor. */}
+      <div className="relative">
+        <ResponsiveContainer width="100%" height={yukseklik}>
+          <LineChart data={ayrilmisMi ? cokluVeri : veri}
+                     margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
+                     onClick={grafigeTiklandi}>
           <defs>
             {/* BACKLOG B4 — "arka plana soluk tarama deseni". 45°'lik
                 çizgiler; açık/karanlık temada da okunur kalsın diye orta
@@ -235,10 +337,16 @@ export default function FiyatGrafigi({
             tick={{ fontSize: 11 }}
             width={78}
           />
+          {/* BACKLOG B5 — özel içerik: recharts'ın varsayılan `formatter`ı
+              yalnızca ham değeri görür, `stokta`/`medyanFarki`/`magaza`ya
+              erişemez (B4'te ÖLÇÜLDÜ: null değerli satırları formatter'a
+              hiç ULAŞTIRMIYOR). Sabitlenmişken hover kutusu GİZLENİR —
+              ikisi aynı anda görünüp kafa karıştırmasın. */}
           <Tooltip
-            formatter={(v, adi) => [v == null ? 'Stokta yok' : tl(Number(v)), ayrilmisMi ? adi : 'Fiyat']}
-            labelFormatter={(g) => `${g}`}
-            contentStyle={{ fontSize: 13, borderRadius: 8 }}
+            content={({ active, label }) =>
+              active && label != null && !sabitNokta
+                ? <TooltipKutusu gun={String(label)} veriler={noktaVerileriniOlustur(String(label))} />
+                : null}
           />
 
           {stokBosluklari.map((a) => (
@@ -301,8 +409,33 @@ export default function FiyatGrafigi({
               connectNulls={false}
             />
           )}
-        </LineChart>
-      </ResponsiveContainer>
+          </LineChart>
+        </ResponsiveContainer>
+
+        {/* BACKLOG B5 — sabitlenmiş tooltip: `onClick`ten gelen SVG piksel
+            koordinatı bu `relative` kutunun içinde 1:1 karşılık düşer. Kenara
+            taşmayı tamamen engellemek yerine kabaca ortalıyor — grafiğin
+            kendisi zaten dar bir alanda (kart genişliği) çiziliyor. */}
+        {sabitNokta && (
+          <div
+            className="pointer-events-none absolute z-10"
+            style={{ left: sabitNokta.x, top: sabitNokta.y, transform: 'translate(-50%, -100%)' }}
+          >
+            <div className="pointer-events-auto -mt-2">
+              <TooltipKutusu gun={sabitNokta.gun} veriler={noktaVerileriniOlustur(sabitNokta.gun)} />
+              <button
+                type="button"
+                onClick={() => setSabitNokta(null)}
+                className="mt-1 w-full rounded bg-slate-900/85 py-1 text-center text-[11px]
+                           text-white hover:bg-slate-900 dark:bg-white/85 dark:text-slate-900
+                           dark:hover:bg-white"
+              >
+                kapat ✕
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {ayrilmisMi && (
         <div
