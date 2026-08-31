@@ -67,6 +67,29 @@ class User(Base):
     eposta_dogrulama_hash = Column(String, index=True, nullable=True)
     eposta_dogrulama_biter = Column(DateTime, nullable=True)
 
+    # OTURUM SÜRÜMÜ — token'ın hâlâ geçerli olup olmadığının ölçütü.
+    #
+    # JWT durumsuzdur: parola değişse bile eskiden verilmiş token, süresi
+    # (7 gün) dolana kadar çalışmaya devam eder. ÖLÇÜLDÜ: parola
+    # sıfırlandıktan sonra eski oturum `/api/auth/ben`den hâlâ 200
+    # alıyordu — yani hesabı ele geçirilmiş kullanıcının parolasını
+    # değiştirmesi saldırganı DIŞARI ATMIYORDU, oysa insanların bu
+    # işlemden beklediği tam olarak budur (OWASP ASVS 3.3.x).
+    #
+    # NEDEN SAYAÇ, NEDEN ZAMAN DAMGASI DEĞİL: önce "bu andan önceki
+    # token'lar geçersiz" damgası yazıldı ve TESTİ GEÇMEDİ. Sebep ölçüldü:
+    # JWT `iat` yalnızca SANİYE taşıyor, damga da saniyeye yuvarlanmak
+    # zorundaydı (yoksa sıfırlamanın hemen ardından verilen token da
+    # düşerdi) — geriye aynı saniye içinde üretilmiş token'ların
+    # kurtulduğu bir delik kalıyordu. Sayaçta böyle bir delik yok:
+    # karşılaştırma tam eşitlik.
+    #
+    # Token'da `ver` yoksa 0 sayılır — dağıtım günü kimsenin oturumu
+    # düşmesin diye. Doğruluğu bozmuyor: ilk sıfırlamada sayaç 1 olur ve
+    # `ver` taşımayan eski token o anda geçersizleşir.
+    oturum_surumu = Column(Integer, nullable=False, default=0,
+                           server_default="0")
+
     created_at = Column(DateTime, default=utc_simdi)
 
     watches = relationship("Watch", back_populates="user",

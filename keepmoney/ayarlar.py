@@ -90,6 +90,28 @@ class Ayarlar(BaseSettings):
     # dizin yoksa arayüz mount EDİLMEZ (yerel geliştirmede Vite sunar).
     arayuz_dizini: str = ""
 
+    # ── Ters vekil ────────────────────────────────────────────────
+    # HANGİ KAYNAKTAN GELEN `X-Forwarded-For` BAŞLIĞINA GÜVENİLİR.
+    # Boş (varsayılan) = HİÇBİRİNE. Başlığı istemci kendisi yazabilir;
+    # koşulsuz güvenmek hız sınırını tamamen etkisiz kılar — ÖLÇÜLDÜ:
+    # her istekte farklı bir XFF ile 40 başarısız giriş denemesinin
+    # 40'ı da 401 döndü, tek bir 429 çıkmadı (limit 8).
+    #
+    # Ters vekil arkasındaysan vekilin adresini/ağını YAZ, yoksa tüm
+    # istekler vekilin IP'sinden geliyormuş gibi görünür ve IP başına
+    # sayan limitler (kayıt) herkes için tek kovaya düşer.
+    #   KEEPMONEY_GUVENILEN_VEKILLER=10.0.0.0/8,172.18.0.0/16
+    guvenilen_vekiller: Annotated[list[str], NoDecode] = Field(
+        default_factory=list)
+
+    # ── Ölçüm ucu koruması ────────────────────────────────────────
+    # `/metrics` kimlik istemiyordu ve konteyner 8000'i doğrudan
+    # yayınlıyor: uç adresleri, istek hacimleri, hata oranları ve tarama
+    # istatistikleri herkese açıktı (ÖLÇÜLDÜ: kimliksiz 200).
+    # Tanımlıysa `Authorization: Bearer <token>` zorunlu olur.
+    # Üretimde BOŞ bırakılırsa uç KAPANIR (404) — açık bırakmaktansa.
+    metrik_tokeni: str = ""
+
     # ── Kota (ücretsiz katman) ────────────────────────────────────
     kullanici_basina_izleme_limiti: int = 30
 
@@ -120,7 +142,7 @@ class Ayarlar(BaseSettings):
     # 0 = kapalı.
     tarayici_metrik_portu: int = 9100
 
-    @field_validator("cors_kaynaklari", mode="before")
+    @field_validator("cors_kaynaklari", "guvenilen_vekiller", mode="before")
     @classmethod
     def _virgullu_liste(cls, v):
         """Hem virgüllü hem JSON biçimini kabul eder:
@@ -277,8 +299,39 @@ def ayarlar() -> Ayarlar:
     a = Ayarlar()
     _jwt_anahtarini_dogrula(a)
     _cors_dogrula(a)
+    _vekilleri_dogrula(a)
+    _metrik_dogrula(a)
     _eposta_dogrula(a)
     return a
+
+
+def _vekilleri_dogrula(a: Ayarlar) -> None:
+    """Vekil adresleri AÇILIŞTA ayrıştırılır.
+
+    Geçersiz bir CIDR sessizce atlansaydı sonuç şu olurdu: operatör
+    `10.0.0.0/33` yazar, uygulama açılır, `X-Forwarded-For` hiçbir zaman
+    güvenilir sayılmaz ve TÜM istekler vekilin IP'sinden geliyormuş gibi
+    görünür. Hız sınırı çalışıyor gibi durur ama yanlış anahtarla sayar.
+    """
+    import ipaddress
+    for giris in a.guvenilen_vekiller:
+        try:
+            ipaddress.ip_network(giris, strict=False)
+        except ValueError as e:
+            raise RuntimeError(
+                f"KEEPMONEY_GUVENILEN_VEKILLER geçersiz: '{giris}' — "
+                "IP ya da CIDR olmalı (10.0.0.0/8, 172.18.0.5)") from e
+
+
+def _metrik_dogrula(a: Ayarlar) -> None:
+    """Üretimde token yoksa UYARIR — uç kapanır (bkz. rotalar/sistem.py).
+
+    Sessizce açık bırakmaktansa sessizce kapanmak yeğdir ama ikisi de
+    sessiz olmamalı: operatör panosunun neden boş olduğunu bilmeli."""
+    if a.uretim_mi and not a.metrik_tokeni:
+        logging.getLogger("keepmoney.ayarlar").warning(
+            "KEEPMONEY_METRIK_TOKENI tanımsız — /metrics ucu KAPALI (404). "
+            "Prometheus toplayacaksa token tanımla.")
 
 
 def _eposta_dogrula(a: Ayarlar) -> None:

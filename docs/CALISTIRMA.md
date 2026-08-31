@@ -414,6 +414,14 @@ KEEPMONEY_SMTP_PORT=587
 KEEPMONEY_SMTP_KULLANICI=...
 KEEPMONEY_SMTP_PAROLA=...
 KEEPMONEY_EPOSTA_GONDEREN=KeepMoney <noreply@alanadin.com>
+
+# TERS VEKİLİN AĞI — yazılmazsa `X-Forwarded-For` YOK SAYILIR ve tüm
+# istekler vekilin IP'sinden geliyormuş gibi görünür (IP başına sayan
+# limitler herkes için tek kovaya düşer). Docker ağı için tipik değer:
+KEEPMONEY_GUVENILEN_VEKILLER=172.16.0.0/12
+
+# /metrics token'ı. BOŞ BIRAKILIRSA ÜRETİMDE UÇ KAPANIR (404).
+KEEPMONEY_METRIK_TOKENI=<token_urlsafe(32) çıktısı>
 ```
 
 ```bash
@@ -424,6 +432,11 @@ curl -fsS localhost:8000/saglik
 
 Dört süreç kalkar: `veritabani`, `gocler` (tek seferlik), `api` (:8000),
 `tarayici` (:9100 ölçüm ucu), `bot`.
+
+**Portlar YALNIZCA `127.0.0.1`e bağlı.** Önceden tüm ağ arayüzlerine
+açılıyorlardı; uygulama düz HTTP konuşuyor ve hız sınırı ters vekil arkasında
+olmayı varsayıyor, yani o kurulum TLS'siz ve frensiz bir sunucu demekti.
+Dışarıdan erişim ters vekil üzerinden olur (aşağıda).
 
 ### Önüne ters vekil koy
 
@@ -436,10 +449,17 @@ alanadin.com {
 }
 ```
 
-> Hız sınırı `X-Forwarded-For` başlığına bakar. Bu başlık **istemci
-> tarafından uydurulabilir**; yalnızca güvendiğin bir vekilin arkasındayken
-> anlamlıdır (vekil başlığı kendisi yazar). Konteyneri doğrudan internete
-> açarsan hız sınırı atlatılabilir.
+> **`KEEPMONEY_GUVENILEN_VEKILLER` DOLDURULMALI.** Hız sınırı gerçek
+> istemci IP'sini `X-Forwarded-For`dan okuyor ama başlığa **yalnızca bu
+> listedeki bir kaynaktan gelirse** güveniyor. Liste boşsa başlık tamamen
+> yok sayılır: uygulama çalışır, ama tüm istekler vekilin IP'sinden
+> geliyormuş gibi görünür ve IP başına sayan limitler (kayıt) herkes için
+> tek kovaya düşer.
+>
+> Bu koruma bir ARIZADAN geldi ve ölçüldü: başlığa koşulsuz güvenilirken her
+> istekte farklı bir `X-Forwarded-For` yazarak 40 başarısız giriş denemesinin
+> 40'ı da geçti, tek bir 429 çıkmadı (limit 8). Yani parola deneme freni
+> fiilen yoktu.
 
 ---
 
@@ -455,8 +475,18 @@ tarayici:9100/metrics   tarama sağlığı  ← asıl bakılacak yer
 
 Elle bakmak için:
 
+`/metrics` artık **token istiyor** (kimliksiz açıktı). `.env`de
+`KEEPMONEY_METRIK_TOKENI` tanımlıysa Prometheus şu başlıkla toplamalı:
+
+```yaml
+authorization: { type: Bearer, credentials: <KEEPMONEY_METRIK_TOKENI> }
+```
+
+Üretimde token BOŞ bırakılırsa uç 404 döner (açılışta uyarılır) — kimliksiz
+açık bırakmaktansa kapalı.
+
 ```bash
-curl -s localhost:9100/metrics | grep keepmoney_kaynak_okuma
+curl -s -H "Authorization: Bearer $KEEPMONEY_METRIK_TOKENI"      localhost:9100/metrics | grep keepmoney_kaynak_okuma
 curl -s localhost:9100/metrics | grep keepmoney_fiyat_guveni
 ```
 
@@ -506,6 +536,15 @@ Bunlar bilinçli kararlar, eksik değil — ama bilmeden canlıya çıkma:
   Ayda bir `kaynak_dene.py` çalıştır.
 - **KVKK/gizlilik metni yok.** Kullanıcı verisi (e-posta) topluyorsun;
   yayına açmadan önce hukuki metin gerekli. Bu repo hukuki metin üretmez.
+  **Yayına açmanın önündeki tek kod-dışı engel budur.**
+- **E-posta doğrulama zorunlu değil.** `eposta_dogrulandi` bayrağı var,
+  Ayarlar sayfasında gösteriliyor ve yeniden gönderilebiliyor — ama hiçbir
+  ucu kapatmıyor. Bilinçli: bildirimler Telegram'dan gidiyor, e-posta yalnızca
+  parola sıfırlama kanalı. Ödeme/paylaşım eklenirse bu kapı kapatılmalı.
+- **Çıkış (logout) token'ı iptal etmiyor.** Çerez silinir ama token süresi
+  (7 gün) dolana kadar geçerli kalır. Parola değişimi ise TÜM oturumları
+  düşürüyor (`users.oturum_surumu`). Gerçek "her yerden çıkış" için aynı
+  sayaç kullanılabilir; şimdilik kullanılmayan altyapı olurdu.
 - **Ortaklık (affiliate) etiketleri boş.** Programlara kaydolduktan sonra
   ilgili `siteler/*.yaml` dosyalarına yazılır. Kanonik URL'ye asla
   dokunulmaz — etiket yalnızca kullanıcı mağazaya giderken eklenir.

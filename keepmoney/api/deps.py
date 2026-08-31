@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..ayarlar import ayarlar
 from ..db import get_db
-from ..guvenlik import jwt_kullanici_id
+from ..guvenlik import jwt_kimlik
 from ..models import User
 
 # auto_error=False: eksik başlıkta FastAPI'nin varsayılan 403'ü yerine kendi
@@ -50,13 +50,23 @@ def mevcut_kullanici(
     if not token:
         raise hata
 
-    kullanici_id = jwt_kullanici_id(token)
-    if kullanici_id is None:
+    kimlik = jwt_kimlik(token)
+    if kimlik is None:
         raise hata
+    kullanici_id, surum = kimlik
 
     kullanici = db.get(User, kullanici_id)
     if kullanici is None:
         raise hata           # hesap silinmiş ama token hâlâ geçerli
+
+    # PAROLA DEĞİŞTİYSE ÖNCEKİ TOKEN'LAR GEÇERSİZ. JWT durumsuz olduğu için
+    # bu kontrol olmadan parola sıfırlamak açık oturumları KAPATMIYORDU
+    # (ölçüldü: sıfırlamadan sonra eski oturum /auth/ben'den 200 alıyordu).
+    # TAM EŞİTLİK — zaman karşılaştırması DEĞİL: `iat` yalnızca saniye
+    # taşıdığı için zaman damgası yaklaşımı aynı saniye içinde üretilmiş
+    # token'lara delik bırakıyordu (testle yakalandı, bkz. models.py).
+    if surum != (kullanici.oturum_surumu or 0):
+        raise hata
     return kullanici
 
 

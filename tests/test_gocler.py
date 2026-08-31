@@ -40,6 +40,10 @@ YUZDE_ESIGI = "a9edb33fc2b8"
 # (BACKLOG B4) — bir öncesi YUZDE_ESIGI.
 STOK_BOSLUKLARI = "864f6f6e8aa7"
 
+# `users.oturum_surumu` — parola değişince eski token'ları düşüren sayaç.
+# Bir öncesi STOK_BOSLUKLARI.
+OTURUM_SURUMU = "c5f2a71e8d40"
+
 
 @pytest.fixture
 def gecici_veritabani(tmp_path, monkeypatch):
@@ -314,3 +318,77 @@ def test_stok_bosluklari_gocu_geri_alinca_stok_yok_satirlari_siler(gecici_verita
 
     assert kalanlar == [(100, 45000)], "fiyatlı satır geri almada kaybolmamalı"
     assert "stokta_var" not in sutunlar, "geri almada sütun düşürülmemiş: stokta_var"
+
+
+def test_oturum_surumu_gocu_kullanici_verisini_koruyor(gecici_veritabani):
+    """BACKLOG dışı, güvenlik denetiminden gelen göç (users.oturum_surumu).
+
+    Mevcut kullanıcılar 0'da başlamalı: token'ında `ver` olmayan açık
+    oturumlar da 0 sayılıyor, yani göç KİMSENİN oturumunu kapatmamalı.
+    """
+    cfg, yol = gecici_veritabani
+    command.upgrade(cfg, STOK_BOSLUKLARI)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi) "
+            "VALUES (1, 'a@b.c', 'x', 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO watches (id, user_id, product_id) VALUES (1, 1, 1)"))
+        b.execute(sa.text(
+            "INSERT INTO alerts (id, user_id, watch_id, tur, baslik, mesaj) "
+            "VALUES (1, 1, 1, 'DIP', 'b', 'm')"))
+
+    command.upgrade(cfg, OTURUM_SURUMU)
+
+    with motor.begin() as b:
+        assert b.execute(sa.text("SELECT oturum_surumu FROM users")).scalar() == 0
+        assert b.execute(sa.text("SELECT count(*) FROM watches")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM alerts")).scalar() == 1
+    motor.dispose()
+
+
+def test_oturum_surumu_gocu_veri_varken_geri_alinabiliyor(gecici_veritabani):
+    """BU TEST BİR ARIZADAN DOĞDU — ölçüldü.
+
+    Göçün ilk hâli `op.batch_alter_table` kullanıyordu. Batch SQLite'ta
+    tabloyu YENİDEN KURUYOR (`DROP TABLE users`) ve `PRAGMA foreign_keys=ON`
+    (db.py) altında, `users`a bağlı GERÇEK SATIRLAR varken geri alma şununla
+    patlıyor:
+
+        sqlite3.IntegrityError: FOREIGN KEY constraint failed
+
+    Boş veritabanında hiç görünmüyor — bu yüzden test veriyi ÖNCE yazıyor.
+    Göç artık iki yönde de yerel `ALTER TABLE` kullanıyor (SQLite 3.35+),
+    tablo yeniden kurulmadığı için hiçbir yabancı anahtar tetiklenmiyor.
+    """
+    cfg, yol = gecici_veritabani
+    command.upgrade(cfg, OTURUM_SURUMU)
+
+    motor = sa.create_engine(f"sqlite:///{yol}")
+    with motor.begin() as b:
+        b.execute(sa.text(
+            "INSERT INTO users (id, email, password_hash, eposta_dogrulandi) "
+            "VALUES (1, 'a@b.c', 'x', 0)"))
+        b.execute(sa.text("INSERT INTO products (id, ad) VALUES (1, 'Ürün')"))
+        b.execute(sa.text(
+            "INSERT INTO watches (id, user_id, product_id) VALUES (1, 1, 1)"))
+        b.execute(sa.text(
+            "INSERT INTO watch_sets (id, user_id, ad) VALUES (1, 1, 'Set')"))
+        b.execute(sa.text(
+            "INSERT INTO alerts (id, user_id, watch_id, tur, baslik, mesaj) "
+            "VALUES (1, 1, 1, 'DIP', 'b', 'm')"))
+
+    command.downgrade(cfg, STOK_BOSLUKLARI)
+
+    with motor.begin() as b:
+        sutunlar = [r[1] for r in b.execute(sa.text("PRAGMA table_info('users')"))]
+        assert "oturum_surumu" not in sutunlar
+        # Asıl mesele: geri alma HİÇBİR SATIRI götürmemeli.
+        assert b.execute(sa.text("SELECT count(*) FROM users")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM watches")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM watch_sets")).scalar() == 1
+        assert b.execute(sa.text("SELECT count(*) FROM alerts")).scalar() == 1
+    motor.dispose()

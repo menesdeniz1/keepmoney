@@ -1,9 +1,10 @@
 """Sistem uçları: sağlık, ölçümler, scraper durumu."""
 from __future__ import annotations
 
+import secrets
 from datetime import timedelta
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, ConfigDict
 
@@ -44,8 +45,35 @@ def saglik(db: DB):
 
 
 @router.get("/metrics", include_in_schema=False)
-def metrics() -> Response:
-    """Prometheus çekme ucu."""
+def metrics(istek: Request) -> Response:
+    """Prometheus çekme ucu — üretimde token ister.
+
+    ESKİDEN KİMLİKSİZ AÇIKTI (ölçüldü: token'sız istek 200 döndü) ve
+    `compose.yaml` konteynerin 8000'ini doğrudan yayınlıyor. Dışarı sızan
+    şey parola değil ama az da değil: hangi uçlar var, hangi hızda
+    çağrılıyor, hata oranı ne, hangi mağazalardan fiyat okunabiliyor,
+    kaç uyarı üretiliyor. Bu, saldırganın keşif işini bizim yapmamızdır.
+
+    ÜÇ DURUM:
+      • token tanımlı  → `Authorization: Bearer <token>` zorunlu,
+      • token yok + üretim → uç KAPALI (404),
+      • token yok + geliştirme → açık (yerelde pano kurmak kolay kalsın).
+
+    401 DEĞİL 404: yanlış/eksik token'da ucun VAR OLDUĞUNU bile söylemeye
+    gerek yok. Uygulamanın başka yerlerinde de aynı tercih var (bkz.
+    `rotalar/disa_aktar.py` — başkasının izlemesinde 403 değil 404).
+
+    `compare_digest`: token karşılaştırması sabit zamanlı olmalı, yoksa
+    yanıt süresinden karakter karakter tahmin edilebilir.
+    """
+    a = ayarlar()
+    if a.metrik_tokeni:
+        gelen = istek.headers.get("authorization", "")
+        if not secrets.compare_digest(gelen, f"Bearer {a.metrik_tokeni}"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Bulunamadı")
+    elif a.uretim_mi:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bulunamadı")
+
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

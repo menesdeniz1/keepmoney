@@ -6,8 +6,10 @@ OWASP karşılıkları:
 """
 from __future__ import annotations
 
+import ipaddress
 import time
 from collections import defaultdict, deque
+from functools import lru_cache
 
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -112,18 +114,64 @@ class _Sinirlayicilar:
 sinirlayicilar = _Sinirlayicilar()
 
 
-def istemci_ip(istek: Request) -> str:
-    """Ters vekil arkasında gerçek IP.
+@lru_cache(maxsize=8)
+def _aglar(girisler: tuple[str, ...]) -> tuple[ipaddress.IPv4Network |
+                                               ipaddress.IPv6Network, ...]:
+    """Ayarlardaki vekil listesini ağ nesnelerine çevirir (önbellekli).
 
-    DİKKAT: `X-Forwarded-For` istemci tarafından uydurulabilir. Yalnızca
-    GÜVENDİĞİN bir ters vekilin arkasındaysan anlamlıdır — vekil bu başlığı
-    kendisi yazar/üzerine yazar. Doğrudan internete açık çalıştırıyorsan
-    bu başlığa güvenme.
+    Geçerlilik AÇILIŞTA doğrulanıyor (`ayarlar._vekilleri_dogrula`); burada
+    yine de sessizce atlanıyor ki tek bozuk giriş her isteği patlatmasın.
     """
-    iletilen = istek.headers.get("x-forwarded-for")
-    if iletilen:
-        return iletilen.split(",")[0].strip()
-    return istek.client.host if istek.client else "bilinmiyor"
+    out = []
+    for giris in girisler:
+        try:
+            out.append(ipaddress.ip_network(giris, strict=False))
+        except ValueError:
+            continue
+    return tuple(out)
+
+
+def _guvenilir_mi(adres: str, aglar) -> bool:
+    try:
+        ip = ipaddress.ip_address(adres)
+    except ValueError:
+        return False
+    return any(ip in ag for ag in aglar)
+
+
+def istemci_ip(istek: Request) -> str:
+    """İstemcinin GERÇEK adresi — hız sınırının saydığı anahtar.
+
+    `X-Forwarded-For` KOŞULSUZ GÜVENİLMEZ. Başlığı istemcinin kendisi
+    yazabilir; eskiden varsa doğrudan kullanılıyordu ve bu, hız sınırını
+    tamamen etkisiz kılıyordu. ÖLÇÜLDÜ: her istekte farklı bir XFF ile 40
+    başarısız giriş denemesinin 40'ı da 401 döndü, tek bir 429 çıkmadı
+    (limit 8). Yani parola deneme freni fiilen YOKTU — ve `compose.yaml`
+    konteynerin 8000'ini doğrudan yayınlıyor, yani önünde başlığı ezen bir
+    vekil olduğu varsayımı da kurulu değildi.
+
+    KURAL: başlığa yalnızca İSTEĞİ BİZE VEREN adres (`istek.client.host`)
+    güvenilen bir vekilse bakılır. Zincir SAĞDAN SOLA yürünür ve güvenilen
+    vekiller atlanır; ilk güvenilmeyen adres gerçek istemcidir. Soldan
+    almak yanlış olurdu: zincirin sol ucunu istemci uydurabilir, sağ uç
+    ise bizim vekilimizin YAZDIĞI değerdir.
+
+    Vekil listesi boşsa (varsayılan) doğrudan bağlanan adres kullanılır.
+    """
+    eş = istek.client.host if istek.client else None
+    if eş is None:
+        return "bilinmiyor"
+
+    aglar = _aglar(tuple(ayarlar().guvenilen_vekiller))
+    if not aglar or not _guvenilir_mi(eş, aglar):
+        return eş                       # vekil arkasında değiliz: XFF'i yok say
+
+    zincir = [p.strip() for p in
+              istek.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    for aday in reversed(zincir):
+        if not _guvenilir_mi(aday, aglar):
+            return aday
+    return eş                           # zincirin tamamı bizim vekillerimiz
 
 
 def giris_denemesi_kontrol(istek: Request, eposta: str) -> None:

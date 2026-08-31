@@ -63,7 +63,7 @@ def giris(db: Session, eposta: str, parola: str) -> str:
     k = eposta_ile(db, eposta)
     if k is None or not parola_dogrula(parola, k.password_hash):
         raise KimlikHatasi("E-posta veya parola hatalı")
-    return jwt_uret(k.id)
+    return jwt_uret(k.id, k.oturum_surumu or 0)
 
 
 def telegram_baglantisi(db: Session, kullanici: User, bot_adi: str) -> tuple[str, int]:
@@ -169,6 +169,12 @@ def parola_sifirla(db: Session, token: str, yeni_parola: str) -> User:
     k.parola_sifirlama_hash = None
     k.parola_sifirlama_biter = None
     k.eposta_dogrulandi = True          # kutuya erişimi kanıtlandı
+    # ESKİ OTURUMLARI DÜŞÜR. Bu satır olmadan parola değişse bile daha
+    # önce verilmiş token'lar 7 gün boyunca çalışmaya devam ediyordu —
+    # yani hesabı ele geçirilmiş kullanıcının parolasını değiştirmesi
+    # saldırganı dışarı ATMIYORDU (ölçüldü). Sayacı artırmak, o kullanıcının
+    # o ana kadarki BÜTÜN token'larını tek hamlede geçersiz kılar.
+    k.oturum_surumu = (k.oturum_surumu or 0) + 1
     db.commit()
     db.refresh(k)
     return k

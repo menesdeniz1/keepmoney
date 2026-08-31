@@ -43,13 +43,20 @@ def parola_dogrula(parola: str, hash_: str) -> bool:
         return False          # bozuk/eski biçimli hash — giriş reddedilir
 
 
-def jwt_uret(kullanici_id: int, omur: timedelta | None = None) -> str:
+def jwt_uret(kullanici_id: int, oturum_surumu: int = 0,
+             omur: timedelta | None = None) -> str:
     """Konu (`sub`) olarak e-posta değil KULLANICI ID kullanılır: kullanıcı
-    e-postasını değiştirdiğinde mevcut oturumları düşmesin."""
+    e-postasını değiştirdiğinde mevcut oturumları düşmesin.
+
+    `ver` = kullanıcının o anki oturum sürümü. Parola değişince sunucudaki
+    sayaç artar ve bu token eşleşmediği için reddedilir (bkz.
+    `models.User.oturum_surumu`).
+    """
     a = ayarlar()
     simdi = utc_simdi()
     yuk = {
         "sub": str(kullanici_id),
+        "ver": int(oturum_surumu),
         "iat": simdi,
         "exp": simdi + (omur or timedelta(minutes=a.jwt_omur_dk)),
     }
@@ -66,11 +73,26 @@ def jwt_coz(token: str) -> dict[str, Any] | None:
 
 
 def jwt_kullanici_id(token: str) -> int | None:
+    kimlik = jwt_kimlik(token)
+    return kimlik[0] if kimlik else None
+
+
+def jwt_kimlik(token: str) -> tuple[int, int] | None:
+    """(kullanıcı id, oturum sürümü) — geçersizse None.
+
+    Sürüm AYRICA lazım: parola değişince sunucudaki sayaç artıyor ve eski
+    token'lar eşleşmediği için düşüyor. Sadece `sub` dönen eski imza bu
+    kontrolü imkânsız kılıyordu.
+
+    `ver` YOKSA 0 sayılır — bu değişiklik dağıtıldığı gün herkesin oturumu
+    düşmesin diye. Doğruluk bozulmuyor: sayaç ilk sıfırlamada 1 olur ve
+    `ver` taşımayan token tam o anda geçersizleşir.
+    """
     yuk = jwt_coz(token)
     if not yuk:
         return None
     try:
-        return int(yuk["sub"])
+        return int(yuk["sub"]), int(yuk.get("ver", 0))
     except (KeyError, TypeError, ValueError):
         return None
 

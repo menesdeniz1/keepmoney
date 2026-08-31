@@ -34,6 +34,13 @@ services:
       KEEPMONEY_SMTP_PAROLA: ${KEEPMONEY_SMTP_PAROLA:-}
       KEEPMONEY_EPOSTA_GONDEREN: ${KEEPMONEY_EPOSTA_GONDEREN:-KeepMoney <noreply@keepmoney.com>}
       KEEPMONEY_SITE_ADRESI: ${KEEPMONEY_SITE_ADRESI:-https://keepmoney.com}
+      # Ters vekilin ağı. BOŞ BIRAKILIRSA `X-Forwarded-For` YOK SAYILIR ve
+      # tüm istekler vekilin IP'sinden geliyormuş gibi görünür. Başlığa
+      # koşulsuz güvenmek ise hız sınırını tamamen etkisiz kılıyordu
+      # (ölçüldü) — bu yüzden güvenilecek kaynak AÇIKÇA yazılır.
+      KEEPMONEY_GUVENILEN_VEKILLER: ${KEEPMONEY_GUVENILEN_VEKILLER:-}
+      # /metrics kimliksiz açıktı. Token yoksa üretimde uç KAPALI (404).
+      KEEPMONEY_METRIK_TOKENI: ${KEEPMONEY_METRIK_TOKENI:-}
     depends_on:
       veritabani: {condition: service_healthy}
     restart: "no"          # tek seferlik iş
@@ -41,7 +48,12 @@ services:
   api:
     build: .
     environment: *ortak
-    ports: ["8000:8000"]
+    # YALNIZCA LOCALHOST. Önceden "8000:8000" idi, yani konteyner tüm ağ
+    # arayüzlerinde dinliyordu: TLS'siz, ters vekilsiz, doğrudan internete
+    # açılabilir bir kurulum. Uygulama HTTP konuşuyor (TLS sonlandırması
+    # vekilin işi) ve hız sınırı vekil arkasında olmayı varsayıyor.
+    # Vekil (nginx/Caddy) bu porta 127.0.0.1 üzerinden bağlanır.
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       gocler: {condition: service_completed_successfully}
     restart: unless-stopped
@@ -55,7 +67,10 @@ services:
     # Kendi ölçüm ucu. AYRI süreç = AYRI prometheus kayıt defteri: tarama
     # sayaçları API'nin /metrics'inde GÖRÜNMEZ. Prometheus iki hedefi de
     # ayrı ayrı toplamalı — api:8000/metrics ve tarayici:9100/metrics.
-    ports: ["9100:9100"]
+    # Ölçüm ucu da yalnızca localhost: Prometheus ya aynı makinede ya da
+    # vekil arkasında toplar. Dışarı açık bir ölçüm ucu, saldırganın keşif
+    # işini bizim yapmamızdır.
+    ports: ["127.0.0.1:9100:9100"]
     depends_on:
       gocler: {condition: service_completed_successfully}
     restart: unless-stopped

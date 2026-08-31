@@ -178,7 +178,9 @@ def parola_sifirla(istek: semalar.ParolaSifirlamaUygulaIstegi,
 
     # Sıfırlamadan sonra doğrudan oturum: kullanıcı yeni parolayı bir daha
     # yazmak zorunda kalmasın.
-    oturum_cerezi_yaz(yanit, jwt_uret(k.id))
+    # Sayaç yeni artmış durumda; token ONUNLA üretilmeli, yoksa
+    # kullanıcı parolasını sıfırlar sıfırlamaz kendi oturumu düşer.
+    oturum_cerezi_yaz(yanit, jwt_uret(k.id, k.oturum_surumu or 0))
     return _yanit(k)
 
 

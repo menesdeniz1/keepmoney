@@ -7,6 +7,10 @@ durumu `DEVIR.md`'de — ama task'lara başlamak için ikisi de şart değil.
 
 *24 Ağustos 2026 · 34 task · 8 epik · ~11 gün · 3 göç · 4 yeni uç*
 
+**Durum (31 Ağustos 2026): 34/34 task kapalı, 79 kabul ölçütü işaretli.**
+İşaretler belgeye bakılarak değil, **kod koşturularak** kondu — yöntem ve
+denetimde çıkan üç güvenlik bulgusu için §5'e bak.
+
 ---
 
 ## 0. Başlarken
@@ -173,9 +177,9 @@ baglam_ts   = Column(DateTime, nullable=True)   # ne zaman hesaplandı
 
 **Kabul ölçütleri**
 
-- [ ] `alembic upgrade head` sonrası altı sütun var, mevcut ürünler ve izlemeler duruyor
-- [ ] `alembic downgrade` sütunları kaldırıyor, `set_uyeleri` satırları hâlâ yerinde
-- [ ] `alembic check` temiz
+- [x] `alembic upgrade head` sonrası altı sütun var, mevcut ürünler ve izlemeler duruyor
+- [x] `alembic downgrade` sütunları kaldırıyor, `set_uyeleri` satırları hâlâ yerinde
+- [x] `alembic check` temiz
 
 **Test.** `tests/test_gocler.py`: göçten önce ürün + izleme + set üyeliği yaz,
 `upgrade` et, üçünün de durduğunu ve sütunların geldiğini doğrula. Sonra
@@ -202,9 +206,9 @@ baglam_ts   = Column(DateTime, nullable=True)   # ne zaman hesaplandı
 
 **Kabul ölçütleri**
 
-- [ ] Bir tarama turundan sonra fiyatı okunan her ürünün `sinyal` ve `baglam_ts`'i dolu
-- [ ] Okunamayan üründe eski sinyal korunuyor
-- [ ] Geçmişi 3 günlük üründe `gecmis_gun = 3`
+- [x] Bir tarama turundan sonra fiyatı okunan her ürünün `sinyal` ve `baglam_ts`'i dolu
+- [x] Okunamayan üründe eski sinyal korunuyor
+- [x] Geçmişi 3 günlük üründe `gecmis_gun = 3`
 
 **Test.** Sahte çekiciyle iki tur koştur; ilk turdan sonra sütunların
 dolduğunu, ikinci turda okuma başarısız olduğunda eski değerin durduğunu
@@ -230,8 +234,8 @@ kalır. 35 ürün için beklemek gereksiz.
 
 **Kabul ölçütleri**
 
-- [ ] Betik çalıştıktan sonra geçmişi olan her üründe sinyal dolu
-- [ ] İki kez çalıştırmak aynı sonucu veriyor
+- [x] Betik çalıştıktan sonra geçmişi olan her üründe sinyal dolu
+- [x] İki kez çalıştırmak aynı sonucu veriyor
 
 ---
 
@@ -260,9 +264,9 @@ gecmis_gun: int | None = None
 
 **Kabul ölçütleri**
 
-- [ ] `GET /api/izlemeler` yanıtında her ürün için beş alan var
-- [ ] Geçmişi olmayan üründe hepsi `null` ve istek hata vermiyor
-- [ ] Liste ucunun açtığı sorgu sayısı değişmemiş
+- [x] `GET /api/izlemeler` yanıtında her ürün için beş alan var
+- [x] Geçmişi olmayan üründe hepsi `null` ve istek hata vermiyor
+- [x] Liste ucunun açtığı sorgu sayısı değişmemiş
 
 ---
 
@@ -291,10 +295,10 @@ gecmis_gun: int | None = None
 
 **Kabul ölçütleri**
 
-- [ ] 35 ürünlük hesapta uç **tek** SQL sorgusu açıyor (log ile doğrulanacak)
-- [ ] Geçmişi olmayan ürün sözlükte hiç görünmüyor (boş dizi değil)
-- [ ] Başkasının izlemesi asla dönmüyor
-- [ ] `gun` parametresi 7–365 aralığında sınırlı; dışında 422
+- [x] 35 ürünlük hesapta uç **tek** SQL sorgusu açıyor (log ile doğrulanacak)
+- [x] Geçmişi olmayan ürün sözlükte hiç görünmüyor (boş dizi değil)
+- [x] Başkasının izlemesi asla dönmüyor
+- [x] `gun` parametresi 7–365 aralığında sınırlı; dışında 422
 
 **Test.** İki kullanıcı kur, birinin ucu diğerinin izlemesini döndürmesin.
 Sorgu sayısını SQLAlchemy olayıyla say.
@@ -319,9 +323,9 @@ rozeti kullanacak.
 
 **Kabul ölçütleri**
 
-- [ ] Üç durum + null durumu doğru çiziliyor
-- [ ] Karanlık temada okunabilir
-- [ ] Rozet metni ekran okuyucuya geçiyor (yalnız renk/emoji değil)
+- [x] Üç durum + null durumu doğru çiziliyor
+- [x] Karanlık temada okunabilir
+- [x] Rozet metni ekran okuyucuya geçiyor (yalnız renk/emoji değil)
 
 ---
 
@@ -349,9 +353,9 @@ kural mı arıza mı ayırt edemiyor. Üstelik detay sayfası 4 günlük veriden
 
 **Kabul ölçütleri**
 
-- [ ] Yeni eklenen üründe "pahalı" yazmıyor — "geçmiş biriktiriliyor" yazıyor
-- [ ] 7 günü dolduran üründe rozete geçiyor
-- [ ] Sayaç gerçek gün sayısını gösteriyor
+- [x] Yeni eklenen üründe "pahalı" yazmıyor — "geçmiş biriktiriliyor" yazıyor
+- [x] 7 günü dolduran üründe rozete geçiyor
+- [x] Sayaç gerçek gün sayısını gösteriyor
 
 **Test.** E2E: yeni ürün ekle, kartta "biriktiriliyor" metnini gör, sinyal
 rozeti görünmesin.
@@ -377,10 +381,10 @@ rozeti görünmesin.
 
 **Kabul ölçütleri**
 
-- [ ] Kıvılcım ucu 500 ms gecikse bile kart bozulmuyor, sıçrama olmuyor (yer önceden ayrılmış)
-- [ ] Mobilde (390px) kart taşmıyor, yatay kaydırma yok
-- [ ] Karanlık temada üç sinyal rengi de okunuyor
-- [ ] 35 kartlı listede gözle görülür yavaşlama yok
+- [x] Kıvılcım ucu 500 ms gecikse bile kart bozulmuyor, sıçrama olmuyor (yer önceden ayrılmış)
+- [x] Mobilde (390px) kart taşmıyor, yatay kaydırma yok
+- [x] Karanlık temada üç sinyal rengi de okunuyor
+- [x] 35 kartlı listede gözle görülür yavaşlama yok
 
 **Test.** E2E: sinyalli ürün kur, kartta rozet metnini ve `svg`'yi gör; mevcut
 "mobilde yatay kaydırma yok" testi kırılmasın.
@@ -411,9 +415,9 @@ içinde kayboluyor. Keepa'nın en çok kullanılan kontrolü.
 
 **Kabul ölçütleri**
 
-- [ ] Aralık değişince y ekseni o dilime göre yeniden ölçekleniyor
-- [ ] 90 günden az veride "1y" ve "Tümü" pasif
-- [ ] Sayfa yenilendiğinde son seçim korunuyor
+- [x] Aralık değişince y ekseni o dilime göre yeniden ölçekleniyor
+- [x] 90 günden az veride "1y" ve "Tümü" pasif
+- [x] Sayfa yenilendiğinde son seçim korunuyor
 
 ---
 
@@ -447,9 +451,9 @@ seriler: list[KaynakSerisi]        # YENİ
 
 **Kabul ölçütleri**
 
-- [ ] İki kaynaklı üründe iki seri, doğru host adlarıyla
-- [ ] Tek kaynaklı üründe `seriler` boş
-- [ ] Sorgu sayısı artmamış
+- [x] İki kaynaklı üründe iki seri, doğru host adlarıyla
+- [x] Tek kaynaklı üründe `seriler` boş
+- [x] Sorgu sayısı artmamış
 
 ---
 
@@ -475,9 +479,9 @@ seriler: list[KaynakSerisi]        # YENİ
 
 **Kabul ölçütleri**
 
-- [ ] Üç kaynaklı üründe üç ayrı çizgi, renkler tutarlı
-- [ ] Kaynak gizlenince y ekseni kalanlara göre ölçekleniyor
-- [ ] Tek kaynaklı üründe "Mağazalara ayır" düğmesi hiç görünmüyor
+- [x] Üç kaynaklı üründe üç ayrı çizgi, renkler tutarlı
+- [x] Kaynak gizlenince y ekseni kalanlara göre ölçekleniyor
+- [x] Tek kaynaklı üründe "Mağazalara ayır" düğmesi hiç görünmüyor
 
 ---
 
@@ -497,8 +501,8 @@ kaynak bu durumda.
 
 **Kabul ölçütleri**
 
-- [ ] Stoksuz dönem gözle ayırt ediliyor
-- [ ] Stok bilgisi olmayan eski okumalar `stokta: true` sayılıyor — geçmiş bozulmuyor
+- [x] Stoksuz dönem gözle ayırt ediliyor
+- [x] Stok bilgisi olmayan eski okumalar `stokta: true` sayılıyor — geçmiş bozulmuyor
 
 ---
 
@@ -512,8 +516,8 @@ stok durumu. Dokunmatikte de çalışsın (mobil PWA).
 
 **Kabul ölçütleri**
 
-- [ ] Telefonda dokununca tooltip çıkıyor ve kaybolmuyor
-- [ ] Tüm zamanlar dibi olan gün ayrıca işaretli
+- [x] Telefonda dokununca tooltip çıkıyor ve kaybolmuyor
+- [x] Tüm zamanlar dibi olan gün ayrıca işaretli
 
 ---
 
@@ -537,9 +541,9 @@ stok durumu. Dokunmatikte de çalışsın (mobil PWA).
 
 **Kabul ölçütleri**
 
-- [ ] Her seçenek doğru sıralıyor, null'lar sonda
-- [ ] Seçim `localStorage`'da kalıcı
-- [ ] Türkçe sıralama doğru (`localeCompare('tr')` — İ/ı)
+- [x] Her seçenek doğru sıralıyor, null'lar sonda
+- [x] Seçim `localStorage`'da kalıcı
+- [x] Türkçe sıralama doğru (`localeCompare('tr')` — İ/ı)
 
 ---
 
@@ -559,9 +563,9 @@ stok durumu. Dokunmatikte de çalışsın (mobil PWA).
 
 **Kabul ölçütleri**
 
-- [ ] İki süzgeç birlikte çalışıyor (VE mantığı)
-- [ ] Boş sonuç mesajı gerçek sebebi söylüyor
-- [ ] Süzgeç çipleri klavyeyle kaldırılabiliyor
+- [x] İki süzgeç birlikte çalışıyor (VE mantığı)
+- [x] Boş sonuç mesajı gerçek sebebi söylüyor
+- [x] Süzgeç çipleri klavyeyle kaldırılabiliyor
 
 **Test.** E2E: iki ürün ekle, birini duraklat, "duraklatılmışlar" süzgecinde
 tek ürün kalsın.
@@ -583,8 +587,8 @@ tablo daha çok bilgi taşır. Telefonda tam tersi.
 
 **Kabul ölçütleri**
 
-- [ ] Tablo görünümünde yatay kaydırma kendi kabında, sayfa gövdesi kaymıyor
-- [ ] Telefonda tablo seçeneği hiç görünmüyor
+- [x] Tablo görünümünde yatay kaydırma kendi kabında, sayfa gövdesi kaymıyor
+- [x] Telefonda tablo seçeneği hiç görünmüyor
 
 ---
 
@@ -603,8 +607,8 @@ neredeyse hep sıfır; sağdaki toplam anlamsız, kimse hepsini birden almayacak
 
 **Kabul ölçütleri**
 
-- [ ] Üç kutucuk da tıklanabilir ve doğru eylemi yapıyor
-- [ ] Veri yokken kutucuk sayı yerine anlamlı bir şey söylüyor
+- [x] Üç kutucuk da tıklanabilir ve doğru eylemi yapıyor
+- [x] Veri yokken kutucuk sayı yerine anlamlı bir şey söylüyor
 
 ---
 
@@ -632,10 +636,10 @@ yüzdeliğe göre sıralı.
 
 **Kabul ölçütleri**
 
-- [ ] Sıralama yüzdeliğe göre azalan
-- [ ] Geçmişi yetersiz ürün listede yok
-- [ ] Başkasının izlemesi asla dönmüyor
-- [ ] Ek sorgu yok — A1 sütunlarından okunuyor
+- [x] Sıralama yüzdeliğe göre azalan
+- [x] Geçmişi yetersiz ürün listede yok
+- [x] Başkasının izlemesi asla dönmüyor
+- [x] Ek sorgu yok — A1 sütunlarından okunuyor
 
 ---
 
@@ -654,9 +658,9 @@ yüzdeliğe göre sıralı.
 
 **Kabul ölçütleri**
 
-- [ ] Sekme mobilde taşmıyor
-- [ ] Satıra tıklayınca ürün detayına gidiyor
-- [ ] Mevcut "tüm ana sayfalar geziliyor" E2E testine yeni sayfa eklenmiş
+- [x] Sekme mobilde taşmıyor
+- [x] Satıra tıklayınca ürün detayına gidiyor
+- [x] Mevcut "tüm ana sayfalar geziliyor" E2E testine yeni sayfa eklenmiş
 
 ---
 
@@ -669,7 +673,7 @@ yüzdeliğe göre sıralı.
 - Ürün var, geçmiş yetersiz → "N ürün için geçmiş biriktiriliyor, ilk fırsatlar ~M gün içinde."
 - Geçmiş var, iyi fiyat yok → "Şu an dip bölgesinde ürün yok. Hepsi normal aralıkta."
 
-**Kabul ölçütü:** [ ] Üç durum üç ayrı metin veriyor
+**Kabul ölçütü:** [x] Üç durum üç ayrı metin veriyor
 
 ---
 
@@ -707,10 +711,10 @@ yeniden_kur_gun = Column(Integer, nullable=True)  # rearm, varsayılan 7
 
 **Kabul ölçütleri**
 
-- [ ] %15 eşiğinde %14,9 düşüş uyarı üretmiyor, %15,1 üretiyor
-- [ ] Hem hedef hem yüzde sağlanınca yalnızca hedef uyarısı çıkıyor
-- [ ] 7 günden az geçmişte hiç çıkmıyor
-- [ ] Sessiz saatte erteleniyor
+- [x] %15 eşiğinde %14,9 düşüş uyarı üretmiyor, %15,1 üretiyor
+- [x] Hem hedef hem yüzde sağlanınca yalnızca hedef uyarısı çıkıyor
+- [x] 7 günden az geçmişte hiç çıkmıyor
+- [x] Sessiz saatte erteleniyor
 
 **Test.** Saat sabitlenerek, sınır değerler tek tek.
 
@@ -730,9 +734,9 @@ yeniden_kur_gun = Column(Integer, nullable=True)  # rearm, varsayılan 7
 
 **Kabul ölçütleri**
 
-- [ ] Önizleme yazarken anlık güncelleniyor
-- [ ] Geçmiş yetersizken yüzde seçeneği pasif ve sebebi yazıyor
-- [ ] Özet cümlesi seçili kuralları doğru anlatıyor
+- [x] Önizleme yazarken anlık güncelleniyor
+- [x] Geçmiş yetersizken yüzde seçeneği pasif ve sebebi yazıyor
+- [x] Özet cümlesi seçili kuralları doğru anlatıyor
 
 ---
 
@@ -748,9 +752,9 @@ değiştirebiliyor. Keepa'da bu birinci sınıf bir ayar.
 
 **Kabul ölçütleri**
 
-- [ ] Süre dolunca aynı ürün için tekrar uyarı çıkıyor
-- [ ] "hiç" seçilirse bir daha çıkmıyor
-- [ ] Kalan süre doğru gösteriliyor
+- [x] Süre dolunca aynı ürün için tekrar uyarı çıkıyor
+- [x] "hiç" seçilirse bir daha çıkmıyor
+- [x] Kalan süre doğru gösteriliyor
 
 ---
 
@@ -768,8 +772,8 @@ geride kalırsa iki arayüz ayrışır.
 
 **Kabul ölçütleri**
 
-- [ ] Botta üretilen her callback kodunun bir işleyicisi var
-- [ ] Bottan kurulan kural webde görünüyor
+- [x] Botta üretilen her callback kodunun bir işleyicisi var
+- [x] Bottan kurulan kural webde görünüyor
 
 ---
 
@@ -790,8 +794,8 @@ geride kalırsa iki arayüz ayrışır.
 
 **Kabul ölçütleri**
 
-- [ ] Aşımda kırmızı, altındayken yeşil
-- [ ] Bütçesiz sette hiçbiri görünmüyor
+- [x] Aşımda kırmızı, altındayken yeşil
+- [x] Bütçesiz sette hiçbiri görünmüyor
 
 ---
 
@@ -808,8 +812,8 @@ geride kalırsa iki arayüz ayrışır.
 
 **Kabul ölçütleri**
 
-- [ ] Eksik günler grafikte kesik
-- [ ] Üye eklenip çıkarılınca geçmiş yeniden hesaplanıyor
+- [x] Eksik günler grafikte kesik
+- [x] Üye eklenip çıkarılınca geçmiş yeniden hesaplanıyor
 
 ---
 
@@ -827,8 +831,8 @@ izlenen ürünün kararı burada verilir.
 
 **Kabul ölçütleri**
 
-- [ ] En ucuz mağaza işaretli
-- [ ] Her okunamayan kaynağın sebebi yazıyor
+- [x] En ucuz mağaza işaretli
+- [x] Her okunamayan kaynağın sebebi yazıyor
 
 ---
 
@@ -845,8 +849,8 @@ kalmış özellik.
 
 **Kabul ölçütleri**
 
-- [ ] Şablonlu sette eksik parçalar listeleniyor
-- [ ] Şablonsuz set eskisi gibi çalışıyor
+- [x] Şablonlu sette eksik parçalar listeleniyor
+- [x] Şablonsuz set eskisi gibi çalışıyor
 
 ---
 
@@ -872,8 +876,8 @@ kalmış özellik.
 
 **Kabul ölçütleri**
 
-- [ ] Süzgeçle sayfalama birlikte doğru çalışıyor
-- [ ] Geçersiz `tur` değerinde 422
+- [x] Süzgeçle sayfalama birlikte doğru çalışıyor
+- [x] Geçersiz `tur` değerinde 422
 
 ### G3 — Uyarıdan tek tıkla eylem
 
@@ -902,8 +906,8 @@ ayar değiştirmek.
 
 **Kabul ölçütleri**
 
-- [ ] Türkçe Excel'de açınca kolonlar ayrı ve karakterler doğru
-- [ ] Başkasının verisi inmiyor
+- [x] Türkçe Excel'de açınca kolonlar ayrı ve karakterler doğru
+- [x] Başkasının verisi inmiyor
 
 ### H2 — Panel ilk açılış rehberi
 
@@ -945,6 +949,7 @@ gün. Şu an en uzun geçmiş **3 gün** — yani A epiği bittiğinde bile ekra
 hafta boyunca "geçmiş biriktiriliyor" gösterecek. Bu bir arıza değil, A7 tam
 olarak bunun için var.
 
+
 ---
 
 ## 4. Yapılmayacaklar
@@ -961,3 +966,64 @@ Klon yapmak, işe yaramayanı da kopyalamak değil. Bunlar bilinçli olarak dı�
   çevirmek. Çizgi eklerken bu kaybedilmemeli (bkz. B3'ün varsayılanı).
 - **Ücretli katman — şimdilik.** Ödeme, fatura, iade süreci demek. Okuma oranı
   %54'ken para almak konuşulmaz.
+
+---
+
+## 5. Kapanış denetimi — 31 Ağustos 2026
+
+34 task "bitti" işaretlenmeden önce ölçütler **canlı koda karşı** koşturuldu.
+Belgeye ve commit mesajlarına güvenilmedi.
+
+### Nasıl doğrulandı
+
+- **26 arka uç ölçütü** (A1, A4, A5, B2, B4, D1, G2, H1 + yetki) gerçek HTTP
+  çağrıları, gerçek veritabanı ve SQLAlchemy sorgu sayacıyla tek tek
+  koşturuldu — **26/26 geçti**. Sorgu bütçeleri ölçüldü, tahmin edilmedi:
+  liste ucu 4 SELECT, kıvılcım ucu tek `price_readings` sorgusu, detay 7,
+  fırsatlar 4.
+- **21 arayüz ölçüt grubu** için her birinin dayandığı iddia bulundu
+  (E2E ya da vitest). Ölçütü olan ama testi olmayan madde ÇIKMADI.
+- **OpenAPI şemasındaki 37 ucun tamamı** test dosyalarına karşı tarandı.
+  Üçü hiçbir testte geçmiyordu — `POST /api/uyarilar/hepsi-okundu`,
+  `POST /api/auth/telegram/baglanti`, `DELETE /api/auth/telegram`. Üçü de
+  arayüzde kullanılıyor; testleri yazıldı
+  (`tests/test_kapsam_bosluklari.py`). En kritiği `hepsi-okundu`:
+  kullanıcı süzgeci düşürüldüğünde BÜTÜN kullanıcıların uyarılarını okundu
+  işaretliyor ve hiçbir hata vermiyor — mutasyonla doğrulandı.
+- Çapraz kullanıcı erişimi dört uçta da 404; korumalı sekiz uç kimliksiz
+  401.
+
+### Denetimde çıkan üç güvenlik bulgusu — üçü de düzeltildi
+
+1. **`X-Forwarded-For` ile hız sınırı tamamen atlatılabiliyordu.** ÖLÇÜLDÜ:
+   her istekte farklı bir başlıkla 40 başarısız giriş denemesinin 40'ı da
+   401 döndü, tek bir 429 çıkmadı (limit 8). Başlığa artık yalnızca
+   `KEEPMONEY_GUVENILEN_VEKILLER` içindeki bir kaynaktan gelirse güvenilir.
+2. **Parola sıfırlamak açık oturumları düşürmüyordu.** ÖLÇÜLDÜ: sıfırlamadan
+   sonra eski token `/api/auth/ben`den hâlâ 200 alıyordu. `users.oturum_surumu`
+   sayacı eklendi (göç `c5f2a71e8d40`).
+3. **`/metrics` kimliksiz açıktı.** `KEEPMONEY_METRIK_TOKENI` geldi; üretimde
+   token yoksa uç kapanıyor.
+
+Ayrıca `compose.yaml` 8000 ve 9100'ü tüm arayüzlere yayınlıyordu; ikisi de
+`127.0.0.1`e bağlandı.
+
+### Yan bulgu: `users` tablosunu yeniden kuran göç patlıyor
+
+`op.batch_alter_table("users")` SQLite'ta tabloyu yeniden kuruyor ve
+`PRAGMA foreign_keys=ON` altında gerçek veri varken
+`sqlite3.IntegrityError: FOREIGN KEY constraint failed` veriyor. Boş
+veritabanında hiç görünmüyor. Yeni göç iki yönde de yerel `ALTER TABLE`
+kullanıyor; `tests/test_gocler.py` bunu veriyle kalıcı olarak sınıyor.
+
+### Ürün olarak yayına açmadan önce kalanlar — KOD İŞİ DEĞİL
+
+- **KVKK/gizlilik metni ve kullanım şartları yok.** E-posta topluyoruz; bu
+  repo hukuki metin üretmez. Yayına açmadan önce zorunlu.
+- **Ters vekil + TLS kurulumu.** Uygulama HTTP konuşuyor, TLS sonlandırması
+  vekilin işi. `KEEPMONEY_GUVENILEN_VEKILLER` o vekile göre doldurulmalı.
+- **E-posta doğrulama zorunlu değil.** Bayrak var, gösteriliyor, ama hiçbir
+  ucu kapatmıyor — bilinçli bırakıldı (bildirimler Telegram'dan gidiyor).
+- **Ortaklık etiketleri boş.** Programlara kaydolunca `siteler/*.yaml`e yazılır.
+- **Tek instance.** Hız sınırı ve Prometheus kayıt defteri süreç belleğinde.
+
