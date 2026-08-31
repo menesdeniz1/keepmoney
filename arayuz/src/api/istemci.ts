@@ -240,3 +240,17 @@ export const api = {
   hepsiOkundu: () =>
     istek<{ isaretlenen: number }>('/uyarilar/hepsi-okundu', { method: 'POST' }),
 }
+
+/**
+ * CSV dışa aktarma adresleri (BACKLOG H1).
+ *
+ * `api` nesnesinin İÇİNDE DEĞİL: oradaki her şey `fetch` yapıp JSON
+ * çözüyor, bunlar ise tarayıcının kendi indirmesine verilen ADRESLER —
+ * hiç `fetch` edilmiyorlar (bkz. `bilesenler/CsvIndir.tsx`, düz `<a>`
+ * tercihinin gerekçesi orada). Yine de `TABAN` buradan geliyor ki API
+ * kökü değişirse tek yerden değişsin.
+ */
+export const csvAdresleri = {
+  liste: () => `${TABAN}/izlemeler.csv`,
+  gecmis: (izlemeId: number) => `${TABAN}/izlemeler/${izlemeId}/gecmis.csv`,
+}

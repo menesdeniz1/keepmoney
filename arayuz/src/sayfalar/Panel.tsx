@@ -8,6 +8,8 @@ import {
   useKivilcimlar30Gun,
   useSetler,
 } from '../api/kancalar'
+import { csvAdresleri } from '../api/istemci'
+import CsvIndir from '../bilesenler/CsvIndir'
 import IzlemeKarti from '../bilesenler/IzlemeKarti'
 import IzlemeTablosu from '../bilesenler/IzlemeTablosu'
 import ListeKontrol from '../bilesenler/ListeKontrol'
@@ -121,12 +123,25 @@ export default function Panel() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <h1 className="text-xl font-semibold">Takip listem</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Herhangi bir mağazanın ürün linkini yapıştır — fiyat hafızası
-          birikmeye başlasın.
-        </p>
+      <section className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Takip listem</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Herhangi bir mağazanın ürün linkini yapıştır — fiyat hafızası
+            birikmeye başlasın.
+          </p>
+        </div>
+        {/* BACKLOG H1 — liste BOŞken düğme hiç çizilmiyor: yalnızca başlık
+            satırından ibaret bir CSV indirmek kullanıcıya "bir şey ters
+            gitti" hissi verir. */}
+        {izlemeler && izlemeler.length > 0 && (
+          <CsvIndir
+            adres={csvAdresleri.liste()}
+            baslik="Takip listesinin tamamını CSV olarak indir (Türkçe Excel biçimi)"
+          >
+            CSV indir
+          </CsvIndir>
+        )}
       </section>
 
       <form

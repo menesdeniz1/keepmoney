@@ -18,7 +18,7 @@ from ..gunluk import log
 from .izleme import IstekKimligi, beklenmeyen_hata
 from .koruma import GuvenlikBasliklari
 from .olcum import OlcumAraKatmani
-from .rotalar import auth, firsatlar, izlemeler, setler, sistem, uyarilar
+from .rotalar import auth, disa_aktar, firsatlar, izlemeler, setler, sistem, uyarilar
 from .statik import arayuzu_bagla
 
 logger = log("keepmoney.api")
@@ -70,7 +70,8 @@ def uygulama_olustur() -> FastAPI:
     # SIZDIRMAYAN JSON yanıt (bkz. api/izleme.py).
     app.add_exception_handler(Exception, beklenmeyen_hata)
 
-    for rota in (auth, firsatlar, izlemeler, setler, sistem, uyarilar):
+    for rota in (auth, disa_aktar, firsatlar, izlemeler, setler, sistem,
+                 uyarilar):
         app.include_router(rota.router)
 
     # Derlenmiş arayüz EN SONDA bağlanır: yakalayıcı `/{yol:path}` rotası

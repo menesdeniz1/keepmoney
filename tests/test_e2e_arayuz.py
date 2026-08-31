@@ -2341,3 +2341,78 @@ def test_tum_zamanlar_dibi_gunu_tooltipte_isaretli(sayfa, sunucu):
     # aksi hâlde strict mode iki eşleşme bulup patlar.
     expect(sayfa.get_by_text("🏆 tüm zamanların dibi")).to_be_visible(timeout=5000)
     assert not sayfa.sunucu_hatalari
+
+
+# ── BACKLOG H1: CSV dışa aktarma ─────────────────────────────────
+#
+# Buradaki testler "düğme var mı"yı değil İNDİRMENİN KENDİSİNİ ölçüyor:
+# indirilen dosya tarayıcının diskine yazılıyor ve BAYTLARI okunuyor.
+# `test_disa_aktar.py` biçimi zaten sınıyor; burada sınanan, düz `<a
+# download>` tercihinin gerçek tarayıcıda gerçekten indirme başlatması ve
+# httpOnly çerezin o isteğe TAŞINMASI — ikisi de yalnızca burada görülebilir
+# (TestClient'ın Bearer başlığıyla ölçülemez).
+
+def _indir(sayfa: Page):
+    """"CSV indir" bağlantısına tıklar, indirmeyi bekler ve döndürür."""
+    with sayfa.expect_download(timeout=15000) as indirme_bilgisi:
+        sayfa.get_by_role("link", name="CSV indir").first.click()
+    return indirme_bilgisi.value
+
+
+def test_panel_csv_indirmesi_gercekten_iniyor(sayfa, sunucu):
+    """Kabul ölçütü zinciri: dosya iniyor, BOM'la başlıyor, kolonlar
+    noktalı virgülle ayrılıyor."""
+    _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa)
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    indirme = _indir(sayfa)
+    assert indirme.suggested_filename.startswith("keepmoney-takip-listem-")
+    assert indirme.suggested_filename.endswith(".csv")
+
+    icerik = pathlib.Path(indirme.path()).read_bytes()
+    assert icerik.startswith(b"\xef\xbb\xbf")
+    baslik = icerik.decode("utf-8-sig").splitlines()[0]
+    assert baslik.split(";")[0] == "Ürün"
+    assert len(baslik.split(";")) == 13
+    assert not sayfa.sunucu_hatalari
+
+
+def test_urun_gecmisi_csv_olarak_iniyor(sayfa, sunucu):
+    """Detay sayfasındaki indirme, dosya adında ÜRÜN ADINI taşımalı —
+    yoksa üç ürün dışa aktaran kullanıcının klasöründe üç `gecmis.csv`
+    kalır."""
+    eposta = _kayit_ol(sayfa, sunucu)
+    _urun_ekle(sayfa)
+    sayfa.wait_for_selector("a[href^='/izleme/']", timeout=15000)
+
+    # Ürün adı URL'den türetiliyor (worker bu pakette çalışmıyor); adı
+    # doğrudan veritabanına yazıp Türkçe harflerin dosya adında ASCII'ye
+    # düşürüldüğünü de görelim.
+    import sqlite3
+    with sqlite3.connect(sunucu.db_yolu) as baglanti:
+        baglanti.execute(
+            "UPDATE products SET ad = ? WHERE id = ("
+            "  SELECT w.product_id FROM watches w JOIN users u"
+            "   ON u.id = w.user_id WHERE u.email = ?)",
+            ("Kulaklık Şarj Ünitesi", eposta))
+
+    sayfa.locator("a[href^='/izleme/']").first.click()
+    sayfa.wait_for_selector("text=Fiyat geçmişi", timeout=15000)
+
+    indirme = _indir(sayfa)
+    assert "kulaklik-sarj-unitesi" in indirme.suggested_filename
+    assert indirme.suggested_filename.endswith(".csv")
+
+    icerik = pathlib.Path(indirme.path()).read_bytes().decode("utf-8-sig")
+    assert icerik.splitlines()[0].split(";") == [
+        "Ürün", "Mağaza", "Site", "Tarih", "Saat", "Fiyat (TL)", "Stokta"]
+    assert not sayfa.sunucu_hatalari
+
+
+def test_bos_panelde_csv_dugmesi_yok(sayfa, sunucu):
+    """Yalnızca başlık satırından ibaret bir dosya indirmek "bir şey ters
+    gitti" hissi verir; hiç ürün yokken düğme DOM'a girmiyor."""
+    _kayit_ol(sayfa, sunucu)
+    sayfa.wait_for_selector("text=Henüz ürün eklemedin", timeout=15000)
+    expect(sayfa.get_by_role("link", name="CSV indir")).to_have_count(0)

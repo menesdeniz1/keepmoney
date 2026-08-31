@@ -144,18 +144,30 @@ def _kaynak(k) -> dict:
     }
 
 
-def en_ucuz_magaza_url(urun: Product) -> str | None:
-    """BACKLOG G3 — bildirimdeki "Mağazaya git" o an EN UCUZ kaynağa
-    gitmeli, ilk eklenen kaynağa değil. Eleme kuralı `KaynakTablosu`nun
-    `enUcuzKaynak`ıyla (arayuz/src/yardimcilar/kaynakDurumu.ts) BİREBİR
-    aynı — durum OK ve fiyat bilinen: STOKTA_YOK ya da ENGELLİ bir kaynağın
-    eski fiyatı "en ucuz" işaretlenirse kullanıcı satın alamayacağı bir
-    mağazaya yönlenir.
+def en_ucuz_kaynak(urun: Product):
+    """O an GERÇEKTEN alınabilir en ucuz kaynak, yoksa None.
+
+    Eleme kuralı `KaynakTablosu`nun `enUcuzKaynak`ıyla
+    (arayuz/src/yardimcilar/kaynakDurumu.ts) BİREBİR aynı — durum OK ve
+    fiyat bilinen: STOKTA_YOK ya da ENGELLİ bir kaynağın eski fiyatı "en
+    ucuz" işaretlenirse kullanıcı satın alamayacağı bir mağazaya yönlenir.
+
+    Kaynağın KENDİSİ döner, linki değil: G3 ortaklık çıkış linkini
+    istiyor, H1'in CSV'si ise ham mağaza adresini (bkz. disa_aktar.py).
+    Kural tek yerde kalsın diye ayrıldı.
     """
     adaylar = [k for k in urun.sources if k.durum == "OK" and k.son_fiyat is not None]
     if not adaylar:
         return None
-    en_ucuz = min(adaylar, key=lambda k: k.son_fiyat)
+    return min(adaylar, key=lambda k: k.son_fiyat)
+
+
+def en_ucuz_magaza_url(urun: Product) -> str | None:
+    """BACKLOG G3 — bildirimdeki "Mağazaya git" o an EN UCUZ kaynağa
+    gitmeli, ilk eklenen kaynağa değil."""
+    en_ucuz = en_ucuz_kaynak(urun)
+    if en_ucuz is None:
+        return None
     cikis, _ = affiliate.cikis_linki(en_ucuz.url)
     return cikis
 

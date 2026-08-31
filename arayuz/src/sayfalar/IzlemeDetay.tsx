@@ -2,7 +2,9 @@ import { Suspense, lazy, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 
+import { csvAdresleri } from '../api/istemci'
 import { useIzleme, useIzlemeGuncelle, useIzlemeSil, useSetler } from '../api/kancalar'
+import CsvIndir from '../bilesenler/CsvIndir'
 import KaynakOnerileri from '../bilesenler/KaynakOnerileri'
 import KaynakTablosu from '../bilesenler/KaynakTablosu'
 import Onay from '../bilesenler/Onay'
@@ -64,9 +66,21 @@ export default function IzlemeDetay() {
 
       <section className="rounded-lg border border-slate-200 bg-white p-4
                           dark:border-slate-800 dark:bg-slate-900">
-        <h2 className="mb-3 text-sm font-medium text-slate-600 dark:text-slate-400">
-          Fiyat geçmişi
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-slate-600 dark:text-slate-400">
+            Fiyat geçmişi
+          </h2>
+          {/* BACKLOG H1 — grafiğin YANINDA duruyor çünkü indirilen şey tam
+              olarak grafiğin verisi (daha da fazlası: gün özeti değil ham
+              okumalar). Sayfa dibindeki bir bağlantı bu ilişkiyi
+              anlatmazdı. */}
+          <CsvIndir
+            adres={csvAdresleri.gecmis(izleme.id)}
+            baslik="Bu ürünün tüm fiyat okumalarını CSV olarak indir (Türkçe Excel biçimi)"
+          >
+            CSV indir
+          </CsvIndir>
+        </div>
         <Suspense
           fallback={
             <div className="h-[280px] animate-pulse rounded-lg bg-slate-100

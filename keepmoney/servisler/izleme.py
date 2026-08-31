@@ -312,7 +312,8 @@ def kivilcimlar(db: Session, kullanici: User,
     }
 
 
-def izlemeler(db: Session, kullanici: User) -> list[Watch]:
+def izlemeler(db: Session, kullanici: User,
+              kaynaklarla: bool = False) -> list[Watch]:
     """Kullanıcının izlemeleri — ürünleriyle BİRLİKTE yüklenir.
 
     `selectinload` olmadan her satırın `w.product` erişimi ayrı bir SELECT
@@ -320,9 +321,19 @@ def izlemeler(db: Session, kullanici: User) -> list[Watch]:
     /liste komutunda her açılışta çekiliyor, yani en sıcak sorgu yolu burası.
     `selectinload` (JOIN değil) seçildi çünkü ilişki koleksiyon değil ama
     JOIN, satır çoğaltmadan kaçınmak için gereksiz; iki sorguyla biter.
+
+    `kaynaklarla` VARSAYILAN OLARAK KAPALI: yalnızca CSV dışa aktarma
+    (BACKLOG H1) ürün başına mağaza linkine ihtiyaç duyuyor ve onsuz
+    `w.product.sources` erişimi ürün başına bir SELECT daha açardı — tam
+    kaçınılan N+1. Bayrak, o üçüncü sorgunun bedelini EN SICAK yola
+    (panel/`/liste`) ödetmemek için var; sahiplik süzgeci tek yerde
+    kalsın diye dışa aktarma kendi sorgusunu YAZMIYOR.
     """
+    yukleme = [selectinload(Watch.product), selectinload(Watch.setler)]
+    if kaynaklarla:
+        yukleme.append(selectinload(Watch.product).selectinload(Product.sources))
     return (db.query(Watch)
-            .options(selectinload(Watch.product), selectinload(Watch.setler))
+            .options(*yukleme)
             .filter(Watch.user_id == kullanici.id)
             .order_by(Watch.created_at.desc())
             .all())
