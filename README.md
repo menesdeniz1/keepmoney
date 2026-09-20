@@ -1,14 +1,17 @@
 # KeepMoney
 
-**Kişisel fiyat takip ve alım zamanlaması.** Fiyatı göstermez — *"şu an almalı mıyım?"* sorusuna cevap verir.
+Personal price-tracking application with a web dashboard, Telegram integration,
+price history, and multi-item budget alerts. Built with Python/FastAPI,
+React/TypeScript, SQL databases, and Docker. Setup documentation below is in Turkish.
 
-Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştırır*, fiyat *hafızası* tutmaz. KeepMoney bu boşluğu doldurmak için yazılıyor.
+**Kişisel fiyat ve bütçe takibi.** Ürünlerin fiyat geçmişini ve birden fazla
+ürünün toplam hedef bütçesini izlemek için geliştirilen kişisel bir proje.
 
-> Durum: **uçtan uca çalışıyor.** Web + Telegram botu + tarama motoru,
-> Docker ile üç süreç olarak ayağa kalkıyor. **553 backend + 18 arayüz testi**;
-> paket hem SQLite hem gerçek PostgreSQL'e karşı, kritik kullanıcı akışları
-> ise **gerçek tarayıcıyla uçtan uca** koşuyor (31 senaryo).
-> Canlı öncesi güvenlik/mimari denetiminden geçti (OWASP A01/A05/A07/A10).
+> Durum: **geliştirme projesi.** Web, Telegram botu ve tarama motoru içerir.
+> CI; backend/frontend testleri, SQLite/PostgreSQL, tarayıcı akışları,
+> migration ve container kontrolleri içerir. Güncel sonuçlar için
+> [Actions](https://github.com/menesdeniz1/keepmoney/actions) sayfasına bakın.
+> Testlerin geçmesi güvenlik sertifikası veya üretim garantisi değildir.
 > **Henüz canlıda çalışmadı** — site seçicileri gerçek sayfalara karşı
 > doğrulanmayı bekliyor ([`betikler/kaynak_dene.py`](betikler/kaynak_dene.py)
 > bunu tek komuta indiriyor).
@@ -32,7 +35,8 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 | 🏪 **Pazar derinliği** | "14 satıcı · 2.si 41.500" — tek satıcının aykırı ucuz fiyatını yakalar; fiyat geçmişi olmayan üründe tek uyarı işareti |
 | 📱 **İki yüz, tek beyin** | Web dashboard + Telegram botu — ikisi de aynı veriye bakar, birinden değiştirdiğin diğerinde görünür |
 
-**Asıl ayırt edici özellik set/bütçe takibi.** Fiyat alarmı herkeste var; "sepetimin toplamı hedefimin altına indi" alarmı hiçbirinde yok.
+**Projenin odak noktası set/bütçe takibi:** tek ürün alarmının yanında
+birden fazla ürünün toplam maliyetini hedef bütçeye göre izlemek.
 
 ---
 
@@ -40,10 +44,11 @@ Türkiye'de Keepa'nın karşılığı yok. Akakçe/Cimri fiyat *karşılaştır�
 
 İki öncül proje vardı ve ikisi de yarısını çözüyordu:
 
-- **`tracker`** — Telegram botu. Üretimde aylarca çalışmış, çok sağlam koruma mantığı var. Ama tek kullanıcılık, web arayüzü yok.
+- **`tracker`** — Tek kullanıcı odaklı Telegram fiyat takip botu; web arayüzü yok.
 - **`setprice`** — Web uygulaması. Güzel dashboard, çok kullanıcı, AI karar motoru. Ama şeması ölçeklenmiyor ve koruma katmanı zayıf.
 
-KeepMoney ikisinin birleşimi değil — **`tracker`'ın kanıtlanmış mantığı**, **`setprice`'ın ürün vizyonu**, **yeni ve doğru bir şema** üzerine kurulu.
+KeepMoney, bu iki öncül projedeki ihtiyaçlardan hareketle çok kullanıcılı
+bir veri modeli ve ortak web/Telegram akışları geliştirir.
 
 Ayrıntılı gerekçe: [`docs/MIMARI.md`](docs/MIMARI.md)
 
