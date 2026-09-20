@@ -234,13 +234,12 @@ _HARF_DIZISI = re.compile(r"[A-Za-z]+")
 # değildir ve kelime araması onu kaçırır (gerçek bir test vakası buydu).
 # Dolgu yapısal olarak aranmalı: aynı karakterin arka arkaya tekrarı.
 #
-# EŞİK ÖLÇÜLDÜ, tahmin edilmedi. 500.000 `token_urlsafe(48)` çıktısında:
-#     5 tekrar → 2 kez görüldü      (yanlış pozitif üretir)
-#     6 tekrar → 0                  (ve üstü de 0)
-# Altı seçildi: ölçümde temiz, ama insanın yazacağı dolguyu (genelde 8-20
-# karakter) rahatça yakalıyor.
+# Bir örneklemde görülmemesi imkânsız olduğu anlamına gelmez: CI'da
+# güçlü görünen bir dizinin içinde altı aynı rakam oluştu. Dolgu kontrolü
+# yalnızca ayraçlarla ayrılmış tam parçaları inceler; rastgele bir dizinin
+# içindeki tekrar tek başına şablon kullanımına kanıt değildir.
 MIN_TEKRAR = 6
-_DOLGU = re.compile(rf"(.)\1{{{MIN_TEKRAR - 1},}}")
+_DOLGU = re.compile(rf"(?<![A-Za-z0-9])([A-Za-z0-9])\1{{{MIN_TEKRAR - 1},}}(?![A-Za-z0-9])")
 
 
 def _kalip_gorunuyor_mu(anahtar: str) -> str | None:
