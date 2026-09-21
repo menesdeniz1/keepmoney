@@ -4,10 +4,22 @@ Personal price-tracking application with a web dashboard, Telegram integration,
 price history, and multi-item budget alerts. Built with Python/FastAPI,
 React/TypeScript, SQL databases, and Docker. Setup documentation below is in Turkish.
 
+## Engineering overview
+
+The web dashboard and Telegram bot share the same application services and stored price history. A background worker fetches product pages, extracts and validates prices, then evaluates individual targets and combined budgets.
+
+- **Application design:** separate domain rules, application services, storage/network adapters and presentation layers.
+- **Data and operation:** SQL persistence, Alembic migrations, Docker configuration and site-specific fetching rules.
+- **Verification:** automated checks cover domain behavior, API/frontend flows and supporting infrastructure. See [current CI results](https://github.com/menesdeniz1/keepmoney/actions); test counts and historical results below are not a production guarantee.
+
+Start with [architecture notes](docs/MIMARI.md), [setup instructions](docs/CALISTIRMA.md), or the [project handover](docs/DEVIR.md) for deeper context (Turkish). The project is retained as an inactive portfolio example; historical roadmaps below describe development stages, not a current delivery commitment. Retailer integrations have not been validated as a live service.
+
+## Türkçe proje kılavuzu
+
 **Kişisel fiyat ve bütçe takibi.** Ürünlerin fiyat geçmişini ve birden fazla
 ürünün toplam hedef bütçesini izlemek için geliştirilen kişisel bir proje.
 
-> Durum: **geliştirme projesi.** Web, Telegram botu ve tarama motoru içerir.
+> Durum: **portföyde korunan pasif proje.** Web, Telegram botu ve tarama motoru içerir.
 > CI; backend/frontend testleri, SQLite/PostgreSQL, tarayıcı akışları,
 > migration ve container kontrolleri içerir. Güncel sonuçlar için
 > [Actions](https://github.com/menesdeniz1/keepmoney/actions) sayfasına bakın.
@@ -80,7 +92,7 @@ pip install -r requirements.txt
 
 cp .env.example .env                          # JWT anahtarını doldur (aşağıda)
 mkdir -p data && alembic upgrade head         # şemayı kur
-pytest                                        # 595 test
+pytest                                        # test paketini çalıştır
 
 uvicorn keepmoney.api.app:app --reload        # API      :8000
 python -m keepmoney.zamanlayici               # tarayıcı  (fiyatları BU çeker)
@@ -157,7 +169,7 @@ keepmoney/
 arayuz/            React 19 + TS + Vite + TanStack Query + Recharts
 migrations/        Alembic
 betikler/          yedekle · geri-yukle · kaynak_dene (seçici doğrulama)
-tests/             595 test, hepsi yeşil
+tests/             otomatik testler; güncel sonuçlar Actions sayfasında
 ```
 
 **Bağımlılık yönü içeri doğrudur.** Alan katmanı veritabanı, ağ ve framework
