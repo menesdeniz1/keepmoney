@@ -31,7 +31,7 @@ Start with [architecture notes](docs/MIMARI.md), [setup instructions](docs/CALIS
 > — durum, sıradaki iş, gerçek denemelerde yakalanmış tuzaklar.
 >
 > Kurulum ve canlıya alma: [`docs/CALISTIRMA.md`](docs/CALISTIRMA.md) ·
-> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (63 karar kaydı)
+> kararların gerekçesi: [`docs/MIMARI.md`](docs/MIMARI.md) (66 karar kaydı)
 
 ---
 
