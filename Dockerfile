@@ -44,7 +44,11 @@ RUN pip install -r requirements.txt
 # çekim zinciri sessizce `requests`e düşer ve `render: true` siteler hiç
 # okunmaz. Herkesin okuyabildiği bir dizine kuruluyor.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
-RUN pip install --no-cache-dir playwright \
+# libatomic1: yeni Playwright sürümlerinin paketlediği node bu kütüphaneyi ister;
+# slim imajda yoktur ve `playwright install` daha çalışmadan düşer.
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir playwright \
     && playwright install --with-deps chromium \
     && chmod -R a+rX /opt/pw-browsers
 
